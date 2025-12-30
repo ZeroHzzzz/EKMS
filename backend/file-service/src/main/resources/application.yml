@@ -1,0 +1,49 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: file-service
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/knowledge_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000
+
+dubbo:
+  application:
+    name: file-service
+  registry:
+    address: nacos://localhost:8848?username=nacos&password=nacos
+  protocol:
+    name: dubbo
+    port: 20881
+  scan:
+    base-packages: com.knowledge.file.service
+  config-center:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+    check: true
+  metadata-report:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.knowledge.file.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+file:
+  upload:
+    path: /data/files
+  chunk:
+    path: /data/chunks
+

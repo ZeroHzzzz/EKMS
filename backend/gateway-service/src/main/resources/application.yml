@@ -1,0 +1,25 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-service
+
+dubbo:
+  application:
+    name: gateway-service
+  registry:
+    address: nacos://localhost:8848?username=nacos&password=nacos
+  protocol:
+    name: dubbo
+    port: 20880
+  config-center:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+    check: true
+  metadata-report:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+

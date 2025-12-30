@@ -1,0 +1,36 @@
+target/
+*.class
+*.log
+*.jar
+*.war
+*.ear
+.DS_Store
+.idea/
+*.iml
+.vscode/
+node_modules/
+dist/
+*.swp
+*.swo
+*~
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# Spring Boot
+application-local.yml
+application-dev.yml
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# OS
+Thumbs.db
+

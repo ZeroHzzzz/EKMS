@@ -1,0 +1,38 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: user-service
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/knowledge_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+
+dubbo:
+  application:
+    name: user-service
+  registry:
+    address: nacos://localhost:8848?username=nacos&password=nacos
+  protocol:
+    name: dubbo
+    port: 20885
+  scan:
+    base-packages: com.knowledge.user.service
+  config-center:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+    check: true
+  metadata-report:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.knowledge.user.entity
+  configuration:
+    map-underscore-to-camel-case: true
+

@@ -1,0 +1,164 @@
+<template>
+  <div class="knowledge-list">
+    <div class="search-bar">
+      <el-input
+        v-model="searchKeyword"
+        placeholder="请输入关键词搜索（支持全文、拼音、首字母）"
+        class="search-input"
+        @keyup.enter="handleSearch"
+      >
+        <template #append>
+          <el-button @click="handleSearch">搜索</el-button>
+        </template>
+      </el-input>
+      <el-select v-model="searchType" style="width: 150px; margin-left: 10px">
+        <el-option label="全文搜索" value="FULL_TEXT" />
+        <el-option label="拼音搜索" value="PINYIN" />
+        <el-option label="首字母" value="INITIAL" />
+      </el-select>
+    </div>
+
+    <div class="filter-bar">
+      <el-select v-model="filters.category" placeholder="分类" clearable style="width: 150px">
+        <el-option label="技术文档" value="技术文档" />
+        <el-option label="业务文档" value="业务文档" />
+        <el-option label="培训资料" value="培训资料" />
+      </el-select>
+      <el-select v-model="filters.status" placeholder="状态" clearable style="width: 150px; margin-left: 10px">
+        <el-option label="已发布" value="APPROVED" />
+        <el-option label="待审核" value="PENDING" />
+        <el-option label="草稿" value="DRAFT" />
+      </el-select>
+    </div>
+
+    <el-table :data="knowledgeList" style="width: 100%" v-loading="loading">
+      <el-table-column prop="title" label="标题" width="300" />
+      <el-table-column prop="category" label="分类" width="120" />
+      <el-table-column prop="author" label="作者" width="120" />
+      <el-table-column prop="clickCount" label="点击量" width="100" />
+      <el-table-column prop="collectCount" label="收藏量" width="100" />
+      <el-table-column prop="createTime" label="创建时间" width="180" />
+      <el-table-column label="操作" width="200">
+        <template #default="scope">
+          <el-button size="small" @click="viewDetail(scope.row.id)">查看</el-button>
+          <el-button size="small" type="primary" @click="collect(scope.row)">收藏</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-pagination
+      v-model:current-page="pageNum"
+      v-model:page-size="pageSize"
+      :page-sizes="[10, 20, 50, 100]"
+      :total="total"
+      layout="total, sizes, prev, pager, next, jumper"
+      @size-change="handleSizeChange"
+      @current-change="handlePageChange"
+      style="margin-top: 20px"
+    />
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import api from '../api'
+import { ElMessage } from 'element-plus'
+
+const router = useRouter()
+
+const searchKeyword = ref('')
+const searchType = ref('FULL_TEXT')
+const filters = ref({
+  category: '',
+  status: ''
+})
+const knowledgeList = ref([])
+const loading = ref(false)
+const pageNum = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    if (searchKeyword.value) {
+      // 搜索
+      const res = await api.post('/knowledge/search', {
+        keyword: searchKeyword.value,
+        searchType: searchType.value,
+        category: filters.value.category,
+        pageNum: pageNum.value,
+        pageSize: pageSize.value
+      })
+      knowledgeList.value = res.data.results || []
+      total.value = res.data.total || 0
+    } else {
+      // 列表
+      const res = await api.get('/knowledge/list', {
+        params: {
+          ...filters.value,
+          pageNum: pageNum.value,
+          pageSize: pageSize.value
+        }
+      })
+      knowledgeList.value = res.data || []
+      total.value = res.data?.length || 0
+    }
+  } catch (error) {
+    ElMessage.error('加载数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleSearch = () => {
+  pageNum.value = 1
+  loadData()
+}
+
+const handleSizeChange = () => {
+  loadData()
+}
+
+const handlePageChange = () => {
+  loadData()
+}
+
+const viewDetail = (id) => {
+  router.push(`/knowledge/${id}`)
+}
+
+const collect = async (row) => {
+  try {
+    // await api.post(`/knowledge/${row.id}/collect`)
+    ElMessage.success('收藏成功')
+  } catch (error) {
+    ElMessage.error('收藏失败')
+  }
+}
+
+onMounted(() => {
+  loadData()
+})
+</script>
+
+<style scoped>
+.knowledge-list {
+  padding: 20px;
+}
+
+.search-bar {
+  display: flex;
+  margin-bottom: 20px;
+}
+
+.search-input {
+  flex: 1;
+}
+
+.filter-bar {
+  margin-bottom: 20px;
+}
+</style>
+

@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: knowledge-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: knowledge_db
+      MYSQL_USER: knowledge
+      MYSQL_PASSWORD: knowledge123
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./sql/mysql-schema.sql:/docker-entrypoint-initdb.d/02-nacos-schema.sql
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      # 使用新的配置方式，减少弃用警告
+      - --host-cache-size=0
+      # 优化性能配置
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=200
+      # 日志配置
+      - --general-log=0
+      - --slow-query-log=0
+    networks:
+      - knowledge-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: knowledge-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - knowledge-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ElasticSearch搜索引擎
+  elasticsearch:
+    image: elasticsearch:7.17.9
+    container_name: knowledge-elasticsearch
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      # 禁用不必要的功能，减少警告
+      - xpack.monitoring.collection.enabled=false
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - knowledge-network
+    # 设置ulimits，避免警告
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Kibana (ElasticSearch可视化工具，可选)
+  kibana:
+    image: kibana:7.17.9
+    container_name: knowledge-kibana
+    restart: always
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - knowledge-network
+
+  # Nacos服务注册与发现
+  nacos:
+    image: nacos/nacos-server:v2.2.3
+    container_name: knowledge-nacos
+    restart: always
+    environment:
+      - MODE=standalone
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=mysql
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_DB_NAME=nacos_config
+      - MYSQL_SERVICE_USER=root
+      - MYSQL_SERVICE_PASSWORD=root
+      # 增加连接超时时间，确保MySQL完全就绪
+      - MYSQL_SERVICE_DB_PARAM=characterEncoding=utf8&connectTimeout=5000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - NACOS_AUTH_ENABLE=true
+      - NACOS_AUTH_TOKEN=SecretKey012345678901234567890123456789012345678901234567890123456789
+      - NACOS_AUTH_IDENTITY_KEY=serverIdentity
+      - NACOS_AUTH_IDENTITY_VALUE=security
+      # JVM参数优化
+      - JVM_XMS=256m
+      - JVM_XMX=512m
+      - JVM_XMN=128m
+    ports:
+      - "0.0.0.0:8848:8848"  # 明确绑定到所有网络接口，确保可以从 Windows 访问
+      - "0.0.0.0:9848:9848"  # gRPC 端口
+    volumes:
+      - nacos_data:/home/nacos/data
+      - nacos_logs:/home/nacos/logs
+      # 使用自定义配置文件（确保格式正确）
+      - ./docker/nacos-application.properties:/home/nacos/conf/application.properties
+      # 如果需要挂载文件存储目录
+      # - ./data/files:/data/files
+      # - ./data/chunks:/data/chunks
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - knowledge-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  es_data:
+    driver: local
+  nacos_data:
+    driver: local
+  nacos_logs:
+    driver: local
+
+networks:
+  knowledge-network:
+    driver: bridge

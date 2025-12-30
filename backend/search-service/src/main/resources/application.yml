@@ -1,0 +1,31 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: search-service
+
+dubbo:
+  application:
+    name: search-service
+  registry:
+    address: nacos://localhost:8848?username=nacos&password=nacos
+  protocol:
+    name: dubbo
+    port: 20883
+  scan:
+    base-packages: com.knowledge.search.service
+  config-center:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+    check: true
+  metadata-report:
+    address: nacos://localhost:8848
+    username: nacos
+    password: nacos
+
+elasticsearch:
+  host: localhost
+  port: 9200
+
