@@ -59,7 +59,16 @@ sudo docker compose up -d
 
 **注意**：数据库会在首次启动时自动初始化（通过 `docker-compose.yml` 配置）。
 
-### 第二步：启动微服务
+### 第二步：导入测试数据（可选）
+
+如果需要测试数据，执行以下命令：
+
+```bash
+# 导入测试数据（测试账号、测试知识等）
+sudo docker exec -i knowledge-mysql mysql -uroot -proot knowledge_db < sql/test_data.sql
+```
+
+### 第三步：启动微服务
 
 #### 方式一：使用启动脚本（推荐）
 
@@ -95,7 +104,7 @@ cd gateway-service && mvn spring-boot:run  # 最后启动
 
 **启动顺序很重要**：gateway-service 必须最后启动，因为它依赖其他服务。
 
-### 第三步：启动前端
+### 第四步：启动前端
 
 ```bash
 cd frontend
@@ -172,6 +181,25 @@ sudo netstat -tulpn | grep 8080
 # 停止占用端口的进程
 sudo kill <PID>
 ```
+
+## 测试账号
+
+所有测试账号的默认密码都是：`password123`
+
+| 用户名 | 密码 | 角色 | 部门 | 权限说明 |
+|--------|------|------|------|----------|
+| `admin` | password123 | ADMIN | IT部门 | 总管理员，拥有所有权限（审核、用户管理等） |
+| `editor1` | password123 | EDITOR | 业务部 | 知识管理员，可以上传、编辑知识，提交审核 |
+| `editor2` | password123 | EDITOR | 技术部 | 同上 |
+| `editor3` | password123 | EDITOR | 客户服务部 | 同上 |
+| `user1` ~ `user5` | password123 | USER | 各业务部门 | 普通员工，只能查看、搜索、下载已发布的知识 |
+
+**角色说明：**
+- **ADMIN（总管理员）**：负责审核知识、管理用户、系统配置
+- **EDITOR（知识管理员）**：负责本部门知识的收集、整理和上传
+- **USER（普通员工）**：使用知识库进行学习和工作
+
+> ⚠️ **注意**：生产环境必须修改所有默认密码！
 
 ## 详细文档
 

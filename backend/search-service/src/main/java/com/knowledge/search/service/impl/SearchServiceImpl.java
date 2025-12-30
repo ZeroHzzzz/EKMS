@@ -119,9 +119,23 @@ public class SearchServiceImpl implements SearchService {
             result.setTookTime(System.currentTimeMillis() - startTime);
             return result;
         } catch (Exception e) {
+            // 检查是否是索引不存在的异常（可能被包装在其他异常中）
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "";
+            if (errorMessage.contains("index_not_found_exception") || 
+                errorMessage.contains("no such index") ||
+                e.getCause() instanceof org.elasticsearch.index.IndexNotFoundException) {
+                log.warn("索引不存在: {}", INDEX_NAME);
+                // 索引不存在时返回空结果
+                SearchResultDTO result = new SearchResultDTO();
+                result.setResults(new ArrayList<>());
+                result.setTotal(0L);
+                result.setPageNum(request.getPageNum());
+                result.setPageSize(request.getPageSize());
+                result.setTookTime(System.currentTimeMillis() - startTime);
+                return result;
+            }
             log.error("搜索失败", e);
             // 提取异常消息，避免序列化不可序列化的对象（如 Elasticsearch Response）
-            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             throw new RuntimeException("搜索失败: " + errorMessage);
         }
     }

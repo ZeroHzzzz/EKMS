@@ -7,5 +7,6 @@ public interface UserService {
     UserDTO getUserByUsername(String username);
     UserDTO createUser(UserDTO userDTO);
     boolean checkPermission(Long userId, String permission);
+    UserDTO login(String username, String password);
 }
 

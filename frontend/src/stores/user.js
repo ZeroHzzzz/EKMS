@@ -7,16 +7,18 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem('token') || '')
 
   const login = async (username, password) => {
-    // 这里应该调用实际的登录API
-    // const res = await api.post('/login', { username, password })
-    // token.value = res.data.token
-    // userInfo.value = res.data.userInfo
-    // localStorage.setItem('token', token.value)
-    
-    // 临时模拟
-    token.value = 'mock-token'
-    userInfo.value = { id: 1, username, realName: '测试用户' }
-    localStorage.setItem('token', token.value)
+    try {
+      const res = await api.post('/auth/login', { username, password })
+      if (res.code === 200 && res.data) {
+        token.value = res.data.token
+        userInfo.value = res.data.userInfo
+        localStorage.setItem('token', token.value)
+      } else {
+        throw new Error(res.message || '登录失败')
+      }
+    } catch (error) {
+      throw new Error(error.response?.data?.message || error.message || '登录失败')
+    }
   }
 
   const logout = () => {

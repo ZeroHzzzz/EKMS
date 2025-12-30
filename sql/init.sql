@@ -93,9 +93,9 @@ CREATE TABLE IF NOT EXISTS `audit` (
     INDEX `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审核表';
 
--- 插入测试数据
+-- 插入测试数据（基础测试账号，详细测试数据请使用 test_data.sql）
 INSERT INTO `user` (`username`, `password`, `real_name`, `email`, `department`, `role`) VALUES
 ('admin', 'admin123', '管理员', 'admin@example.com', 'IT部门', 'ADMIN'),
-('auditor1', 'auditor123', '审核员1', 'auditor1@example.com', '质量部', 'AUDITOR'),
+('editor1', 'editor123', '知识管理员1', 'editor1@example.com', '业务部', 'EDITOR'),
 ('user1', 'user123', '用户1', 'user1@example.com', '业务部', 'USER');
 

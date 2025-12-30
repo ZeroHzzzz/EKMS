@@ -26,9 +26,28 @@ public class Constants {
     // 分片大小 (5MB)
     public static final long CHUNK_SIZE = 5 * 1024 * 1024;
 
-    // 权限
-    public static final String ROLE_ADMIN = "ADMIN";
-    public static final String ROLE_AUDITOR = "AUDITOR";
-    public static final String ROLE_USER = "USER";
+    // 用户角色
+    public static final String ROLE_ADMIN = "ADMIN";      // 总管理员（负责审核和管理）
+    public static final String ROLE_EDITOR = "EDITOR";    // 各部门知识管理员（负责上传）
+    public static final String ROLE_USER = "USER";         // 普通员工（查看、搜索、下载）
+
+    // 权限代码
+    public static final String PERMISSION_ALL = "ALL";
+    public static final String PERMISSION_VIEW = "VIEW";
+    public static final String PERMISSION_UPLOAD = "UPLOAD";
+    public static final String PERMISSION_EDIT = "EDIT";
+    public static final String PERMISSION_DELETE = "DELETE";
+    public static final String PERMISSION_DOWNLOAD = "DOWNLOAD";
+    public static final String PERMISSION_BATCH_UPLOAD = "BATCH_UPLOAD";
+    public static final String PERMISSION_BATCH_DOWNLOAD = "BATCH_DOWNLOAD";
+    public static final String PERMISSION_AUDIT = "AUDIT";
+    public static final String PERMISSION_SUBMIT_AUDIT = "SUBMIT_AUDIT";
+    public static final String PERMISSION_VIEW_AUDIT = "VIEW_AUDIT";
+    public static final String PERMISSION_MANAGE_USER = "MANAGE_USER";
+    public static final String PERMISSION_MANAGE_ROLE = "MANAGE_ROLE";
+    public static final String PERMISSION_MANAGE_CONFIG = "MANAGE_CONFIG";
+    public static final String PERMISSION_MANAGE_STRUCTURE = "MANAGE_STRUCTURE";
+    public static final String PERMISSION_VIEW_STATISTICS = "VIEW_STATISTICS";
+    public static final String PERMISSION_EXPORT_DATA = "EXPORT_DATA";
 }
 
