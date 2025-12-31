@@ -24,10 +24,26 @@
         <el-option label="业务文档" value="业务文档" />
         <el-option label="培训资料" value="培训资料" />
       </el-select>
-      <el-select v-model="filters.status" placeholder="状态" clearable style="width: 150px; margin-left: 10px">
+      <el-select 
+        v-if="hasPermission(userInfo, 'VIEW_AUDIT')" 
+        v-model="filters.status" 
+        placeholder="状态" 
+        clearable 
+        style="width: 150px; margin-left: 10px"
+      >
         <el-option label="已发布" value="APPROVED" />
         <el-option label="待审核" value="PENDING" />
         <el-option label="草稿" value="DRAFT" />
+      </el-select>
+      <!-- 普通用户默认只显示已发布的知识 -->
+      <el-select 
+        v-else
+        v-model="filters.status" 
+        placeholder="状态" 
+        style="width: 150px; margin-left: 10px"
+        disabled
+      >
+        <el-option label="已发布" value="APPROVED" />
       </el-select>
     </div>
 
@@ -38,10 +54,26 @@
       <el-table-column prop="clickCount" label="点击量" width="100" />
       <el-table-column prop="collectCount" label="收藏量" width="100" />
       <el-table-column prop="createTime" label="创建时间" width="180" />
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" :width="getActionColumnWidth()">
         <template #default="scope">
           <el-button size="small" @click="viewDetail(scope.row.id)">查看</el-button>
           <el-button size="small" type="primary" @click="collect(scope.row)">收藏</el-button>
+          <el-button 
+            v-if="canEdit(scope.row)" 
+            size="small" 
+            type="warning" 
+            @click="editKnowledge(scope.row)"
+          >
+            编辑
+          </el-button>
+          <el-button 
+            v-if="canDelete(scope.row)" 
+            size="small" 
+            type="danger" 
+            @click="deleteKnowledge(scope.row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -60,18 +92,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
+import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 import api from '../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
+const userStore = useUserStore()
+const userInfo = computed(() => userStore.userInfo)
 
 const searchKeyword = ref('')
 const searchType = ref('FULL_TEXT')
 const filters = ref({
   category: '',
-  status: ''
+  status: '' // 将在onMounted中根据权限设置
 })
 const knowledgeList = ref([])
 const loading = ref(false)
@@ -138,7 +174,60 @@ const collect = async (row) => {
   }
 }
 
+const canEdit = (row) => {
+  if (!userInfo.value) return false
+  // ADMIN可以编辑所有知识
+  if (hasRole(userInfo.value, ROLE_ADMIN)) return true
+  // EDITOR只能编辑自己创建的知识
+  if (hasRole(userInfo.value, ROLE_EDITOR) && row.author === userInfo.value.realName) {
+    return true
+  }
+  return false
+}
+
+const canDelete = (row) => {
+  if (!userInfo.value) return false
+  // ADMIN可以删除所有知识
+  if (hasRole(userInfo.value, ROLE_ADMIN)) return true
+  // EDITOR只能删除自己创建的知识
+  if (hasRole(userInfo.value, ROLE_EDITOR) && row.author === userInfo.value.realName) {
+    return true
+  }
+  return false
+}
+
+const editKnowledge = (row) => {
+  // 跳转到编辑页面
+  router.push(`/knowledge/${row.id}/edit`)
+}
+
+const deleteKnowledge = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该知识吗？', '提示', {
+      type: 'warning'
+    })
+    // await api.delete(`/knowledge/${row.id}`)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
+
+const getActionColumnWidth = () => {
+  if (hasPermission(userInfo.value, 'EDIT') || hasPermission(userInfo.value, 'DELETE')) {
+    return 300
+  }
+  return 200
+}
+
 onMounted(() => {
+  // 普通用户默认只显示已发布的知识
+  if (!hasPermission(userInfo.value, 'VIEW_AUDIT')) {
+    filters.value.status = 'APPROVED'
+  }
   loadData()
 })
 </script>

@@ -21,6 +21,26 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  const register = async (username, password, realName, email, department, role) => {
+    try {
+      const res = await api.post('/auth/register', {
+        username,
+        password,
+        realName,
+        email,
+        department,
+        role
+      })
+      if (res.code === 200 && res.data) {
+        return res.data
+      } else {
+        throw new Error(res.message || '注册失败')
+      }
+    } catch (error) {
+      throw new Error(error.response?.data?.message || error.message || '注册失败')
+    }
+  }
+
   const logout = () => {
     token.value = ''
     userInfo.value = null
@@ -31,6 +51,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo,
     token,
     login,
+    register,
     logout
   }
 })

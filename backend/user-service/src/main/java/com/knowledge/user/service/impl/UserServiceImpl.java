@@ -52,14 +52,79 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserDTO createUser(UserDTO userDTO) {
+        // 检查用户名是否已存在
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(User::getUsername, userDTO.getUsername());
+        User existingUser = userMapper.selectOne(wrapper);
+        if (existingUser != null) {
+            throw new RuntimeException("用户名已存在");
+        }
+        
         User user = new User();
         BeanUtils.copyProperties(userDTO, user);
+        
+        // 如果密码不为空且不是已加密的BCrypt格式，则加密密码
+        if (userDTO.getPassword() != null && !userDTO.getPassword().isEmpty()) {
+            // 检查密码是否是BCrypt格式（以$2a$或$2b$开头且长度为60）
+            String password = userDTO.getPassword();
+            if (!password.startsWith("$2a$") && !password.startsWith("$2b$") && password.length() != 60) {
+                // 密码是明文，需要加密
+                user.setPassword(PasswordUtil.encode(password));
+            } else {
+                // 密码已经是加密格式，直接使用
+                user.setPassword(password);
+            }
+        }
+        
         userMapper.insert(user);
         
         UserDTO result = new UserDTO();
         BeanUtils.copyProperties(user, result);
         result.setPermissions(getPermissionsByRole(user.getRole()));
         return result;
+    }
+
+    @Override
+    public UserDTO register(String username, String password, String realName, String email, String department, String role) {
+        log.info("注册请求 - 用户名: {}, 角色: {}", username, role);
+        
+        // 检查用户名是否已存在
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(User::getUsername, username);
+        User existingUser = userMapper.selectOne(wrapper);
+        if (existingUser != null) {
+            log.warn("注册失败 - 用户名已存在: {}", username);
+            throw new RuntimeException("用户名已存在");
+        }
+        
+        // 验证角色
+        if (role == null || role.isEmpty()) {
+            role = Constants.ROLE_USER; // 默认角色为普通用户
+        }
+        if (!Constants.ROLE_ADMIN.equals(role) && 
+            !Constants.ROLE_EDITOR.equals(role) && 
+            !Constants.ROLE_USER.equals(role)) {
+            throw new RuntimeException("无效的用户角色");
+        }
+        
+        // 创建用户
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(PasswordUtil.encode(password)); // 加密密码
+        user.setRealName(realName);
+        user.setEmail(email);
+        user.setDepartment(department);
+        user.setRole(role);
+        
+        userMapper.insert(user);
+        log.info("注册成功 - 用户名: {}, 角色: {}", username, role);
+        
+        // 转换为UserDTO（不包含密码）
+        UserDTO userDTO = new UserDTO();
+        BeanUtils.copyProperties(user, userDTO);
+        userDTO.setPassword(null); // 清除密码字段
+        userDTO.setPermissions(getPermissionsByRole(user.getRole()));
+        return userDTO;
     }
 
     @Override
@@ -121,16 +186,45 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserDTO login(String username, String password) {
-        UserDTO userDTO = getUserByUsername(username);
-        if (userDTO == null) {
+        log.info("登录请求 - 用户名: {}", username);
+        
+        // 直接查询User实体，避免重复查询
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(User::getUsername, username);
+        User user = userMapper.selectOne(wrapper);
+        
+        if (user == null) {
+            log.warn("登录失败 - 用户不存在: {}", username);
             throw new RuntimeException("用户名或密码错误");
         }
         
+        log.info("找到用户 - ID: {}, 用户名: {}", user.getId(), user.getUsername());
+        
         // 验证密码
-        User user = userMapper.selectById(userDTO.getId());
-        if (user == null || !PasswordUtil.matches(password, user.getPassword())) {
+        String storedPasswordHash = user.getPassword();
+        // 输出密码hash的前缀和长度，用于调试（不输出完整hash）
+        String hashPrefix = storedPasswordHash != null && storedPasswordHash.length() > 10 
+            ? storedPasswordHash.substring(0, 10) + "..." 
+            : storedPasswordHash;
+        log.info("存储的密码hash信息 - 长度: {}, 前缀: {}", 
+            storedPasswordHash != null ? storedPasswordHash.length() : 0, hashPrefix);
+        log.info("输入的密码长度: {}", password != null ? password.length() : 0);
+        
+        boolean passwordMatches = PasswordUtil.matches(password, storedPasswordHash);
+        
+        log.info("密码验证结果 - 匹配: {}", passwordMatches);
+        
+        if (!passwordMatches) {
+            log.warn("登录失败 - 密码不匹配，用户名: {}", username);
             throw new RuntimeException("用户名或密码错误");
         }
+        
+        // 转换为UserDTO
+        UserDTO userDTO = new UserDTO();
+        BeanUtils.copyProperties(user, userDTO);
+        userDTO.setPermissions(getPermissionsByRole(user.getRole()));
+        
+        log.info("登录成功 - 用户名: {}, 角色: {}", username, user.getRole());
         
         return userDTO;
     }
