@@ -23,5 +23,9 @@ public class Knowledge extends BaseEntity {
     private Long version;
     private Long parentId;
     private Integer sortOrder;
+    
+    // Git风格版本管理字段
+    private String currentBranch;      // 当前分支
+    private String currentCommitHash;  // 当前Commit Hash
 }
 

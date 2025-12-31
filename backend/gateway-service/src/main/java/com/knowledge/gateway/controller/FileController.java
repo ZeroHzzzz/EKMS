@@ -6,9 +6,17 @@ import com.knowledge.api.service.FileService;
 import com.knowledge.common.result.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 
 @Slf4j
@@ -98,13 +106,81 @@ public class FileController {
     }
 
     @GetMapping("/preview/{fileId}")
-    public Result<String> getPreviewUrl(@PathVariable Long fileId) {
+    public ResponseEntity<Resource> previewFile(@PathVariable Long fileId) {
         try {
-            String url = fileService.getFilePreviewUrl(fileId);
-            return Result.success(url);
+            FileDTO fileDTO = fileService.getFileById(fileId);
+            if (fileDTO == null || fileDTO.getFilePath() == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            File file = new File(fileDTO.getFilePath());
+            if (!file.exists()) {
+                log.error("文件不存在: {}", fileDTO.getFilePath());
+                return ResponseEntity.notFound().build();
+            }
+            
+            Resource resource = new FileSystemResource(file);
+            String contentType = Files.probeContentType(Paths.get(fileDTO.getFilePath()));
+            if (contentType == null) {
+                // 根据文件扩展名设置默认Content-Type
+                String fileName = fileDTO.getFileName().toLowerCase();
+                if (fileName.endsWith(".pdf")) {
+                    contentType = "application/pdf";
+                } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+                    contentType = "image/jpeg";
+                } else if (fileName.endsWith(".png")) {
+                    contentType = "image/png";
+                } else if (fileName.endsWith(".gif")) {
+                    contentType = "image/gif";
+                } else if (fileName.endsWith(".txt")) {
+                    contentType = "text/plain; charset=utf-8";
+                } else if (fileName.endsWith(".html") || fileName.endsWith(".htm")) {
+                    contentType = "text/html; charset=utf-8";
+                } else {
+                    contentType = "application/octet-stream";
+                }
+            }
+            
+            // 使用 inline 而不是 attachment，让浏览器直接预览而不是下载
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, 
+                            "inline; filename=\"" + java.net.URLEncoder.encode(fileDTO.getFileName(), "UTF-8") + "\"")
+                    .body(resource);
         } catch (Exception e) {
-            log.error("获取预览URL失败", e);
-            return Result.error(e.getMessage());
+            log.error("预览文件失败", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/download/{fileId}")
+    public ResponseEntity<Resource> downloadFile(@PathVariable Long fileId) {
+        try {
+            FileDTO fileDTO = fileService.getFileById(fileId);
+            if (fileDTO == null || fileDTO.getFilePath() == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            File file = new File(fileDTO.getFilePath());
+            if (!file.exists()) {
+                log.error("文件不存在: {}", fileDTO.getFilePath());
+                return ResponseEntity.notFound().build();
+            }
+            
+            Resource resource = new FileSystemResource(file);
+            String contentType = Files.probeContentType(Paths.get(fileDTO.getFilePath()));
+            if (contentType == null) {
+                contentType = "application/octet-stream";
+            }
+            
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, 
+                            "attachment; filename=\"" + java.net.URLEncoder.encode(fileDTO.getFileName(), "UTF-8") + "\"")
+                    .body(resource);
+        } catch (Exception e) {
+            log.error("下载文件失败", e);
+            return ResponseEntity.internalServerError().build();
         }
     }
 }

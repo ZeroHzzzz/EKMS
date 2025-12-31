@@ -29,5 +29,11 @@ public class KnowledgeVersion implements Serializable {
     private String changeDescription;
     private String createdBy;
     private LocalDateTime createTime;
+    
+    // Git风格版本管理字段
+    private String commitHash;        // Commit哈希
+    private String branch;            // 分支名称
+    private Long parentCommitId;      // 父Commit ID
+    private String commitMessage;     // Commit消息（变更说明的别名，为了兼容保留changeDescription）
 }
 

@@ -81,8 +81,8 @@ public class ElasticSearchIndexInitializer implements ApplicationListener<Applic
                 "    \"category\": {\n" +
                 "      \"type\": \"keyword\"\n" +
                 "    },\n" +
-                "    \"fileType\": {\n" +
-                "      \"type\": \"keyword\"\n" +
+                "    \"fileId\": {\n" +
+                "      \"type\": \"long\"\n" +
                 "    },\n" +
                 "    \"clickCount\": {\n" +
                 "      \"type\": \"long\"\n" +

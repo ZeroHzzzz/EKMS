@@ -24,6 +24,15 @@ public class KnowledgeController {
     @PostMapping
     public Result<KnowledgeDTO> createKnowledge(@RequestBody KnowledgeDTO knowledgeDTO) {
         KnowledgeDTO result = knowledgeService.createKnowledge(knowledgeDTO);
+        // 同步索引到ElasticSearch
+        if (result != null) {
+            try {
+                searchService.indexKnowledge(result);
+            } catch (Exception e) {
+                // 索引失败不影响主流程，只记录日志
+                System.err.println("同步索引失败: " + e.getMessage());
+            }
+        }
         return Result.success(result);
     }
 
@@ -31,6 +40,15 @@ public class KnowledgeController {
     public Result<KnowledgeDTO> updateKnowledge(@PathVariable Long id, @RequestBody KnowledgeDTO knowledgeDTO) {
         knowledgeDTO.setId(id);
         KnowledgeDTO result = knowledgeService.updateKnowledge(knowledgeDTO);
+        // 同步更新索引到ElasticSearch
+        if (result != null) {
+            try {
+                searchService.updateIndex(result);
+            } catch (Exception e) {
+                // 索引失败不影响主流程，只记录日志
+                System.err.println("更新索引失败: " + e.getMessage());
+            }
+        }
         return Result.success(result);
     }
 
@@ -50,6 +68,15 @@ public class KnowledgeController {
     @DeleteMapping("/{id}")
     public Result<Boolean> deleteKnowledge(@PathVariable Long id) {
         boolean result = knowledgeService.deleteKnowledge(id);
+        // 从ElasticSearch删除索引
+        if (result) {
+            try {
+                searchService.deleteIndex(id);
+            } catch (Exception e) {
+                // 删除索引失败不影响主流程，只记录日志
+                System.err.println("删除索引失败: " + e.getMessage());
+            }
+        }
         return Result.success(result);
     }
 
@@ -118,6 +145,37 @@ public class KnowledgeController {
             @RequestParam Long version2) {
         KnowledgeVersionDTO.DiffResult result = knowledgeService.compareVersions(id, version1, version2);
         return Result.success(result);
+    }
+
+    /**
+     * 初始化所有知识的搜索索引（用于首次同步或重建索引）
+     */
+    @PostMapping("/search/reindex")
+    public Result<String> reindexAll() {
+        try {
+            // 获取所有知识
+            KnowledgeQueryDTO queryDTO = new KnowledgeQueryDTO();
+            queryDTO.setPageNum(1);
+            queryDTO.setPageSize(10000); // 获取所有数据
+            List<KnowledgeDTO> allKnowledge = knowledgeService.listKnowledge(queryDTO);
+            
+            int successCount = 0;
+            int failCount = 0;
+            
+            for (KnowledgeDTO knowledge : allKnowledge) {
+                try {
+                    searchService.indexKnowledge(knowledge);
+                    successCount++;
+                } catch (Exception e) {
+                    failCount++;
+                    System.err.println("索引知识失败: id=" + knowledge.getId() + ", error=" + e.getMessage());
+                }
+            }
+            
+            return Result.success(String.format("索引重建完成：成功 %d 条，失败 %d 条", successCount, failCount));
+        } catch (Exception e) {
+            return Result.error("重建索引失败: " + e.getMessage());
+        }
     }
 }
 

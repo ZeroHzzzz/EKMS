@@ -57,59 +57,160 @@ public class FileServiceImpl implements FileService {
     public void init() {
         // 将相对路径转换为绝对路径（相对于项目根目录）
         // 项目根目录是java目录
-        String currentDir = System.getProperty("user.dir");
-        log.info("当前工作目录: {}", currentDir);
+        
+        // 首先检查环境变量或系统属性是否指定了项目根目录
+        String projectRootEnv = System.getenv("PROJECT_ROOT");
+        if (projectRootEnv == null || projectRootEnv.isEmpty()) {
+            projectRootEnv = System.getProperty("project.root");
+        }
+        
+        String projectRoot;
+        if (projectRootEnv != null && !projectRootEnv.isEmpty()) {
+            projectRoot = projectRootEnv;
+            log.info("使用环境变量/系统属性指定的项目根目录: {}", projectRoot);
+        } else {
+            String currentDir = System.getProperty("user.dir");
+            log.info("当前工作目录: {}", currentDir);
+            // 查找项目根目录（包含uploads目录的目录）
+            projectRoot = findProjectRoot(currentDir);
+            log.info("自动查找的项目根目录: {}", projectRoot);
+        }
         
         // 如果路径是相对路径（以./开头），转换为绝对路径
         if (uploadPath.startsWith("./") || (!java.nio.file.Paths.get(uploadPath).isAbsolute())) {
-            String projectRoot = currentDir;
-            // 如果当前目录是backend/file-service，向上两级到项目根目录
-            if (projectRoot.endsWith("file-service")) {
-                projectRoot = new java.io.File(projectRoot).getParentFile().getParent();
-            } else if (projectRoot.endsWith("backend")) {
-                projectRoot = new java.io.File(projectRoot).getParent();
-            }
             // 移除开头的 ./
             String relativePath = uploadPath.replaceFirst("^\\./", "");
             uploadPath = new java.io.File(projectRoot, relativePath).getAbsolutePath();
         }
         
         if (chunkPath.startsWith("./") || (!java.nio.file.Paths.get(chunkPath).isAbsolute())) {
-            String projectRoot = currentDir;
-            if (projectRoot.endsWith("file-service")) {
-                projectRoot = new java.io.File(projectRoot).getParentFile().getParent();
-            } else if (projectRoot.endsWith("backend")) {
-                projectRoot = new java.io.File(projectRoot).getParent();
-            }
             String relativePath = chunkPath.replaceFirst("^\\./", "");
             chunkPath = new java.io.File(projectRoot, relativePath).getAbsolutePath();
         }
         
         // 创建目录
         try {
-            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(uploadPath));
-            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(chunkPath));
-            log.info("文件上传目录已初始化: {}", uploadPath);
-            log.info("分片目录已初始化: {}", chunkPath);
+            java.nio.file.Path uploadDir = java.nio.file.Paths.get(uploadPath);
+            java.nio.file.Path chunkDir = java.nio.file.Paths.get(chunkPath);
+            
+            java.nio.file.Files.createDirectories(uploadDir);
+            java.nio.file.Files.createDirectories(chunkDir);
+            
+            // 验证目录是否真的创建成功
+            if (!java.nio.file.Files.exists(uploadDir) || !java.nio.file.Files.isDirectory(uploadDir)) {
+                throw new RuntimeException("文件上传目录创建失败: " + uploadDir.toAbsolutePath());
+            }
+            if (!java.nio.file.Files.exists(chunkDir) || !java.nio.file.Files.isDirectory(chunkDir)) {
+                throw new RuntimeException("分片目录创建失败: " + chunkDir.toAbsolutePath());
+            }
+            
+            log.info("文件上传目录已初始化: {} (绝对路径: {})", uploadPath, uploadDir.toAbsolutePath());
+            log.info("分片目录已初始化: {} (绝对路径: {})", chunkPath, chunkDir.toAbsolutePath());
         } catch (Exception e) {
-            log.error("初始化上传目录失败", e);
+            log.error("初始化上传目录失败: uploadPath={}, chunkPath={}", uploadPath, chunkPath, e);
             throw new RuntimeException("初始化上传目录失败", e);
         }
+    }
+    
+    /**
+     * 查找项目根目录（包含uploads目录的目录）
+     * 从当前目录开始向上查找，直到找到包含uploads目录的目录，或者找到backend目录的父目录
+     */
+    private String findProjectRoot(String startDir) {
+        java.io.File current = new java.io.File(startDir);
+        int maxDepth = 10; // 最多向上查找10级，防止无限循环
+        
+        for (int i = 0; i < maxDepth; i++) {
+            // 检查当前目录是否包含uploads目录
+            java.io.File uploadsDir = new java.io.File(current, "uploads");
+            if (uploadsDir.exists() && uploadsDir.isDirectory()) {
+                return current.getAbsolutePath();
+            }
+            
+            // 如果当前目录是backend/file-service，向上两级到项目根目录
+            String path = current.getAbsolutePath();
+            if (path.endsWith("file-service")) {
+                java.io.File parent = current.getParentFile();
+                if (parent != null) {
+                    java.io.File grandParent = parent.getParentFile();
+                    if (grandParent != null) {
+                        return grandParent.getAbsolutePath();
+                    }
+                }
+            } else if (path.endsWith("backend")) {
+                java.io.File parent = current.getParentFile();
+                if (parent != null) {
+                    return parent.getAbsolutePath();
+                }
+            }
+            
+            // 向上查找
+            java.io.File parent = current.getParentFile();
+            if (parent == null || parent.equals(current)) {
+                break;
+            }
+            current = parent;
+        }
+        
+        // 如果找不到，返回当前目录
+        log.warn("未能找到项目根目录，使用当前目录: {}", startDir);
+        return startDir;
     }
 
     @Override
     public UploadResponseDTO initUpload(String fileName, Long fileSize, String fileHash) {
+        log.info("初始化上传: fileName={}, fileSize={}, fileHash={}", fileName, fileSize, fileHash);
+        
         // 检查文件是否已存在（秒传）
         LambdaQueryWrapper<FileInfo> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileInfo::getFileHash, fileHash);
         FileInfo existingFile = fileInfoMapper.selectOne(wrapper);
         if (existingFile != null) {
-            UploadResponseDTO response = new UploadResponseDTO();
-            response.setCompleted(true);
-            FileDTO fileDTO = new FileDTO();
-            BeanUtils.copyProperties(existingFile, fileDTO);
-            response.setFile(fileDTO);
-            return response;
+            // 检查文件是否真的存在
+            String filePath = existingFile.getFilePath();
+            Path filePathObj;
+            
+            // 如果是相对路径，转换为绝对路径
+            if (filePath.startsWith("./") || (!Paths.get(filePath).isAbsolute())) {
+                // 移除开头的 ./
+                String relativePath = filePath.replaceFirst("^\\./", "");
+                // uploadPath 已经是绝对路径，比如 /mnt/c/.../uploads/files
+                // 我们需要找到项目根目录，然后拼接相对路径
+                // 如果 relativePath 是 uploads/files/xxx.txt，我们需要项目根目录/uploads/files/xxx.txt
+                Path uploadPathObj = Paths.get(uploadPath);
+                // uploadPath 是 uploads/files，所以项目根目录是 uploadPath 的父目录的父目录
+                Path projectRoot = uploadPathObj.getParent().getParent();
+                filePathObj = projectRoot.resolve(relativePath);
+            } else {
+                filePathObj = Paths.get(filePath);
+            }
+            
+            boolean fileExists = Files.exists(filePathObj);
+            log.info("文件已存在（秒传）: fileId={}, fileName={}, dbPath={}, actualPath={}, 文件存在={}", 
+                    existingFile.getId(), existingFile.getFileName(), filePath, 
+                    filePathObj.toAbsolutePath(), fileExists);
+            
+            if (!fileExists) {
+                log.warn("文件记录存在但文件不存在，删除记录: fileId={}, path={}", 
+                        existingFile.getId(), filePathObj.toAbsolutePath());
+                // 文件不存在，删除记录，允许重新上传
+                fileInfoMapper.deleteById(existingFile.getId());
+            } else {
+                // 如果数据库中的路径是相对路径，更新为绝对路径
+                if (filePath.startsWith("./") || (!Paths.get(filePath).isAbsolute())) {
+                    existingFile.setFilePath(filePathObj.toAbsolutePath().toString());
+                    fileInfoMapper.updateById(existingFile);
+                    log.info("更新文件路径为绝对路径: fileId={}, oldPath={}, newPath={}", 
+                            existingFile.getId(), filePath, existingFile.getFilePath());
+                }
+                
+                UploadResponseDTO response = new UploadResponseDTO();
+                response.setCompleted(true);
+                FileDTO fileDTO = new FileDTO();
+                BeanUtils.copyProperties(existingFile, fileDTO);
+                response.setFile(fileDTO);
+                return response;
+            }
         }
 
         // 创建上传任务
@@ -126,6 +227,9 @@ public class FileServiceImpl implements FileService {
         
         redisTemplate.opsForValue().set(uploadKey, uploadInfo, 24, TimeUnit.HOURS);
         
+        log.info("创建上传任务: uploadId={}, fileName={}, totalChunks={}, chunkPath={}, uploadPath={}", 
+                uploadId, fileName, uploadInfo.getTotalChunks(), chunkPath, uploadPath);
+        
         UploadResponseDTO response = new UploadResponseDTO();
         response.setUploadId(uploadId);
         response.setCompleted(false);
@@ -141,12 +245,20 @@ public class FileServiceImpl implements FileService {
         UploadInfo uploadInfo = (UploadInfo) redisTemplate.opsForValue().get(uploadKey);
         
         if (uploadInfo == null) {
+            log.error("上传任务不存在或已过期: uploadId={}", chunkUploadDTO.getUploadId());
             throw new RuntimeException("上传任务不存在或已过期");
         }
+
+        log.info("开始上传分片: uploadId={}, chunkIndex={}, chunkSize={}", 
+                chunkUploadDTO.getUploadId(), chunkUploadDTO.getChunkIndex(), 
+                chunkUploadDTO.getChunkData() != null ? chunkUploadDTO.getChunkData().length : 0);
 
         // 验证分片哈希
         String calculatedHash = DigestUtil.sha256Hex(chunkUploadDTO.getChunkData());
         if (!calculatedHash.equals(chunkUploadDTO.getChunkHash())) {
+            log.error("分片哈希校验失败: uploadId={}, chunkIndex={}, expected={}, actual={}", 
+                    chunkUploadDTO.getUploadId(), chunkUploadDTO.getChunkIndex(),
+                    chunkUploadDTO.getChunkHash(), calculatedHash);
             throw new RuntimeException("分片哈希校验失败");
         }
 
@@ -162,11 +274,22 @@ public class FileServiceImpl implements FileService {
             String chunkFileName = chunkUploadDTO.getUploadId() + "_" + chunkUploadDTO.getChunkIndex();
             Path chunkFilePath = Paths.get(chunkPath, chunkFileName);
             
+            log.info("保存分片到: {}", chunkFilePath.toAbsolutePath());
+            
             try {
                 Files.createDirectories(chunkFilePath.getParent());
                 Files.write(chunkFilePath, chunkUploadDTO.getChunkData());
+                
+                // 验证文件是否真的保存了
+                if (Files.exists(chunkFilePath)) {
+                    long fileSize = Files.size(chunkFilePath);
+                    log.info("分片保存成功: path={}, size={}", chunkFilePath.toAbsolutePath(), fileSize);
+                } else {
+                    log.error("分片保存失败: 文件不存在 path={}", chunkFilePath.toAbsolutePath());
+                    throw new RuntimeException("分片保存失败: 文件不存在");
+                }
             } catch (IOException e) {
-                log.error("保存分片失败", e);
+                log.error("保存分片失败: path={}", chunkFilePath.toAbsolutePath(), e);
                 throw new RuntimeException("保存分片失败", e);
             }
 
@@ -175,8 +298,12 @@ public class FileServiceImpl implements FileService {
             chunkInfo.setUploadId(chunkUploadDTO.getUploadId());
             chunkInfo.setChunkIndex(chunkUploadDTO.getChunkIndex());
             chunkInfo.setChunkHash(chunkUploadDTO.getChunkHash());
-            chunkInfo.setChunkPath(chunkFilePath.toString());
+            chunkInfo.setChunkPath(chunkFilePath.toAbsolutePath().toString());
             chunkInfoMapper.insert(chunkInfo);
+            log.info("分片信息已保存到数据库: id={}, path={}", chunkInfo.getId(), chunkInfo.getChunkPath());
+        } else {
+            log.info("分片已存在，跳过保存: uploadId={}, chunkIndex={}", 
+                    chunkUploadDTO.getUploadId(), chunkUploadDTO.getChunkIndex());
         }
 
         // 更新已上传分片列表
@@ -203,12 +330,20 @@ public class FileServiceImpl implements FileService {
         UploadInfo uploadInfo = (UploadInfo) redisTemplate.opsForValue().get(uploadKey);
         
         if (uploadInfo == null) {
+            log.error("上传任务不存在: uploadId={}", uploadId);
             throw new RuntimeException("上传任务不存在");
         }
 
+        log.info("开始合并文件: uploadId={}, fileName={}, totalChunks={}", 
+                uploadId, uploadInfo.getFileName(), uploadInfo.getTotalChunks());
+
         // 获取所有分片
         List<ChunkInfo> chunks = chunkInfoMapper.selectByUploadId(uploadId);
+        log.info("获取到分片数量: {}, 期望数量: {}", chunks.size(), uploadInfo.getTotalChunks());
+        
         if (chunks.size() != uploadInfo.getTotalChunks()) {
+            log.error("分片不完整: uploadId={}, 实际={}, 期望={}", 
+                    uploadId, chunks.size(), uploadInfo.getTotalChunks());
             throw new RuntimeException("分片不完整");
         }
 
@@ -216,47 +351,79 @@ public class FileServiceImpl implements FileService {
         String fileExtension = uploadInfo.getFileName().substring(uploadInfo.getFileName().lastIndexOf("."));
         String finalFileName = uploadInfo.getFileHash() + fileExtension;
         Path finalFilePath = Paths.get(uploadPath, finalFileName);
+        
+        log.info("合并文件到: {}", finalFilePath.toAbsolutePath());
 
         try {
             Files.createDirectories(finalFilePath.getParent());
+            long totalSize = 0;
             try (FileOutputStream fos = new FileOutputStream(finalFilePath.toFile())) {
                 for (ChunkInfo chunk : chunks) {
-                    byte[] chunkData = Files.readAllBytes(Paths.get(chunk.getChunkPath()));
+                    Path chunkPath = Paths.get(chunk.getChunkPath());
+                    if (!Files.exists(chunkPath)) {
+                        log.error("分片文件不存在: path={}", chunkPath.toAbsolutePath());
+                        throw new RuntimeException("分片文件不存在: " + chunkPath);
+                    }
+                    byte[] chunkData = Files.readAllBytes(chunkPath);
                     fos.write(chunkData);
+                    totalSize += chunkData.length;
+                    log.debug("合并分片: index={}, size={}", chunk.getChunkIndex(), chunkData.length);
                 }
+            }
+            
+            log.info("文件合并完成: path={}, size={}", finalFilePath.toAbsolutePath(), totalSize);
+
+            // 验证文件是否存在
+            if (!Files.exists(finalFilePath)) {
+                log.error("合并后的文件不存在: path={}", finalFilePath.toAbsolutePath());
+                throw new RuntimeException("合并后的文件不存在");
             }
 
             // 验证文件哈希
             String finalHash = DigestUtil.sha256Hex(finalFilePath.toFile());
             if (!finalHash.equals(uploadInfo.getFileHash())) {
+                log.error("文件哈希校验失败: uploadId={}, expected={}, actual={}", 
+                        uploadId, uploadInfo.getFileHash(), finalHash);
                 Files.delete(finalFilePath);
                 throw new RuntimeException("文件哈希校验失败");
             }
+            
+            log.info("文件哈希校验通过: uploadId={}, hash={}", uploadId, finalHash);
 
             // 保存文件信息
             FileInfo fileInfo = new FileInfo();
             fileInfo.setFileName(uploadInfo.getFileName());
-            fileInfo.setFilePath(finalFilePath.toString());
+            fileInfo.setFilePath(finalFilePath.toAbsolutePath().toString());
             fileInfo.setFileType(detectFileType(uploadInfo.getFileName()));
             fileInfo.setFileSize(uploadInfo.getFileSize());
             fileInfo.setFileHash(uploadInfo.getFileHash());
             fileInfo.setStatus(Constants.FILE_STATUS_DRAFT);
             fileInfo.setCreateTime(LocalDateTime.now());
             fileInfoMapper.insert(fileInfo);
+            
+            log.info("文件信息已保存到数据库: id={}, fileName={}, filePath={}", 
+                    fileInfo.getId(), fileInfo.getFileName(), fileInfo.getFilePath());
 
             // 清理分片
             for (ChunkInfo chunk : chunks) {
-                Files.deleteIfExists(Paths.get(chunk.getChunkPath()));
+                Path chunkPath = Paths.get(chunk.getChunkPath());
+                if (Files.exists(chunkPath)) {
+                    Files.deleteIfExists(chunkPath);
+                    log.debug("删除分片: path={}", chunkPath.toAbsolutePath());
+                }
                 chunkInfoMapper.deleteById(chunk.getId());
             }
             redisTemplate.delete(uploadKey);
+            
+            log.info("文件上传完成: uploadId={}, fileId={}, path={}", 
+                    uploadId, fileInfo.getId(), fileInfo.getFilePath());
 
             FileDTO fileDTO = new FileDTO();
             BeanUtils.copyProperties(fileInfo, fileDTO);
             return fileDTO;
 
         } catch (IOException e) {
-            log.error("合并文件失败", e);
+            log.error("合并文件失败: uploadId={}, path={}", uploadId, finalFilePath.toAbsolutePath(), e);
             throw new RuntimeException("合并文件失败", e);
         }
     }

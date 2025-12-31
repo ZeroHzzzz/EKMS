@@ -76,9 +76,6 @@ sudo docker exec -i knowledge-mysql mysql -uroot -proot knowledge_db < sql/test_
 # 进入后端目录
 cd backend
 
-# 设置 Docker 环境变量
-export SPRING_PROFILES_ACTIVE=docker
-
 # 使用启动脚本（会自动编译并启动所有服务）
 bash start.sh
 ```
@@ -90,10 +87,7 @@ bash start.sh
 cd backend
 mvn clean install -DskipTests
 
-# 2. 设置环境变量
-export SPRING_PROFILES_ACTIVE=docker
-
-# 3. 按顺序启动各个服务（每个服务需要独立的终端）
+# 2. 按顺序启动各个服务（每个服务需要独立的终端）
 cd user-service && mvn spring-boot:run
 cd file-service && mvn spring-boot:run
 cd knowledge-service && mvn spring-boot:run
@@ -170,7 +164,7 @@ bash docker/fix-nacos-database.sh
 ### 服务无法注册到 Nacos
 
 - 检查 Nacos 是否正常运行：`curl http://localhost:8848/nacos/`
-- 检查环境变量：`echo $SPRING_PROFILES_ACTIVE`（应该是 `docker`）
+- 检查配置文件中的 Nacos 地址是否正确（默认：`localhost:8848`）
 - 查看服务日志
 
 ### 端口被占用
