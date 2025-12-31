@@ -7,6 +7,8 @@ public interface UserService {
     UserDTO getUserByUsername(String username);
     UserDTO createUser(UserDTO userDTO);
     UserDTO register(String username, String password, String realName, String email, String department, String role);
+    UserDTO updateUser(UserDTO userDTO);
+    void updatePassword(Long userId, String oldPassword, String newPassword);
     boolean checkPermission(Long userId, String permission);
     UserDTO login(String username, String password);
 }

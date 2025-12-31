@@ -19,6 +19,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.io.*;
 import java.nio.file.Files;
@@ -26,6 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -45,11 +47,55 @@ public class FileServiceImpl implements FileService {
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
-    @Value("${file.upload.path:/data/files}")
+    @Value("${file.upload.path:./uploads/files}")
     private String uploadPath;
 
-    @Value("${file.chunk.path:/data/chunks}")
+    @Value("${file.chunk.path:./uploads/chunks}")
     private String chunkPath;
+    
+    @PostConstruct
+    public void init() {
+        // 将相对路径转换为绝对路径（相对于项目根目录）
+        // 项目根目录是java目录
+        String currentDir = System.getProperty("user.dir");
+        log.info("当前工作目录: {}", currentDir);
+        
+        // 如果路径是相对路径（以./开头），转换为绝对路径
+        if (uploadPath.startsWith("./") || (!java.nio.file.Paths.get(uploadPath).isAbsolute())) {
+            String projectRoot = currentDir;
+            // 如果当前目录是backend/file-service，向上两级到项目根目录
+            if (projectRoot.endsWith("file-service")) {
+                projectRoot = new java.io.File(projectRoot).getParentFile().getParent();
+            } else if (projectRoot.endsWith("backend")) {
+                projectRoot = new java.io.File(projectRoot).getParent();
+            }
+            // 移除开头的 ./
+            String relativePath = uploadPath.replaceFirst("^\\./", "");
+            uploadPath = new java.io.File(projectRoot, relativePath).getAbsolutePath();
+        }
+        
+        if (chunkPath.startsWith("./") || (!java.nio.file.Paths.get(chunkPath).isAbsolute())) {
+            String projectRoot = currentDir;
+            if (projectRoot.endsWith("file-service")) {
+                projectRoot = new java.io.File(projectRoot).getParentFile().getParent();
+            } else if (projectRoot.endsWith("backend")) {
+                projectRoot = new java.io.File(projectRoot).getParent();
+            }
+            String relativePath = chunkPath.replaceFirst("^\\./", "");
+            chunkPath = new java.io.File(projectRoot, relativePath).getAbsolutePath();
+        }
+        
+        // 创建目录
+        try {
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(uploadPath));
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(chunkPath));
+            log.info("文件上传目录已初始化: {}", uploadPath);
+            log.info("分片目录已初始化: {}", chunkPath);
+        } catch (Exception e) {
+            log.error("初始化上传目录失败", e);
+            throw new RuntimeException("初始化上传目录失败", e);
+        }
+    }
 
     @Override
     public UploadResponseDTO initUpload(String fileName, Long fileSize, String fileHash) {
@@ -76,6 +122,7 @@ public class FileServiceImpl implements FileService {
         uploadInfo.setFileSize(fileSize);
         uploadInfo.setFileHash(fileHash);
         uploadInfo.setTotalChunks((int) ((fileSize + Constants.CHUNK_SIZE - 1) / Constants.CHUNK_SIZE));
+        uploadInfo.setUploadedChunks(new HashSet<>()); // 初始化为空集合
         
         redisTemplate.opsForValue().set(uploadKey, uploadInfo, 24, TimeUnit.HOURS);
         
@@ -134,6 +181,9 @@ public class FileServiceImpl implements FileService {
 
         // 更新已上传分片列表
         Set<Integer> uploadedChunks = uploadInfo.getUploadedChunks();
+        if (uploadedChunks == null) {
+            uploadedChunks = new HashSet<>();
+        }
         uploadedChunks.add(chunkUploadDTO.getChunkIndex());
         uploadInfo.setUploadedChunks(uploadedChunks);
         redisTemplate.opsForValue().set(uploadKey, uploadInfo, 24, TimeUnit.HOURS);

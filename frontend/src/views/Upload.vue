@@ -33,8 +33,11 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useUserStore } from '../stores/user'
 import api from '../api'
 import CryptoJS from 'crypto-js'
+
+const userStore = useUserStore()
 
 const fileList = ref([])
 const uploading = ref(false)
@@ -125,8 +128,37 @@ const uploadFile = async (file) => {
     }
 
     // 完成上传
-    await api.post(`/file/complete/${uploadId}`)
-    ElMessage.success(`${file.name} 上传成功`)
+    const completeRes = await api.post(`/file/complete/${uploadId}`)
+    if (completeRes.code !== 200 || !completeRes.data) {
+      throw new Error('文件上传完成失败')
+    }
+    const fileDTO = completeRes.data
+    
+    // 创建知识条目
+    const userInfo = userStore.userInfo
+    if (!userInfo) {
+      throw new Error('用户信息不存在，请重新登录')
+    }
+    
+    // 提取文件名（不含扩展名）作为标题
+    const fileNameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name
+    
+    const knowledgeRes = await api.post('/knowledge', {
+      title: fileNameWithoutExt,
+      content: `文件：${file.name}`,
+      summary: `上传的文件：${file.name}`,
+      category: '未分类',
+      fileId: fileDTO.id,
+      author: userInfo.realName || userInfo.username || '未知',
+      department: userInfo.department || '未知',
+      createBy: userInfo.username
+    })
+    
+    if (knowledgeRes.code !== 200) {
+      throw new Error(knowledgeRes.message || '创建知识条目失败')
+    }
+    
+    ElMessage.success(`${file.name} 上传成功并已创建知识条目`)
     
   } catch (error) {
     ElMessage.error(`${file.name} 上传失败：${error.message}`)

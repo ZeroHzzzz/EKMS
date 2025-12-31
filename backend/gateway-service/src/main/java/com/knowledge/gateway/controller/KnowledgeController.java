@@ -94,5 +94,30 @@ public class KnowledgeController {
         List<AuditRecordDTO> result = auditService.getAuditHistory(id);
         return Result.success(result);
     }
+
+    // 版本相关接口
+    @GetMapping("/{id}/versions")
+    public Result<List<KnowledgeVersionDTO>> getKnowledgeVersions(@PathVariable Long id) {
+        List<KnowledgeVersionDTO> result = knowledgeService.getKnowledgeVersions(id);
+        return Result.success(result);
+    }
+
+    @GetMapping("/{id}/versions/{version}")
+    public Result<KnowledgeVersionDTO> getKnowledgeVersion(@PathVariable Long id, @PathVariable Long version) {
+        KnowledgeVersionDTO result = knowledgeService.getKnowledgeVersion(id, version);
+        if (result == null) {
+            return Result.error("版本不存在");
+        }
+        return Result.success(result);
+    }
+
+    @GetMapping("/{id}/versions/compare")
+    public Result<KnowledgeVersionDTO.DiffResult> compareVersions(
+            @PathVariable Long id,
+            @RequestParam Long version1,
+            @RequestParam Long version2) {
+        KnowledgeVersionDTO.DiffResult result = knowledgeService.compareVersions(id, version1, version2);
+        return Result.success(result);
+    }
 }
 

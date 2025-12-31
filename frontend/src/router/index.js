@@ -7,6 +7,7 @@ import Statistics from '../views/Statistics.vue'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import UserManagement from '../views/UserManagement.vue'
+import UserCenter from '../views/UserCenter.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
 
@@ -54,6 +55,11 @@ const routes = [
     name: 'UserManagement',
     component: UserManagement,
     meta: { permission: 'MANAGE_USER' }
+  },
+  {
+    path: '/user-center',
+    name: 'UserCenter',
+    component: UserCenter
   }
 ]
 
@@ -62,7 +68,7 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token')
   
   // 登录和注册页面不需要token
@@ -82,17 +88,21 @@ router.beforeEach((to, from, next) => {
     return
   }
   
-  // 检查页面权限
-  if (to.meta && to.meta.permission) {
-    const userStore = useUserStore()
-    const userInfo = userStore.userInfo
-    
-    // 如果用户信息不存在，说明可能还未加载，先放行，由具体页面组件处理权限
-    if (!userInfo) {
-      next()
+  // 确保用户信息已加载
+  const userStore = useUserStore()
+  if (!userStore.userInfo) {
+    // 尝试恢复用户信息
+    await userStore.initUserInfo()
+    // 如果恢复失败，清除token并跳转到登录页
+    if (!userStore.userInfo) {
+      next('/login')
       return
     }
-    
+  }
+  
+  // 检查页面权限
+  if (to.meta && to.meta.permission) {
+    const userInfo = userStore.userInfo
     if (!hasPermission(userInfo, to.meta.permission)) {
       // 没有权限，重定向到首页
       next('/')

@@ -4,10 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowledge.api.dto.KnowledgeDTO;
 import com.knowledge.api.dto.KnowledgeQueryDTO;
+import com.knowledge.api.dto.KnowledgeVersionDTO;
 import com.knowledge.api.service.KnowledgeService;
+import com.knowledge.common.util.DiffUtil;
 import com.knowledge.common.constant.Constants;
 import com.knowledge.knowledge.entity.Knowledge;
+import com.knowledge.knowledge.entity.KnowledgeVersion;
 import com.knowledge.knowledge.mapper.KnowledgeMapper;
+import com.knowledge.knowledge.mapper.KnowledgeVersionMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.beans.BeanUtils;
@@ -26,6 +30,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Resource
     private KnowledgeMapper knowledgeMapper;
+    
+    @Resource
+    private KnowledgeVersionMapper knowledgeVersionMapper;
 
     @Override
     @Transactional
@@ -37,6 +44,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         knowledge.setCollectCount(0L);
         knowledge.setVersion(1L);
         knowledge.setCreateTime(LocalDateTime.now());
+        // 设置创建人
+        if (knowledgeDTO.getCreateBy() != null) {
+            knowledge.setCreateBy(knowledgeDTO.getCreateBy());
+        }
         knowledgeMapper.insert(knowledge);
         
         KnowledgeDTO result = new KnowledgeDTO();
@@ -52,6 +63,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new RuntimeException("知识不存在");
         }
         
+        // 保存当前版本到版本历史表
+        saveVersionHistory(knowledge, knowledgeDTO.getChangeDescription(), knowledgeDTO.getUpdateBy());
+        
+        // 更新知识内容
         BeanUtils.copyProperties(knowledgeDTO, knowledge, "id", "createTime", "createBy");
         knowledge.setVersion(knowledge.getVersion() + 1);
         knowledge.setUpdateTime(LocalDateTime.now());
@@ -60,6 +75,29 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         KnowledgeDTO result = new KnowledgeDTO();
         BeanUtils.copyProperties(knowledge, result);
         return result;
+    }
+    
+    /**
+     * 保存版本历史
+     */
+    private void saveVersionHistory(Knowledge knowledge, String changeDescription, String updateBy) {
+        KnowledgeVersion version = new KnowledgeVersion();
+        version.setKnowledgeId(knowledge.getId());
+        version.setVersion(knowledge.getVersion());
+        version.setTitle(knowledge.getTitle());
+        version.setContent(knowledge.getContent());
+        version.setSummary(knowledge.getSummary());
+        version.setCategory(knowledge.getCategory());
+        version.setKeywords(knowledge.getKeywords());
+        version.setAuthor(knowledge.getAuthor());
+        version.setDepartment(knowledge.getDepartment());
+        version.setFileId(knowledge.getFileId());
+        version.setChangeDescription(changeDescription);
+        version.setCreatedBy(updateBy != null ? updateBy : knowledge.getUpdateBy());
+        version.setCreateTime(LocalDateTime.now());
+        
+        knowledgeVersionMapper.insert(version);
+        log.info("保存版本历史 - 知识ID: {}, 版本: {}", knowledge.getId(), knowledge.getVersion());
     }
 
     @Override
@@ -162,6 +200,79 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             BeanUtils.copyProperties(k, dto);
             return dto;
         }).collect(Collectors.toList());
+    }
+    
+    @Override
+    public List<KnowledgeVersionDTO> getKnowledgeVersions(Long knowledgeId) {
+        LambdaQueryWrapper<KnowledgeVersion> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+        wrapper.orderByDesc(KnowledgeVersion::getVersion);
+        
+        List<KnowledgeVersion> versions = knowledgeVersionMapper.selectList(wrapper);
+        return versions.stream().map(version -> {
+            KnowledgeVersionDTO dto = new KnowledgeVersionDTO();
+            BeanUtils.copyProperties(version, dto);
+            return dto;
+        }).collect(Collectors.toList());
+    }
+    
+    @Override
+    public KnowledgeVersionDTO getKnowledgeVersion(Long knowledgeId, Long version) {
+        LambdaQueryWrapper<KnowledgeVersion> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+        wrapper.eq(KnowledgeVersion::getVersion, version);
+        
+        KnowledgeVersion versionEntity = knowledgeVersionMapper.selectOne(wrapper);
+        if (versionEntity == null) {
+            return null;
+        }
+        
+        KnowledgeVersionDTO dto = new KnowledgeVersionDTO();
+        BeanUtils.copyProperties(versionEntity, dto);
+        return dto;
+    }
+    
+    @Override
+    public KnowledgeVersionDTO.DiffResult compareVersions(Long knowledgeId, Long version1, Long version2) {
+        KnowledgeVersionDTO v1 = getKnowledgeVersion(knowledgeId, version1);
+        KnowledgeVersionDTO v2 = getKnowledgeVersion(knowledgeId, version2);
+        
+        if (v1 == null || v2 == null) {
+            throw new RuntimeException("版本不存在");
+        }
+        
+        // 使用DiffUtil比较内容
+        List<DiffUtil.DiffLine> diffLines = DiffUtil.diff(
+            v1.getContent() != null ? v1.getContent() : "",
+            v2.getContent() != null ? v2.getContent() : ""
+        );
+        
+        // 转换为DTO
+        List<KnowledgeVersionDTO.DiffResult.DiffLine> diffLineDTOs = diffLines.stream().map(line -> {
+            KnowledgeVersionDTO.DiffResult.DiffLine dto = new KnowledgeVersionDTO.DiffResult.DiffLine();
+            dto.setType(line.getType().name());
+            dto.setContent(line.getContent());
+            dto.setLineNumber1(line.getLineNumber1());
+            dto.setLineNumber2(line.getLineNumber2());
+            return dto;
+        }).collect(Collectors.toList());
+        
+        // 获取统计信息
+        DiffUtil.DiffStats stats = DiffUtil.getStats(diffLines);
+        KnowledgeVersionDTO.DiffResult.DiffStats statsDTO = new KnowledgeVersionDTO.DiffResult.DiffStats();
+        statsDTO.setInsertCount(stats.getInsertCount());
+        statsDTO.setDeleteCount(stats.getDeleteCount());
+        statsDTO.setEqualCount(stats.getEqualCount());
+        
+        // 构建结果
+        KnowledgeVersionDTO.DiffResult result = new KnowledgeVersionDTO.DiffResult();
+        result.setKnowledgeId(knowledgeId);
+        result.setVersion1(version1);
+        result.setVersion2(version2);
+        result.setDiffLines(diffLineDTOs);
+        result.setStats(statsDTO);
+        
+        return result;
     }
 }
 

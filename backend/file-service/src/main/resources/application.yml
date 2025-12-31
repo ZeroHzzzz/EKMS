@@ -43,7 +43,7 @@ mybatis-plus:
 
 file:
   upload:
-    path: /data/files
+    path: ./uploads/files
   chunk:
-    path: /data/chunks
+    path: ./uploads/chunks
 

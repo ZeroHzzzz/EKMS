@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.Arrays;
@@ -125,6 +126,54 @@ public class UserServiceImpl implements UserService {
         userDTO.setPassword(null); // 清除密码字段
         userDTO.setPermissions(getPermissionsByRole(user.getRole()));
         return userDTO;
+    }
+
+    @Override
+    @Transactional
+    public UserDTO updateUser(UserDTO userDTO) {
+        log.info("更新用户信息 - 用户ID: {}", userDTO.getId());
+        
+        User user = userMapper.selectById(userDTO.getId());
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        
+        // 只更新允许的字段，不允许修改用户名和角色
+        user.setRealName(userDTO.getRealName());
+        user.setEmail(userDTO.getEmail());
+        user.setDepartment(userDTO.getDepartment());
+        
+        userMapper.updateById(user);
+        log.info("用户信息更新成功 - 用户ID: {}", userDTO.getId());
+        
+        // 返回更新后的用户信息
+        UserDTO result = new UserDTO();
+        BeanUtils.copyProperties(user, result);
+        result.setPermissions(getPermissionsByRole(user.getRole()));
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public void updatePassword(Long userId, String oldPassword, String newPassword) {
+        log.info("修改密码 - 用户ID: {}", userId);
+        
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        
+        // 验证原密码
+        if (!PasswordUtil.matches(oldPassword, user.getPassword())) {
+            log.warn("密码修改失败 - 原密码错误，用户ID: {}", userId);
+            throw new RuntimeException("原密码错误");
+        }
+        
+        // 加密新密码
+        user.setPassword(PasswordUtil.encode(newPassword));
+        userMapper.updateById(user);
+        
+        log.info("密码修改成功 - 用户ID: {}", userId);
     }
 
     @Override

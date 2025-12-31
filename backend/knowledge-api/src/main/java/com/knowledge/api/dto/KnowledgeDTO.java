@@ -26,6 +26,9 @@ public class KnowledgeDTO implements Serializable {
     private Integer sortOrder;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
+    private String createBy;
+    private String updateBy;
+    private String changeDescription; // 变更说明
     private List<Long> relatedKnowledgeIds;
     private List<String> tags;
 }

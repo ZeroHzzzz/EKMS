@@ -17,6 +17,7 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="goToUserCenter">个人中心</el-dropdown-item>
                 <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -77,6 +78,10 @@ const userInfo = computed(() => userStore.userInfo)
 const isAuthPage = computed(() => {
   return route.path === '/login' || route.path === '/register'
 })
+
+const goToUserCenter = () => {
+  router.push('/user-center')
+}
 
 const logout = () => {
   userStore.logout()
