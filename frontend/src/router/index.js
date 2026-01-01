@@ -8,6 +8,7 @@ import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import UserManagement from '../views/UserManagement.vue'
 import UserCenter from '../views/UserCenter.vue'
+import MyCollections from '../views/MyCollections.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
 
@@ -60,6 +61,11 @@ const routes = [
     path: '/user-center',
     name: 'UserCenter',
     component: UserCenter
+  },
+  {
+    path: '/my-collections',
+    name: 'MyCollections',
+    component: MyCollections
   }
 ]
 

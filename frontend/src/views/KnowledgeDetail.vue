@@ -9,16 +9,18 @@
         <div>
           <el-button v-if="isEditMode" @click="cancelEdit">取消</el-button>
           <el-button v-if="isEditMode" type="primary" @click="saveEdit">保存</el-button>
+          <el-button 
+            v-if="!isEditMode" 
+            :type="isCollected ? 'success' : 'primary'"
+            :icon="isCollected ? 'StarFilled' : 'Star'"
+            @click="handleCollect"
+          >
+            {{ isCollected ? '已收藏' : '收藏' }}
+          </el-button>
           <el-button v-if="!isEditMode" type="primary" @click="showVersionDialog = true">版本历史</el-button>
         </div>
       </div>
-      <div class="meta-info" v-if="!isEditMode">
-        <span>版本：v{{ knowledge.version }}</span>
-        <span>作者：{{ knowledge.author }}</span>
-        <span>分类：{{ knowledge.category }}</span>
-        <span>点击量：{{ knowledge.clickCount }}</span>
-        <span>收藏量：{{ knowledge.collectCount }}</span>
-      </div>
+      <!-- 编辑模式 -->
       <div v-if="isEditMode" class="edit-form">
         <el-form :model="editForm" label-width="100px">
           <el-form-item label="分类">
@@ -33,50 +35,142 @@
           <el-form-item label="变更说明">
             <el-input v-model="editForm.changeDescription" type="textarea" :rows="2" placeholder="请输入本次变更说明" />
           </el-form-item>
+          <el-form-item label="内容">
+            <el-input v-model="editForm.content" type="textarea" :rows="15" placeholder="请输入内容" />
+          </el-form-item>
         </el-form>
       </div>
-      <div class="content" v-if="!isEditMode">
-        <!-- 如果有文件，显示文件信息和下载链接 -->
-        <div v-if="knowledge.fileId && fileInfo" class="file-info">
-          <el-card>
-            <div class="file-info-content">
-              <div class="file-info-left">
-                <h3>附件文件</h3>
-                <p>文件名：{{ fileInfo.fileName }}</p>
-                <p>文件类型：{{ fileInfo.fileType }}</p>
-                <p>文件大小：{{ formatFileSize(fileInfo.fileSize) }}</p>
+
+      <!-- 查看模式 -->
+      <div v-else class="detail-layout">
+        <div class="main-content">
+          <div class="meta-info">
+            <div class="meta-row">
+              <span><strong>版本：</strong>v{{ knowledge.version }}</span>
+              <span><strong>作者：</strong>{{ knowledge.author }}</span>
+              <span><strong>分类：</strong>{{ knowledge.category }}</span>
+            </div>
+            <div class="meta-row">
+              <span><strong>点击量：</strong>{{ knowledge.clickCount || 0 }}</span>
+              <span><strong>收藏量：</strong>{{ knowledge.collectCount || 0 }}</span>
+              <el-tag :type="getStatusType(knowledge.status)" size="default">
+                {{ getStatusText(knowledge.status) }}
+              </el-tag>
+            </div>
+          </div>
+          
+          <div class="content">
+            <!-- 如果有文件，显示文件信息和下载链接 -->
+            <div v-if="knowledge.fileId && fileInfo" class="file-info">
+              <el-card>
+                <div class="file-info-content">
+                  <div class="file-info-left">
+                    <h3>附件文件</h3>
+                    <p>文件名：{{ fileInfo.fileName }}</p>
+                    <p>文件类型：{{ fileInfo.fileType }}</p>
+                    <p>文件大小：{{ formatFileSize(fileInfo.fileSize) }}</p>
+                  </div>
+                  <div class="file-info-right">
+                    <el-button type="primary" @click="downloadFile">下载文件</el-button>
+                    <el-button v-if="canPreview(fileInfo.fileType)" @click="previewFile">预览</el-button>
+                  </div>
+                </div>
+              </el-card>
+            </div>
+            <!-- 显示文本内容 -->
+            <div v-if="knowledge.content" class="text-content">
+              <pre v-if="isTextContent(knowledge.content)">{{ knowledge.content }}</pre>
+              <p v-else>{{ knowledge.content }}</p>
+            </div>
+            <div v-else-if="!knowledge.fileId" class="empty-content">
+              <p style="color: #999;">暂无内容</p>
+            </div>
+          </div>
+          
+          <div class="related-knowledge" v-if="relatedKnowledge.length > 0">
+            <h3>相关知识</h3>
+            <el-row :gutter="20">
+              <el-col :span="8" v-for="item in relatedKnowledge" :key="item.id">
+                <el-card @click="viewDetail(item.id)" style="cursor: pointer">
+                  <h4>{{ item.title }}</h4>
+                  <p>{{ item.summary }}</p>
+                </el-card>
+              </el-col>
+            </el-row>
+          </div>
+        </div>
+        
+        <!-- 右侧信息栏 -->
+        <div class="sidebar-info">
+          <el-card class="info-card">
+            <template #header>
+              <span>审核状态</span>
+            </template>
+            <div v-loading="auditLoading">
+              <div v-if="auditHistory.length > 0">
+                <div v-for="(item, index) in auditHistory" :key="index" class="audit-item">
+                  <div class="audit-header">
+                    <el-tag :type="getAuditStatusType(item.action)" size="small">
+                      {{ getAuditActionText(item.action) }}
+                    </el-tag>
+                    <span class="audit-time">{{ formatTime(item.auditTime) }}</span>
+                  </div>
+                  <div v-if="item.auditorName" class="audit-auditor">
+                    审核人：{{ item.auditorName }}
+                  </div>
+                  <div v-if="item.comment" class="audit-comment">
+                    <div class="comment-label">审核意见：</div>
+                    <div class="comment-content">{{ item.comment }}</div>
+                  </div>
+                  <div v-if="item.action === 'REJECT'" class="reject-warning">
+                    <el-icon><Warning /></el-icon>
+                    <span>知识已被驳回，请根据审核意见修改后重新提交</span>
+                  </div>
+                </div>
               </div>
-              <div class="file-info-right">
-                <el-button type="primary" @click="downloadFile">下载文件</el-button>
-                <el-button v-if="canPreview(fileInfo.fileType)" @click="previewFile">预览</el-button>
+              <el-empty v-else description="暂无审核记录" :image-size="80" />
+            </div>
+          </el-card>
+          
+          <el-card class="info-card">
+            <template #header>
+              <span>版本历史</span>
+            </template>
+            <div v-loading="versionsLoading">
+              <div v-if="versions.length > 0">
+                <div v-for="(item, index) in versions.slice(0, 5)" :key="index" class="version-item">
+                  <div class="version-header">
+                    <span class="version-number">v{{ item.version }}</span>
+                    <span class="version-time">{{ formatTime(item.createTime) }}</span>
+                  </div>
+                  <div v-if="item.changeDescription" class="version-desc">{{ item.changeDescription }}</div>
+                  <div class="version-actions">
+                    <el-button size="small" text @click="viewVersion(item)">查看</el-button>
+                    <el-button 
+                      v-if="item.version !== knowledge.version" 
+                      size="small" 
+                      text 
+                      type="primary"
+                      @click="compareVersion(item)"
+                    >
+                      对比
+                    </el-button>
+                  </div>
+                </div>
+                <el-button 
+                  v-if="versions.length > 5" 
+                  text 
+                  type="primary" 
+                  style="width: 100%; margin-top: 10px"
+                  @click="showVersionDialog = true"
+                >
+                  查看全部版本 ({{ versions.length }})
+                </el-button>
               </div>
+              <el-empty v-else description="暂无版本记录" :image-size="80" />
             </div>
           </el-card>
         </div>
-        <!-- 显示文本内容 -->
-        <div v-if="knowledge.content" class="text-content">
-          <pre v-if="isTextContent(knowledge.content)">{{ knowledge.content }}</pre>
-          <p v-else>{{ knowledge.content }}</p>
-        </div>
-        <div v-else-if="!knowledge.fileId" class="empty-content">
-          <p style="color: #999;">暂无内容</p>
-        </div>
-      </div>
-      <div class="content" v-else>
-        <el-form-item label="内容">
-          <el-input v-model="editForm.content" type="textarea" :rows="15" placeholder="请输入内容" />
-        </el-form-item>
-      </div>
-      <div class="related-knowledge" v-if="relatedKnowledge.length > 0">
-        <h3>相关知识</h3>
-        <el-row :gutter="20">
-          <el-col :span="8" v-for="item in relatedKnowledge" :key="item.id">
-            <el-card @click="viewDetail(item.id)" style="cursor: pointer">
-              <h4>{{ item.title }}</h4>
-              <p>{{ item.summary }}</p>
-            </el-card>
-          </el-col>
-        </el-row>
       </div>
     </div>
 
@@ -267,6 +361,7 @@ const knowledge = ref(null)
 const relatedKnowledge = ref([])
 const loading = ref(false)
 const fileInfo = ref(null)
+const isCollected = ref(false)
 
 // 编辑模式
 const isEditMode = computed(() => route.query.edit === 'true')
@@ -288,6 +383,9 @@ const showVersionViewDialog = ref(false)
 const compareResult = ref(null)
 const selectedVersionsForCompare = ref([]) // 用于存储选中的版本（最多2个）
 const versionTableRef = ref(null)
+const infoTab = ref('audit')
+const auditHistory = ref([])
+const auditLoading = ref(false)
 
 // 文件预览相关
 const showFilePreviewDialog = ref(false)
@@ -328,6 +426,24 @@ const loadDetail = async () => {
       params: { limit: 6 }
     })
     relatedKnowledge.value = relatedRes.data || []
+    
+    // 检查收藏状态
+    if (userStore.userInfo && userStore.userInfo.id) {
+      try {
+        const collectRes = await api.get(`/knowledge/${route.params.id}/collect/status`, {
+          params: { userId: userStore.userInfo.id }
+        })
+        isCollected.value = collectRes.data || false
+      } catch (error) {
+        console.error('检查收藏状态失败', error)
+      }
+    }
+    
+    // 加载审核历史
+    loadAuditHistory()
+    
+    // 加载版本历史
+    loadVersions()
   } catch (error) {
     console.error('加载详情失败', error)
     ElMessage.error('加载详情失败')
@@ -456,6 +572,12 @@ const viewVersion = (version) => {
   showVersionViewDialog.value = true
 }
 
+const compareVersion = (version) => {
+  selectedVersionsForCompare.value = [version]
+  activeTab.value = 'compare'
+  showVersionDialog.value = true
+}
+
 const checkSelectable = (row) => {
   // 如果已经选择了2个版本，且当前行不在已选择列表中，则不可选
   if (selectedVersionsForCompare.value && selectedVersionsForCompare.value.length >= 2) {
@@ -567,6 +689,110 @@ watch(() => route.query.edit, (newVal) => {
   }
 })
 
+// 处理收藏
+const handleCollect = async () => {
+  if (!userStore.userInfo || !userStore.userInfo.id) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  
+  try {
+    if (isCollected.value) {
+      // 取消收藏
+      const res = await api.delete(`/knowledge/${route.params.id}/collect`, {
+        params: { userId: userStore.userInfo.id }
+      })
+      if (res.code === 200) {
+        isCollected.value = false
+        knowledge.value.collectCount = Math.max(0, (knowledge.value.collectCount || 0) - 1)
+        ElMessage.success('取消收藏成功')
+      }
+    } else {
+      // 收藏
+      const res = await api.post(`/knowledge/${route.params.id}/collect`, null, {
+        params: { userId: userStore.userInfo.id }
+      })
+      if (res.code === 200) {
+        isCollected.value = true
+        knowledge.value.collectCount = (knowledge.value.collectCount || 0) + 1
+        ElMessage.success('收藏成功')
+      }
+    }
+  } catch (error) {
+    ElMessage.error('操作失败: ' + (error.response?.data?.message || error.message))
+  }
+}
+
+const getStatusType = (status) => {
+  const map = {
+    'DRAFT': 'info',
+    'PENDING': 'warning',
+    'APPROVED': 'success',
+    'REJECTED': 'danger'
+  }
+  return map[status] || ''
+}
+
+const getStatusText = (status) => {
+  const map = {
+    'DRAFT': '草稿',
+    'PENDING': '待审核',
+    'APPROVED': '已发布',
+    'REJECTED': '已驳回'
+  }
+  return map[status] || status
+}
+
+const getAuditStatusType = (status) => {
+  const map = {
+    'PENDING': 'warning',
+    'APPROVED': 'success',
+    'REJECTED': 'danger'
+  }
+  return map[status] || ''
+}
+
+const getAuditStatusText = (status) => {
+  const map = {
+    'PENDING': '待审核',
+    'APPROVED': '已通过',
+    'REJECTED': '已驳回'
+  }
+  return map[status] || status
+}
+
+const getAuditActionText = (action) => {
+  const map = {
+    'SUBMIT': '提交审核',
+    'APPROVE': '审核通过',
+    'REJECT': '审核驳回',
+    'PENDING': '待审核',
+    'APPROVED': '已通过',
+    'REJECTED': '已驳回'
+  }
+  return map[action] || action || '未知'
+}
+
+const formatTime = (time) => {
+  if (!time) return '-'
+  return new Date(time).toLocaleString('zh-CN')
+}
+
+const loadAuditHistory = async () => {
+  if (!route.params.id) return
+  auditLoading.value = true
+  try {
+    const res = await api.get(`/knowledge/${route.params.id}/audit/history`)
+    if (res.code === 200 && res.data) {
+      auditHistory.value = res.data || []
+    }
+  } catch (error) {
+    console.error('加载审核历史失败', error)
+  } finally {
+    auditLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadDetail()
 })
@@ -577,18 +803,164 @@ onMounted(() => {
   padding: 20px;
 }
 
+.detail-layout {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-info {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.info-card {
+  margin-bottom: 20px;
+}
+
+.info-card :deep(.el-card__header) {
+  padding: 15px 20px;
+  font-weight: 600;
+  background-color: #f5f7fa;
+}
+
 .meta-info {
-  margin: 20px 0;
-  color: #666;
+  background: #f5f7fa;
+  padding: 15px 20px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+
+.meta-row:last-child {
+  margin-bottom: 0;
 }
 
 .meta-info span {
-  margin-right: 20px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.meta-info strong {
+  color: #303133;
+  margin-right: 5px;
 }
 
 .content {
-  margin: 30px 0;
+  margin-top: 20px;
   line-height: 1.8;
+}
+
+.audit-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.audit-item:last-child {
+  border-bottom: none;
+}
+
+.audit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.audit-time {
+  font-size: 12px;
+  color: #909399;
+}
+
+.audit-comment {
+  margin-top: 8px;
+  padding: 10px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.comment-label {
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 5px;
+}
+
+.comment-content {
+  color: #606266;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.audit-auditor {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.reject-warning {
+  margin-top: 8px;
+  padding: 8px;
+  background-color: #fef0f0;
+  border: 1px solid #fde2e2;
+  border-radius: 4px;
+  color: #f56c6c;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.version-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.version-item:last-child {
+  border-bottom: none;
+}
+
+.version-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.version-number {
+  font-weight: 600;
+  color: #409eff;
+  font-size: 14px;
+}
+
+.version-time {
+  font-size: 12px;
+  color: #909399;
+}
+
+.version-desc {
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.version-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .file-info {

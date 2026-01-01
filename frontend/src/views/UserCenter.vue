@@ -1,16 +1,15 @@
 <template>
   <div class="user-center">
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <span>个人中心</span>
-        </div>
-      </template>
-
-      <el-tabs v-model="activeTab">
-        <!-- 个人信息 -->
-        <el-tab-pane label="个人信息" name="profile">
-          <el-form :model="userForm" :rules="rules" ref="userFormRef" label-width="100px" style="max-width: 600px">
+    <div class="page-header">
+      <h2>个人中心</h2>
+    </div>
+    
+    <el-row :gutter="24">
+      <!-- 个人信息 -->
+      <el-col :span="12">
+        <div class="form-section">
+          <h3 class="section-title">个人信息</h3>
+          <el-form :model="userForm" :rules="rules" ref="userFormRef" label-width="100px">
             <el-form-item label="用户名">
               <el-input v-model="userForm.username" disabled />
             </el-form-item>
@@ -30,11 +29,14 @@
               <el-button type="primary" @click="updateProfile">保存修改</el-button>
             </el-form-item>
           </el-form>
-        </el-tab-pane>
-
-        <!-- 修改密码 -->
-        <el-tab-pane label="修改密码" name="password">
-          <el-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-width="100px" style="max-width: 600px">
+        </div>
+      </el-col>
+      
+      <!-- 修改密码 -->
+      <el-col :span="12">
+        <div class="form-section">
+          <h3 class="section-title">修改密码</h3>
+          <el-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-width="100px">
             <el-form-item label="原密码" prop="oldPassword">
               <el-input v-model="passwordForm.oldPassword" type="password" show-password />
             </el-form-item>
@@ -48,20 +50,19 @@
               <el-button type="primary" @click="updatePassword">修改密码</el-button>
             </el-form-item>
           </el-form>
-        </el-tab-pane>
-      </el-tabs>
-    </el-card>
+        </div>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const userStore = useUserStore()
-const activeTab = ref('profile')
 const userFormRef = ref(null)
 const passwordFormRef = ref(null)
 
@@ -197,12 +198,33 @@ onMounted(() => {
 
 <style scoped>
 .user-center {
-  padding: 20px;
+  padding: 24px;
+  min-height: 100%;
 }
 
-.card-header {
-  font-weight: 500;
+.page-header {
+  margin-bottom: 24px;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.form-section {
+  background-color: #fff;
+  padding: 24px;
+  border-radius: 4px;
+}
+
+.section-title {
+  margin: 0 0 20px 0;
   font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e4e7ed;
 }
 </style>
-

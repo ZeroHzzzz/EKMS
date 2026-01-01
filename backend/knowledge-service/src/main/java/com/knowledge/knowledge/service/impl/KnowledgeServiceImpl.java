@@ -5,14 +5,17 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowledge.api.dto.KnowledgeDTO;
 import com.knowledge.api.dto.KnowledgeQueryDTO;
 import com.knowledge.api.dto.KnowledgeVersionDTO;
+import com.knowledge.api.dto.StatisticsDTO;
 import com.knowledge.api.service.FileService;
 import com.knowledge.api.service.KnowledgeService;
 import com.knowledge.common.util.DiffUtil;
 import com.knowledge.common.constant.Constants;
 import com.knowledge.knowledge.entity.Knowledge;
 import com.knowledge.knowledge.entity.KnowledgeVersion;
+import com.knowledge.knowledge.entity.UserKnowledgeCollection;
 import com.knowledge.knowledge.mapper.KnowledgeMapper;
 import com.knowledge.knowledge.mapper.KnowledgeVersionMapper;
+import com.knowledge.knowledge.mapper.UserKnowledgeCollectionMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.annotation.DubboService;
@@ -22,7 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.core.util.IdUtil;
@@ -38,6 +43,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Resource
     private KnowledgeVersionMapper knowledgeVersionMapper;
     
+    @Resource
+    private UserKnowledgeCollectionMapper collectionMapper;
+    
     @DubboReference(check = false, timeout = 10000)
     private FileService fileService;
 
@@ -46,7 +54,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     public KnowledgeDTO createKnowledge(KnowledgeDTO knowledgeDTO) {
         Knowledge knowledge = new Knowledge();
         BeanUtils.copyProperties(knowledgeDTO, knowledge);
-        knowledge.setStatus(Constants.FILE_STATUS_DRAFT);
+        // 如果创建时指定了状态，使用指定状态；否则默认为草稿
+        if (knowledgeDTO.getStatus() == null || knowledgeDTO.getStatus().isEmpty()) {
+            knowledge.setStatus(Constants.FILE_STATUS_DRAFT);
+        } else {
+            knowledge.setStatus(knowledgeDTO.getStatus());
+        }
         knowledge.setClickCount(0L);
         knowledge.setCollectCount(0L);
         knowledge.setVersion(1L);
@@ -319,16 +332,40 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
+    @Transactional
+    public boolean publishKnowledge(Long id) {
+        Knowledge knowledge = knowledgeMapper.selectById(id);
+        if (knowledge == null) {
+            return false;
+        }
+        knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+        knowledge.setUpdateTime(LocalDateTime.now());
+        return knowledgeMapper.updateById(knowledge) > 0;
+    }
+
+    @Override
     public List<KnowledgeDTO> getHotKnowledge(int limit) {
         LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Knowledge::getStatus, Constants.FILE_STATUS_APPROVED);
+        // 不限制状态，显示所有知识（包括草稿、已发布等），按点击量排序
+        // 如果只想显示已发布的，可以取消下面的注释
+        // wrapper.eq(Knowledge::getStatus, Constants.FILE_STATUS_APPROVED);
+        
+        // 按点击量降序排序，如果点击量为null则按0处理
         wrapper.orderByDesc(Knowledge::getClickCount);
+        wrapper.orderByDesc(Knowledge::getCreateTime); // 如果点击量相同，按创建时间排序
         wrapper.last("LIMIT " + limit);
         
         List<Knowledge> knowledges = knowledgeMapper.selectList(wrapper);
         return knowledges.stream().map(knowledge -> {
             KnowledgeDTO dto = new KnowledgeDTO();
             BeanUtils.copyProperties(knowledge, dto);
+            // 确保点击量和收藏量不为null
+            if (dto.getClickCount() == null) {
+                dto.setClickCount(0L);
+            }
+            if (dto.getCollectCount() == null) {
+                dto.setCollectCount(0L);
+            }
             return dto;
         }).collect(Collectors.toList());
     }
@@ -456,6 +493,120 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         result.setStats(statsDTO);
         
         return result;
+    }
+
+    @Override
+    public StatisticsDTO getStatistics() {
+        StatisticsDTO statistics = new StatisticsDTO();
+        
+        // 统计知识总数
+        Long totalKnowledge = knowledgeMapper.selectCount(null);
+        statistics.setTotalKnowledge(totalKnowledge != null ? totalKnowledge : 0L);
+        
+        // 统计总点击量
+        Long totalClicks = knowledgeMapper.getTotalClicks();
+        statistics.setTotalClicks(totalClicks != null ? totalClicks : 0L);
+        
+        // 统计总收藏量
+        Long totalCollections = knowledgeMapper.getTotalCollections();
+        statistics.setTotalCollections(totalCollections != null ? totalCollections : 0L);
+        
+        // 统计待审核数量（status = 'PENDING'）
+        LambdaQueryWrapper<Knowledge> pendingWrapper = new LambdaQueryWrapper<>();
+        pendingWrapper.eq(Knowledge::getStatus, Constants.FILE_STATUS_PENDING);
+        Long pendingAudit = knowledgeMapper.selectCount(pendingWrapper);
+        statistics.setPendingAudit(pendingAudit != null ? pendingAudit : 0L);
+        
+        return statistics;
+    }
+
+    @Override
+    @Transactional
+    public boolean collectKnowledge(Long userId, Long knowledgeId) {
+        // 检查是否已收藏
+        LambdaQueryWrapper<UserKnowledgeCollection> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserKnowledgeCollection::getUserId, userId);
+        wrapper.eq(UserKnowledgeCollection::getKnowledgeId, knowledgeId);
+        UserKnowledgeCollection existing = collectionMapper.selectOne(wrapper);
+        
+        if (existing != null) {
+            // 已收藏，返回true
+            return true;
+        }
+        
+        // 添加收藏关系
+        UserKnowledgeCollection collection = new UserKnowledgeCollection();
+        collection.setUserId(userId);
+        collection.setKnowledgeId(knowledgeId);
+        collection.setCreateTime(LocalDateTime.now());
+        int result = collectionMapper.insert(collection);
+        
+        // 更新知识的收藏数
+        if (result > 0) {
+            knowledgeMapper.updateCollectCount(knowledgeId, 1);
+        }
+        
+        return result > 0;
+    }
+
+    @Override
+    @Transactional
+    public boolean cancelCollectKnowledge(Long userId, Long knowledgeId) {
+        // 删除收藏关系
+        LambdaQueryWrapper<UserKnowledgeCollection> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserKnowledgeCollection::getUserId, userId);
+        wrapper.eq(UserKnowledgeCollection::getKnowledgeId, knowledgeId);
+        int result = collectionMapper.delete(wrapper);
+        
+        // 更新知识的收藏数
+        if (result > 0) {
+            knowledgeMapper.updateCollectCount(knowledgeId, -1);
+        }
+        
+        return result > 0;
+    }
+
+    @Override
+    public boolean isCollected(Long userId, Long knowledgeId) {
+        LambdaQueryWrapper<UserKnowledgeCollection> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserKnowledgeCollection::getUserId, userId);
+        wrapper.eq(UserKnowledgeCollection::getKnowledgeId, knowledgeId);
+        return collectionMapper.selectCount(wrapper) > 0;
+    }
+
+    @Override
+    public List<KnowledgeDTO> getMyCollections(Long userId) {
+        // 查询用户收藏的知识ID列表
+        LambdaQueryWrapper<UserKnowledgeCollection> collectionWrapper = new LambdaQueryWrapper<>();
+        collectionWrapper.eq(UserKnowledgeCollection::getUserId, userId);
+        collectionWrapper.orderByDesc(UserKnowledgeCollection::getCreateTime);
+        List<UserKnowledgeCollection> collections = collectionMapper.selectList(collectionWrapper);
+        
+        if (collections.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // 提取知识ID列表
+        List<Long> knowledgeIds = collections.stream()
+            .map(UserKnowledgeCollection::getKnowledgeId)
+            .collect(Collectors.toList());
+        
+        // 查询知识详情
+        List<Knowledge> knowledges = knowledgeMapper.selectBatchIds(knowledgeIds);
+        
+        // 保持收藏顺序（按收藏时间倒序）
+        Map<Long, Knowledge> knowledgeMap = knowledges.stream()
+            .collect(Collectors.toMap(Knowledge::getId, k -> k));
+        
+        return knowledgeIds.stream()
+            .map(knowledgeMap::get)
+            .filter(k -> k != null)
+            .map(knowledge -> {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                return dto;
+            })
+            .collect(Collectors.toList());
     }
 }
 

@@ -35,9 +35,9 @@ public class ElasticSearchIndexInitializer implements ApplicationListener<Applic
     }
 
     /**
-     * 初始化索引
+     * 初始化索引（公共方法，可被外部调用）
      */
-    private void initializeIndex() throws Exception {
+    public void initializeIndex() throws Exception {
         // 检查索引是否存在（使用 GetIndexRequest）
         GetIndexRequest getIndexRequest = new GetIndexRequest(INDEX_NAME);
         boolean exists = elasticsearchClient.indices().exists(getIndexRequest, RequestOptions.DEFAULT);
@@ -69,10 +69,26 @@ public class ElasticSearchIndexInitializer implements ApplicationListener<Applic
                 "        }\n" +
                 "      }\n" +
                 "    },\n" +
+                "    \"titlePinyin\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
+                "    },\n" +
+                "    \"titleInitial\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
+                "    },\n" +
                 "    \"content\": {\n" +
                 "      \"type\": \"text\",\n" +
                 "      \"analyzer\": \"standard\",\n" +
                 "      \"search_analyzer\": \"standard\"\n" +
+                "    },\n" +
+                "    \"contentPinyin\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
+                "    },\n" +
+                "    \"contentInitial\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
                 "    },\n" +
                 "    \"keywords\": {\n" +
                 "      \"type\": \"text\",\n" +
@@ -83,6 +99,18 @@ public class ElasticSearchIndexInitializer implements ApplicationListener<Applic
                 "    },\n" +
                 "    \"fileId\": {\n" +
                 "      \"type\": \"long\"\n" +
+                "    },\n" +
+                "    \"fileName\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
+                "    },\n" +
+                "    \"fileNamePinyin\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
+                "    },\n" +
+                "    \"fileNameInitial\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\"\n" +
                 "    },\n" +
                 "    \"clickCount\": {\n" +
                 "      \"type\": \"long\"\n" +

@@ -3,6 +3,8 @@ package com.knowledge.knowledge.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.knowledge.knowledge.entity.Knowledge;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
@@ -11,6 +13,12 @@ public interface KnowledgeMapper extends BaseMapper<Knowledge> {
     void incrementClickCount(Long id);
 
     @Update("UPDATE knowledge SET collect_count = collect_count + #{delta} WHERE id = #{id}")
-    void updateCollectCount(Long id, int delta);
+    void updateCollectCount(@Param("id") Long id, @Param("delta") int delta);
+    
+    @Select("SELECT COALESCE(SUM(click_count), 0) FROM knowledge")
+    Long getTotalClicks();
+    
+    @Select("SELECT COALESCE(SUM(collect_count), 0) FROM knowledge")
+    Long getTotalCollections();
 }
 

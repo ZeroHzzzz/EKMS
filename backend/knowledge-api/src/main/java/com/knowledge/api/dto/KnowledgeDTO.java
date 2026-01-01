@@ -31,5 +31,6 @@ public class KnowledgeDTO implements Serializable {
     private String changeDescription; // 变更说明
     private List<Long> relatedKnowledgeIds;
     private List<String> tags;
+    private HighlightDTO highlight; // 搜索高亮信息（仅搜索时使用）
 }
 

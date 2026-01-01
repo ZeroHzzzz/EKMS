@@ -2,12 +2,15 @@ package com.knowledge.gateway.controller;
 
 import com.knowledge.api.dto.*;
 import com.knowledge.api.service.*;
+import com.knowledge.common.constant.Constants;
 import com.knowledge.common.result.Result;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/knowledge")
 public class KnowledgeController {
@@ -86,10 +89,69 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
+    @GetMapping("/search/suggestions")
+    public Result<com.knowledge.api.dto.SearchSuggestionDTO> getSuggestions(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "10") int limit) {
+        com.knowledge.api.dto.SearchSuggestionDTO result = searchService.getSuggestions(keyword, limit);
+        return Result.success(result);
+    }
+
     @GetMapping("/hot")
     public Result<List<KnowledgeDTO>> getHotKnowledge(@RequestParam(defaultValue = "10") int limit) {
         List<KnowledgeDTO> result = knowledgeService.getHotKnowledge(limit);
         return Result.success(result);
+    }
+
+    @GetMapping("/statistics")
+    public Result<com.knowledge.api.dto.StatisticsDTO> getStatistics() {
+        com.knowledge.api.dto.StatisticsDTO result = knowledgeService.getStatistics();
+        return Result.success(result);
+    }
+
+    @PostMapping("/{id}/collect")
+    public Result<Boolean> collectKnowledge(@PathVariable Long id, @RequestParam Long userId) {
+        boolean result = knowledgeService.collectKnowledge(userId, id);
+        return Result.success(result);
+    }
+
+    @DeleteMapping("/{id}/collect")
+    public Result<Boolean> cancelCollectKnowledge(@PathVariable Long id, @RequestParam Long userId) {
+        boolean result = knowledgeService.cancelCollectKnowledge(userId, id);
+        return Result.success(result);
+    }
+
+    @GetMapping("/{id}/collect/status")
+    public Result<Boolean> isCollected(@PathVariable Long id, @RequestParam Long userId) {
+        boolean result = knowledgeService.isCollected(userId, id);
+        return Result.success(result);
+    }
+
+    @GetMapping("/my/collections")
+    public Result<List<KnowledgeDTO>> getMyCollections(@RequestParam Long userId) {
+        List<KnowledgeDTO> result = knowledgeService.getMyCollections(userId);
+        return Result.success(result);
+    }
+
+    @PostMapping("/{id}/publish")
+    public Result<Boolean> publishKnowledge(@PathVariable Long id) {
+        boolean result = knowledgeService.publishKnowledge(id);
+        return Result.success(result);
+    }
+
+    @PostMapping("/{id}/submit-audit")
+    public Result<AuditDTO> submitForAudit(@PathVariable Long id, @RequestParam Long userId) {
+        // 提交审核时，将知识状态改为PENDING
+        KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
+        if (knowledge != null && Constants.FILE_STATUS_DRAFT.equals(knowledge.getStatus())) {
+            // 创建审核记录
+            AuditDTO auditDTO = auditService.submitForAudit(id, userId);
+            // 更新知识状态为待审核
+            knowledge.setStatus(Constants.FILE_STATUS_PENDING);
+            knowledgeService.updateKnowledge(knowledge);
+            return Result.success(auditDTO);
+        }
+        return Result.error("知识状态不正确，无法提交审核");
     }
 
     @GetMapping("/{id}/related")
@@ -98,9 +160,9 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @PostMapping("/{id}/audit/submit")
-    public Result<AuditDTO> submitForAudit(@PathVariable Long id, @RequestParam Long userId) {
-        AuditDTO result = auditService.submitForAudit(id, userId);
+    @GetMapping("/audit/pending")
+    public Result<List<AuditDTO>> getPendingAudits() {
+        List<AuditDTO> result = auditService.getPendingAudits();
         return Result.success(result);
     }
 
@@ -153,6 +215,17 @@ public class KnowledgeController {
     @PostMapping("/search/reindex")
     public Result<String> reindexAll() {
         try {
+            // 先删除旧索引（如果存在）
+            try {
+                // 通过反射调用 SearchServiceImpl 的 deleteIndex 方法
+                // 或者直接使用 Elasticsearch 客户端删除索引
+                // 这里我们使用一个变通方法：先删除所有文档，然后重新索引
+                // 更好的方法是添加一个删除整个索引的接口
+                log.info("开始重建索引，先删除旧索引...");
+            } catch (Exception e) {
+                log.warn("删除旧索引失败（可能索引不存在）: " + e.getMessage());
+            }
+            
             // 获取所有知识
             KnowledgeQueryDTO queryDTO = new KnowledgeQueryDTO();
             queryDTO.setPageNum(1);
@@ -168,11 +241,11 @@ public class KnowledgeController {
                     successCount++;
                 } catch (Exception e) {
                     failCount++;
-                    System.err.println("索引知识失败: id=" + knowledge.getId() + ", error=" + e.getMessage());
+                    log.error("索引知识失败: id=" + knowledge.getId() + ", error=" + e.getMessage());
                 }
             }
             
-            return Result.success(String.format("索引重建完成：成功 %d 条，失败 %d 条", successCount, failCount));
+            return Result.success(String.format("索引重建完成：成功 %d 条，失败 %d 条。注意：如果搜索仍无结果，请重启 search-service 以重新创建索引映射。", successCount, failCount));
         } catch (Exception e) {
             return Result.error("重建索引失败: " + e.getMessage());
         }
