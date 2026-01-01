@@ -2,8 +2,33 @@
   <div class="audit-page">
     <div class="page-header">
       <h2>知识审核管理</h2>
-      <el-button type="primary" @click="loadAuditList">刷新</el-button>
+      <div class="header-actions">
+        <el-statistic title="待审核" :value="auditList.length" />
+        <el-button type="primary" @click="loadAuditList">刷新</el-button>
+      </div>
     </div>
+    
+    <!-- 筛选栏 -->
+    <el-card style="margin-bottom: 20px">
+      <div class="filter-bar">
+        <el-select v-model="filterStatus" placeholder="审核状态" clearable style="width: 150px" @change="loadAuditList">
+          <el-option label="待审核" value="PENDING" />
+          <el-option label="已通过" value="APPROVED" />
+          <el-option label="已驳回" value="REJECTED" />
+        </el-select>
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          @change="loadAuditList"
+          style="margin-left: 10px"
+        />
+        <el-button @click="resetFilters">重置</el-button>
+      </div>
+    </el-card>
+    
     <el-card>
 
       <el-table :data="auditList" v-loading="loading" stripe>
@@ -193,6 +218,10 @@ const auditList = ref([])
 const loading = ref(false)
 const auditing = ref(false)
 
+// 筛选条件
+const filterStatus = ref('PENDING') // 默认只显示待审核
+const dateRange = ref(null)
+
 // 审核对话框
 const showApproveDialogVisible = ref(false)
 const showRejectDialogVisible = ref(false)
@@ -203,9 +232,37 @@ const rejectComment = ref('')
 const loadAuditList = async () => {
   loading.value = true
   try {
-    const res = await api.get('/knowledge/audit/pending')
+    // 根据筛选条件加载审核列表
+    let res
+    if (filterStatus.value === 'PENDING' || !filterStatus.value) {
+      // 只加载待审核的
+      res = await api.get('/knowledge/audit/pending')
+    } else {
+      // 加载所有审核记录，然后前端过滤
+      res = await api.get('/knowledge/audit/all')
+    }
+    
     if (res.code === 200 && res.data) {
-      auditList.value = res.data || []
+      let audits = res.data || []
+      
+      // 按状态过滤
+      if (filterStatus.value) {
+        audits = audits.filter(a => a.status === filterStatus.value)
+      }
+      
+      // 按日期范围过滤
+      if (dateRange.value && dateRange.value.length === 2) {
+        const startDate = new Date(dateRange.value[0])
+        const endDate = new Date(dateRange.value[1])
+        endDate.setHours(23, 59, 59, 999) // 包含结束日期的整天
+        
+        audits = audits.filter(a => {
+          const submitTime = new Date(a.submitTime)
+          return submitTime >= startDate && submitTime <= endDate
+        })
+      }
+      
+      auditList.value = audits
       // 加载每个审核记录对应的知识详情和提交人信息
       for (let audit of auditList.value) {
         if (audit.knowledgeId) {
@@ -360,6 +417,13 @@ const doReject = async () => {
   }
 }
 
+// 重置筛选
+const resetFilters = () => {
+  filterStatus.value = 'PENDING'
+  dateRange.value = null
+  loadAuditList()
+}
+
 onMounted(() => {
   loadAuditList()
 })
@@ -376,6 +440,18 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .page-header h2 {

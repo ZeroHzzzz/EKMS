@@ -382,10 +382,27 @@ public class FileServiceImpl implements FileService {
             // 验证文件哈希
             String finalHash = DigestUtil.sha256Hex(finalFilePath.toFile());
             if (!finalHash.equals(uploadInfo.getFileHash())) {
-                log.error("文件哈希校验失败: uploadId={}, expected={}, actual={}", 
-                        uploadId, uploadInfo.getFileHash(), finalHash);
-                Files.delete(finalFilePath);
-                throw new RuntimeException("文件哈希校验失败");
+                log.error("文件哈希校验失败: uploadId={}, fileName={}, expected={}, actual={}, fileSize={}", 
+                        uploadId, uploadInfo.getFileName(), uploadInfo.getFileHash(), finalHash, totalSize);
+                // 清理合并的文件
+                try {
+                    Files.deleteIfExists(finalFilePath);
+                } catch (IOException e) {
+                    log.warn("删除合并文件失败: {}", finalFilePath, e);
+                }
+                // 清理所有分片
+                for (ChunkInfo chunk : chunks) {
+                    try {
+                        Path chunkPath = Paths.get(chunk.getChunkPath());
+                        Files.deleteIfExists(chunkPath);
+                        chunkInfoMapper.deleteById(chunk.getId());
+                    } catch (Exception e) {
+                        log.warn("清理分片失败: chunkId={}", chunk.getId(), e);
+                    }
+                }
+                // 清理Redis中的上传任务
+                redisTemplate.delete(uploadKey);
+                throw new RuntimeException("文件哈希校验失败: 期望哈希=" + uploadInfo.getFileHash() + ", 实际哈希=" + finalHash);
             }
             
             log.info("文件哈希校验通过: uploadId={}, hash={}", uploadId, finalHash);
@@ -431,6 +448,19 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileDTO getFileById(Long fileId) {
         FileInfo fileInfo = fileInfoMapper.selectById(fileId);
+        if (fileInfo == null) {
+            return null;
+        }
+        FileDTO fileDTO = new FileDTO();
+        BeanUtils.copyProperties(fileInfo, fileDTO);
+        return fileDTO;
+    }
+
+    @Override
+    public FileDTO getFileByHash(String fileHash) {
+        LambdaQueryWrapper<FileInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(FileInfo::getFileHash, fileHash);
+        FileInfo fileInfo = fileInfoMapper.selectOne(wrapper);
         if (fileInfo == null) {
             return null;
         }

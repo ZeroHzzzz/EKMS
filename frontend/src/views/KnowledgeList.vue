@@ -28,9 +28,6 @@
         <template #default="{ item }">
           <div class="suggestion-item">
             <div class="suggestion-title">{{ item.value }}</div>
-            <div v-if="item.category" class="suggestion-meta">
-              <el-tag size="small" type="info">{{ item.category }}</el-tag>
-            </div>
           </div>
         </template>
         <template #append>
@@ -41,17 +38,12 @@
 
     <div class="filter-bar">
       <div class="filter-left">
-      <el-select v-model="filters.category" placeholder="分类" clearable style="width: 150px">
-        <el-option label="技术文档" value="技术文档" />
-        <el-option label="业务文档" value="业务文档" />
-        <el-option label="培训资料" value="培训资料" />
-      </el-select>
       <el-select 
         v-if="hasPermission(userInfo, 'VIEW_AUDIT') || hasRole(userInfo, ROLE_ADMIN)" 
         v-model="filters.status" 
-        placeholder="全部状态" 
+          placeholder="状态筛选" 
         clearable 
-        style="width: 150px; margin-left: 10px"
+          style="width: 150px"
       >
         <el-option label="已发布" value="APPROVED" />
         <el-option label="待审核" value="PENDING" />
@@ -61,34 +53,82 @@
       <el-select 
         v-else-if="hasRole(userInfo, ROLE_EDITOR)"
         v-model="filters.status" 
-        placeholder="全部状态" 
+          placeholder="状态筛选" 
         clearable 
-        style="width: 150px; margin-left: 10px"
+          style="width: 150px"
       >
         <el-option label="已发布" value="APPROVED" />
         <el-option label="草稿" value="DRAFT" />
       </el-select>
-      <!-- 普通用户默认只显示已发布的知识 -->
-      <el-select 
-        v-else
-        v-model="filters.status" 
-        placeholder="状态" 
+        <el-input
+          v-model="filters.author"
+          placeholder="作者筛选"
+          clearable
         style="width: 150px; margin-left: 10px"
-        disabled
-      >
-        <el-option label="已发布" value="APPROVED" />
-      </el-select>
+        >
+          <template #prefix>
+            <el-icon><User /></el-icon>
+          </template>
+        </el-input>
+        <el-date-picker
+          v-model="filters.dateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          value-format="YYYY-MM-DD"
+          clearable
+          style="width: 240px; margin-left: 10px"
+        />
+        <el-button 
+          type="primary" 
+          style="margin-left: 10px"
+          @click="handleSearch"
+        >
+          搜索
+        </el-button>
+        <el-button 
+          @click="clearFilters"
+          style="margin-left: 10px"
+        >
+          清空筛选
+        </el-button>
       </div>
     </div>
 
     <el-card class="table-card">
+    <div class="table-toolbar" v-if="knowledgeList && knowledgeList.length > 0">
+      <div class="toolbar-left">
+        <el-checkbox v-model="selectAll" @change="handleSelectAll">全选</el-checkbox>
+        <span class="selected-count">已选择 {{ selectedItems && selectedItems.length ? selectedItems.length : 0 }} 项</span>
+      </div>
+      <div class="toolbar-right">
+        <el-button 
+          v-if="selectedItems && selectedItems.length > 0 && hasPermission(userInfo, 'DOWNLOAD')" 
+          type="primary" 
+          @click="batchDownload"
+        >
+          批量下载
+        </el-button>
+        <el-button 
+          v-if="selectedItems && selectedItems.length > 0 && hasPermission(userInfo, 'EDIT')" 
+          type="warning" 
+          @click="showBatchUpdateDialog = true"
+        >
+          批量更新
+        </el-button>
+      </div>
+    </div>
     <el-table 
+      ref="tableRef"
       :data="knowledgeList" 
       style="width: 100%" 
       v-loading="loading"
       @row-click="handleRowClick"
       :row-style="{ cursor: 'pointer' }"
+      @selection-change="handleSelectionChange"
     >
+      <el-table-column type="selection" width="55" @click.stop />
       <el-table-column label="知识信息" min-width="500">
         <template #default="scope">
           <div class="knowledge-item">
@@ -99,7 +139,6 @@
                    class="knowledge-title highlight-title"></div>
               <div v-else class="knowledge-title">{{ scope.row.title }}</div>
               <div class="knowledge-meta-tags">
-                <el-tag size="small" type="info">{{ scope.row.category }}</el-tag>
                 <el-tag v-if="scope.row.highlight" size="small" type="success" class="match-tag">
                   <el-icon><Search /></el-icon>
                   匹配
@@ -208,7 +247,7 @@
     </div>
 
     <!-- 上传文档对话框 -->
-    <el-dialog v-model="showUploadDialog" title="上传文档" width="600px" @close="handleUploadDialogClose">
+    <el-dialog v-model="showUploadDialog" title="上传文档" width="700px" @close="handleUploadDialogClose" @open="loadKnowledgeTree">
       <el-upload
         class="upload-demo"
         drag
@@ -231,14 +270,6 @@
       <!-- 上传信息表单 -->
       <div v-if="fileList.length > 0" class="upload-form" style="margin-top: 20px">
         <el-form :model="uploadForm" label-width="100px">
-          <el-form-item label="分类" required>
-            <el-select v-model="uploadForm.category" placeholder="请选择分类" style="width: 100%">
-              <el-option label="技术文档" value="技术文档" />
-              <el-option label="业务文档" value="业务文档" />
-              <el-option label="培训资料" value="培训资料" />
-              <el-option label="未分类" value="未分类" />
-            </el-select>
-          </el-form-item>
           <el-form-item label="摘要">
             <el-input v-model="uploadForm.summary" type="textarea" :rows="3" placeholder="请输入文件摘要" />
           </el-form-item>
@@ -258,7 +289,7 @@
         <el-button 
           type="primary" 
           @click="startUpload" 
-          :disabled="fileList.length === 0 || uploading || !uploadForm.category"
+          :disabled="fileList.length === 0 || uploading"
           :loading="uploading"
         >
           开始上传
@@ -284,14 +315,24 @@ const userInfo = computed(() => userStore.userInfo)
 
 const searchKeyword = ref('')
 const filters = ref({
-  category: '',
-  status: null // 将在onMounted中根据权限设置
+  status: null, // 将在onMounted中根据权限设置
+  author: '',
+  dateRange: null
 })
 const knowledgeList = ref([])
 const loading = ref(false)
 const pageNum = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+
+// 批量选择相关
+const selectedItems = ref([])
+const selectAll = ref(false)
+const tableRef = ref(null)
+
+// 搜索历史
+const searchHistory = ref([])
+const showSearchHistory = ref(false)
 
 // 上传相关
 const showUploadDialog = ref(false)
@@ -300,44 +341,60 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const currentFileName = ref('')
 const uploadForm = ref({
-  category: '',
+  parentId: null, // 父节点ID，null表示根节点
   summary: '',
   keywords: ''
 })
+
+// 知识树相关
+const knowledgeTree = ref([])
+const treeLoading = ref(false)
+const parentNodeOptions = ref([]) // 父节点选择器选项
 
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
 
 const loadData = async () => {
   loading.value = true
   try {
-    if (searchKeyword.value) {
-      // 搜索
-      const res = await api.post('/knowledge/search', {
-        keyword: searchKeyword.value,
-        searchType: 'AUTO', // 自动识别搜索类型
-        category: filters.value.category,
-        pageNum: pageNum.value,
-        pageSize: pageSize.value
-      })
-      knowledgeList.value = res.data.results || []
-      total.value = res.data.total || 0
-    } else {
-      // 列表 - 过滤掉空字符串和null的参数
-      const params = {
+    // 构建搜索/筛选参数
+    const searchParams = {
         pageNum: pageNum.value,
         pageSize: pageSize.value
       }
-      if (filters.value.category) {
-        params.category = filters.value.category
+    
+    // 如果有搜索关键词，使用搜索接口
+    if (searchKeyword.value && searchKeyword.value.trim()) {
+      searchParams.keyword = searchKeyword.value.trim()
+      searchParams.searchType = 'AUTO'
       }
-      // 只有当status有值时才添加，空字符串、null、undefined都不添加（表示查看所有状态）
+    
+    // 添加筛选条件
       if (filters.value.status) {
-        params.status = filters.value.status
+      searchParams.status = filters.value.status
       }
-      
-      const res = await api.get('/knowledge/list', { params })
-      knowledgeList.value = res.data || []
-      total.value = res.data?.length || 0
+    if (filters.value.author && filters.value.author.trim()) {
+      searchParams.author = filters.value.author.trim()
+    }
+    if (filters.value.dateRange && filters.value.dateRange.length === 2) {
+      searchParams.startDate = filters.value.dateRange[0]
+      searchParams.endDate = filters.value.dateRange[1]
+    }
+    
+    let res
+    if (searchParams.keyword) {
+      // 使用搜索接口
+      res = await api.post('/knowledge/search', searchParams)
+      // 过滤掉文件夹（只显示有fileId的文件）
+      const results = (res.data.results || []).filter(item => item.fileId != null)
+      knowledgeList.value = results
+      total.value = results.length
+    } else {
+      // 使用列表接口
+      res = await api.get('/knowledge/list', { params: searchParams })
+      // 过滤掉文件夹（只显示有fileId的文件）
+      const results = (res.data || []).filter(item => item.fileId != null)
+      knowledgeList.value = results
+      total.value = results.length
     }
   } catch (error) {
     ElMessage.error('加载数据失败')
@@ -381,7 +438,6 @@ const fetchSuggestions = async (queryString, cb) => {
           suggestions.push({
             value: item.title,
             type: 'knowledge',
-            category: item.category,
             id: item.id
           })
         }
@@ -395,13 +451,31 @@ const fetchSuggestions = async (queryString, cb) => {
   }
 }
 
-// 选择建议项
-const handleSelect = (item) => {
-  searchKeyword.value = item.value
-  handleSearch()
+  // 选择建议项
+  const handleSelect = (item) => {
+    searchKeyword.value = item.value
+    if (item.type !== 'history') {
+      saveSearchHistory(item.value)
+    }
+    handleSearch()
 }
 
 const handleSearch = () => {
+    if (searchKeyword.value && searchKeyword.value.trim().length > 0) {
+      saveSearchHistory(searchKeyword.value.trim())
+    }
+    pageNum.value = 1
+    loadData()
+  }
+
+  // 清空筛选
+  const clearFilters = () => {
+    filters.value = {
+      status: null,
+      author: '',
+      dateRange: null
+    }
+    searchKeyword.value = ''
   pageNum.value = 1
   loadData()
 }
@@ -452,6 +526,54 @@ const viewDetail = (id) => {
 const handleRowClick = (row) => {
   // 点击行时跳转到详情页面
   viewDetail(row.id)
+}
+
+// 批量选择处理
+const handleSelectionChange = (selection) => {
+  selectedItems.value = selection || []
+  selectAll.value = selection && selection.length === knowledgeList.value.length && knowledgeList.value.length > 0
+}
+
+const handleSelectAll = (checked) => {
+  if (checked) {
+    selectedItems.value = knowledgeList.value ? [...knowledgeList.value] : []
+    // 同步表格选择状态
+    if (tableRef.value && knowledgeList.value) {
+      knowledgeList.value.forEach(row => {
+        tableRef.value.toggleRowSelection(row, true)
+      })
+    }
+  } else {
+    selectedItems.value = []
+    // 清除表格选择状态
+    if (tableRef.value) {
+      tableRef.value.clearSelection()
+    }
+  }
+}
+
+// 批量操作
+const batchDownload = async () => {
+  if (!selectedItems.value || selectedItems.value.length === 0) {
+    ElMessage.warning('请先选择要下载的知识')
+    return
+  }
+  
+  try {
+    const ids = selectedItems.value.map(item => item.id)
+    // 批量下载逻辑
+    for (const id of ids) {
+      const link = document.createElement('a')
+      link.href = `/api/knowledge/${id}/download`
+      link.download = ''
+      link.click()
+      // 添加延迟避免浏览器阻止多个下载
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+    ElMessage.success(`已开始下载 ${ids.length} 个文件`)
+  } catch (error) {
+    ElMessage.error('批量下载失败: ' + (error.message || '未知错误'))
+  }
 }
 
 const collect = async (row) => {
@@ -607,10 +729,7 @@ const startUpload = async () => {
     return
   }
   
-  if (!uploadForm.value.category) {
-    ElMessage.warning('请选择分类')
-    return
-  }
+  // 不再强制要求分类，因为主要使用树结构
   
   uploading.value = true
   uploadProgress.value = 0
@@ -694,7 +813,6 @@ const startUpload = async () => {
         title: fileNameWithoutExt,
         content: fileContent,
         summary: uploadForm.value.summary || `上传的文件：${file.name}`,
-        category: uploadForm.value.category,
         keywords: uploadForm.value.keywords || '',
         fileId: fileDTO.id,
         author: userInfo.realName || userInfo.username || '未知',
@@ -725,13 +843,69 @@ const handleUploadDialogClose = () => {
   showUploadDialog.value = false
   fileList.value = []
   uploadForm.value = {
-    category: '',
+    parentId: null,
     summary: '',
     keywords: ''
   }
   uploading.value = false
   uploadProgress.value = 0
   currentFileName.value = ''
+}
+
+// 加载知识树（用于父节点选择器）
+const loadKnowledgeTree = async () => {
+  if (treeLoading.value) return
+  treeLoading.value = true
+  try {
+    const res = await api.get('/knowledge/tree')
+    if (res.code === 200) {
+      knowledgeTree.value = res.data || []
+      // 构建树形结构用于 el-tree-select
+      parentNodeOptions.value = buildTreeForSelect(knowledgeTree.value)
+    }
+  } catch (error) {
+    console.error('加载知识树失败', error)
+  } finally {
+    treeLoading.value = false
+  }
+}
+
+// 构建树形结构（用于 el-tree-select）
+const buildTreeForSelect = (list) => {
+  const map = {}
+  const roots = []
+  
+  // 创建映射
+  list.forEach(item => {
+    map[item.id] = { ...item, children: [] }
+  })
+  
+  // 构建树
+  list.forEach(item => {
+    if (item.parentId) {
+      const parent = map[item.parentId]
+      if (parent) {
+        parent.children.push(map[item.id])
+      } else {
+        roots.push(map[item.id])
+      }
+    } else {
+      roots.push(map[item.id])
+    }
+  })
+  
+  // 按sortOrder排序
+  const sortChildren = (nodes) => {
+    nodes.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    nodes.forEach(node => {
+      if (node.children && node.children.length > 0) {
+        sortChildren(node.children)
+      }
+    })
+  }
+  
+  sortChildren(roots)
+  return roots
 }
 
 const getActionColumnWidth = () => {
@@ -825,6 +999,31 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #f5f7fa;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.selected-count {
+  font-size: 14px;
+  color: #606266;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 10px;
+}
+
 .upload-form {
   margin-top: 20px;
 }
@@ -841,10 +1040,32 @@ onMounted(() => {
   padding: 8px 0;
 }
 
+.suggestion-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
 .suggestion-title {
   flex: 1;
   font-size: 14px;
   color: #303133;
+}
+
+.history-icon {
+  color: #909399;
+  font-size: 14px;
+}
+
+.keyword-icon {
+  color: #409eff;
+  font-size: 14px;
+}
+
+.knowledge-icon {
+  color: #67c23a;
+  font-size: 14px;
 }
 
 .suggestion-meta {

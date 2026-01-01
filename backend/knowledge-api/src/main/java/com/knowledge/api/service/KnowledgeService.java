@@ -6,6 +6,7 @@ import com.knowledge.api.dto.KnowledgeVersionDTO;
 import com.knowledge.api.dto.StatisticsDTO;
 
 import java.util.List;
+import java.util.Map;
 
 public interface KnowledgeService {
     KnowledgeDTO createKnowledge(KnowledgeDTO knowledgeDTO);
@@ -23,6 +24,15 @@ public interface KnowledgeService {
     // 收藏相关方法
     boolean collectKnowledge(Long userId, Long knowledgeId);
     boolean cancelCollectKnowledge(Long userId, Long knowledgeId);
+    
+    // 批量操作
+    boolean batchUpdateKnowledge(List<Long> knowledgeIds, Map<String, Object> updateData);
+    
+    // 知识树相关
+    List<KnowledgeDTO> getKnowledgeTree();
+    boolean moveKnowledge(Long knowledgeId, Long parentId, Integer sortOrder);
+    List<KnowledgeDTO> getKnowledgePath(Long knowledgeId); // 获取知识路径（从根到当前节点）
+    List<KnowledgeDTO> getChildren(Long parentId); // 获取子节点列表
     boolean isCollected(Long userId, Long knowledgeId);
     List<KnowledgeDTO> getMyCollections(Long userId);
     

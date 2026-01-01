@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: gateway-service
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
 
 dubbo:
   application:

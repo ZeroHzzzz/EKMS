@@ -13,6 +13,16 @@ public class Constants {
     public static final String AUDIT_STATUS_APPROVED = "APPROVED";
     public static final String AUDIT_STATUS_REJECTED = "REJECTED";
 
+    // 评论状态
+    public static final String COMMENT_STATUS_APPROVED = "APPROVED";
+    public static final String COMMENT_STATUS_PENDING = "PENDING";
+    public static final String COMMENT_STATUS_DELETED = "DELETED";
+
+    // 关联类型
+    public static final String RELATION_TYPE_RELATED = "RELATED";
+    public static final String RELATION_TYPE_REFERENCE = "REFERENCE";
+    public static final String RELATION_TYPE_SIMILAR = "SIMILAR";
+
     // 文件类型
     public static final String FILE_TYPE_WORD = "WORD";
     public static final String FILE_TYPE_EXCEL = "EXCEL";

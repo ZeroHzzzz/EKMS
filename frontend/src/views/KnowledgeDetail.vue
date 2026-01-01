@@ -60,43 +60,177 @@
           </div>
           
           <div class="content">
-            <!-- 如果有文件，显示文件信息和下载链接 -->
-            <div v-if="knowledge.fileId && fileInfo" class="file-info">
-              <el-card>
-                <div class="file-info-content">
-                  <div class="file-info-left">
-                    <h3>附件文件</h3>
-                    <p>文件名：{{ fileInfo.fileName }}</p>
-                    <p>文件类型：{{ fileInfo.fileType }}</p>
-                    <p>文件大小：{{ formatFileSize(fileInfo.fileSize) }}</p>
+        <!-- 如果有文件，显示文件信息和下载链接 -->
+        <div v-if="knowledge.fileId && fileInfo" class="file-info">
+          <el-card>
+            <div class="file-info-content">
+              <div class="file-info-left">
+                <h3>附件文件</h3>
+                <p>文件名：{{ fileInfo.fileName }}</p>
+                <p>文件类型：{{ fileInfo.fileType }}</p>
+                <p>文件大小：{{ formatFileSize(fileInfo.fileSize) }}</p>
+              </div>
+              <div class="file-info-right">
+                <el-button type="primary" @click="downloadFile">下载文件</el-button>
+                <el-button v-if="canPreview(fileInfo.fileType)" @click="previewFile">预览</el-button>
+              </div>
+            </div>
+          </el-card>
+        </div>
+        <!-- 显示文本内容 -->
+        <div v-if="knowledge.content" class="text-content">
+          <pre v-if="isTextContent(knowledge.content)">{{ knowledge.content }}</pre>
+          <p v-else>{{ knowledge.content }}</p>
+        </div>
+        <div v-else-if="!knowledge.fileId" class="empty-content">
+          <p style="color: #999;">暂无内容</p>
+        </div>
+      </div>
+          
+          <!-- 关联知识 -->
+          <div class="related-knowledge-section">
+            <div class="section-header">
+              <h3>关联知识</h3>
+              <el-button 
+                v-if="canEdit(knowledge)" 
+                size="small" 
+                type="primary" 
+                @click="showAddRelationDialog = true"
+              >
+                添加关联
+              </el-button>
+      </div>
+            <div v-if="knowledgeRelations.length > 0" class="related-list">
+              <div 
+                v-for="relation in knowledgeRelations" 
+                :key="relation.id" 
+                class="relation-item"
+                @click="viewDetail(relation.relatedKnowledge?.id)"
+              >
+                <el-card class="relation-card">
+                  <div class="relation-header">
+                    <el-tag size="small" :type="getRelationTypeTag(relation.relationType)">
+                      {{ getRelationTypeText(relation.relationType) }}
+                    </el-tag>
+                    <el-button 
+                      v-if="canEdit(knowledge)" 
+                      size="small" 
+                      text 
+                      type="danger"
+                      @click.stop="deleteRelation(relation.id)"
+                    >
+                      删除
+                    </el-button>
                   </div>
-                  <div class="file-info-right">
-                    <el-button type="primary" @click="downloadFile">下载文件</el-button>
-                    <el-button v-if="canPreview(fileInfo.fileType)" @click="previewFile">预览</el-button>
+                  <h4 v-if="relation.relatedKnowledge">{{ relation.relatedKnowledge.title }}</h4>
+                  <p v-if="relation.relatedKnowledge" class="relation-summary">
+                    {{ relation.relatedKnowledge.summary || '暂无摘要' }}
+                  </p>
+            </el-card>
+              </div>
+            </div>
+            <el-empty v-else description="暂无关联知识" :image-size="80" />
+          </div>
+
+          <!-- 评论区域 -->
+          <div class="comment-section">
+            <h3>评论 ({{ comments.length }})</h3>
+            <div class="comment-input-area">
+              <el-input
+                v-model="newComment"
+                type="textarea"
+                :rows="3"
+                placeholder="写下你的评论..."
+                maxlength="500"
+                show-word-limit
+              />
+              <div class="comment-actions">
+                <el-button type="primary" @click="submitComment" :loading="commentSubmitting">
+                  发表评论
+                </el-button>
+              </div>
+            </div>
+            
+            <div class="comments-list" v-loading="commentsLoading">
+              <div v-if="comments.length > 0">
+                <div v-for="comment in comments" :key="comment.id" class="comment-item">
+                  <div class="comment-header">
+                    <div class="comment-user">
+                      <el-avatar :size="32">{{ comment.userRealName?.charAt(0) || 'U' }}</el-avatar>
+                      <div class="user-info">
+                        <div class="user-name">{{ comment.userRealName || comment.userName }}</div>
+                        <div class="comment-time">{{ formatTime(comment.createTime) }}</div>
+                      </div>
+                    </div>
+                    <div class="comment-actions">
+                      <el-button 
+                        size="small" 
+                        text 
+                        :type="comment.isLiked ? 'danger' : 'default'"
+                        @click="toggleLike(comment)"
+                      >
+                        <el-icon><Star /></el-icon>
+                        {{ comment.likeCount || 0 }}
+                      </el-button>
+                      <el-button 
+                        size="small" 
+                        text 
+                        @click="replyToComment(comment)"
+                      >
+                        回复
+                      </el-button>
+                      <el-button 
+                        v-if="canDeleteComment(comment)" 
+                        size="small" 
+                        text 
+                        type="danger"
+                        @click="deleteComment(comment.id)"
+                      >
+                        删除
+                      </el-button>
+                    </div>
+                  </div>
+                  <div class="comment-content">{{ comment.content }}</div>
+                  
+                  <!-- 回复列表 -->
+                  <div v-if="comment.replies && comment.replies.length > 0" class="replies-list">
+                    <div v-for="reply in comment.replies" :key="reply.id" class="reply-item">
+                      <div class="comment-header">
+                        <div class="comment-user">
+                          <el-avatar :size="24">{{ reply.userRealName?.charAt(0) || 'U' }}</el-avatar>
+                          <div class="user-info">
+                            <div class="user-name">{{ reply.userRealName || reply.userName }}</div>
+                            <div class="comment-time">{{ formatTime(reply.createTime) }}</div>
+                          </div>
+                        </div>
+                        <div class="comment-actions">
+                          <el-button 
+                            size="small" 
+                            text 
+                            :type="reply.isLiked ? 'danger' : 'default'"
+                            @click="toggleLike(reply)"
+                          >
+                            <el-icon><Star /></el-icon>
+                            {{ reply.likeCount || 0 }}
+                          </el-button>
+                          <el-button 
+                            v-if="canDeleteComment(reply)" 
+                            size="small" 
+                            text 
+                            type="danger"
+                            @click="deleteComment(reply.id)"
+                          >
+                            删除
+                          </el-button>
+                        </div>
+                      </div>
+                      <div class="comment-content">{{ reply.content }}</div>
+                    </div>
                   </div>
                 </div>
-              </el-card>
+              </div>
+              <el-empty v-else description="暂无评论，快来发表第一条评论吧" :image-size="80" />
             </div>
-            <!-- 显示文本内容 -->
-            <div v-if="knowledge.content" class="text-content">
-              <pre v-if="isTextContent(knowledge.content)">{{ knowledge.content }}</pre>
-              <p v-else>{{ knowledge.content }}</p>
-            </div>
-            <div v-else-if="!knowledge.fileId" class="empty-content">
-              <p style="color: #999;">暂无内容</p>
-            </div>
-          </div>
-          
-          <div class="related-knowledge" v-if="relatedKnowledge.length > 0">
-            <h3>相关知识</h3>
-            <el-row :gutter="20">
-              <el-col :span="8" v-for="item in relatedKnowledge" :key="item.id">
-                <el-card @click="viewDetail(item.id)" style="cursor: pointer">
-                  <h4>{{ item.title }}</h4>
-                  <p>{{ item.summary }}</p>
-                </el-card>
-              </el-col>
-            </el-row>
           </div>
         </div>
         
@@ -323,6 +457,52 @@
               frameborder="0"
             ></iframe>
           </div>
+          <!-- Excel文件 -->
+          <div v-else-if="isExcelFile(fileInfo.fileType)" class="excel-preview" v-loading="excelLoading">
+            <div v-if="excelData" class="excel-table-container">
+              <el-table :data="excelData" border stripe max-height="600" style="width: 100%">
+                <el-table-column 
+                  v-for="(col, index) in excelColumns" 
+                  :key="index"
+                  :prop="col.prop"
+                  :label="col.label"
+                  :min-width="col.width || 120"
+                />
+              </el-table>
+            </div>
+            <div v-else class="excel-loading">
+              <el-empty description="正在加载Excel文件..." />
+            </div>
+          </div>
+          <!-- Word文件 -->
+          <div v-else-if="isWordFile(fileInfo.fileType)" class="word-preview" v-loading="wordLoading">
+            <div v-if="wordContent" class="word-content" v-html="wordContent"></div>
+            <div v-else class="word-loading">
+              <el-empty description="正在加载Word文件..." />
+            </div>
+          </div>
+          <!-- 视频文件 -->
+          <div v-else-if="isVideoFile(fileInfo.fileType)" class="video-preview">
+            <video 
+              :src="previewUrl" 
+              controls 
+              class="video-player"
+              preload="metadata"
+            >
+              您的浏览器不支持视频播放
+            </video>
+          </div>
+          <!-- 音频文件 -->
+          <div v-else-if="isAudioFile(fileInfo.fileType)" class="audio-preview">
+            <audio 
+              :src="previewUrl" 
+              controls 
+              class="audio-player"
+              preload="metadata"
+            >
+              您的浏览器不支持音频播放
+            </audio>
+          </div>
           <!-- 其他文件类型，提示下载 -->
           <div v-else class="unsupported-preview">
             <el-alert
@@ -350,8 +530,9 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
+import { hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 
 const route = useRoute()
 const router = useRouter()
@@ -359,9 +540,25 @@ const userStore = useUserStore()
 
 const knowledge = ref(null)
 const relatedKnowledge = ref([])
+const knowledgeRelations = ref([]) // 知识关联关系列表
 const loading = ref(false)
 const fileInfo = ref(null)
 const isCollected = ref(false)
+
+// 评论相关
+const comments = ref([])
+const newCommentContent = ref('')
+const replyToCommentId = ref(null)
+const commentSubmitting = ref(false)
+
+// 关联知识相关
+const showAddRelationDialog = ref(false)
+const relationSearchKeyword = ref('')
+const relationSearchResults = ref([])
+const addRelationForm = ref({
+  relatedKnowledgeId: null,
+  relationType: 'RELATED'
+})
 
 // 编辑模式
 const isEditMode = computed(() => route.query.edit === 'true')
@@ -427,6 +624,12 @@ const loadDetail = async () => {
     })
     relatedKnowledge.value = relatedRes.data || []
     
+    // 加载知识关联关系
+    await loadKnowledgeRelations()
+    
+    // 加载评论
+    await loadComments()
+    
     // 检查收藏状态
     if (userStore.userInfo && userStore.userInfo.id) {
       try {
@@ -467,7 +670,7 @@ const downloadFile = () => {
   document.body.removeChild(link)
 }
 
-const previewFile = () => {
+const previewFile = async () => {
   if (!fileInfo.value || !fileInfo.value.id) {
     ElMessage.warning('文件信息不存在')
     return
@@ -475,10 +678,103 @@ const previewFile = () => {
   // 设置预览URL并打开对话框
   previewUrl.value = `/api/file/preview/${fileInfo.value.id}`
   showFilePreviewDialog.value = true
+  
+  // 根据文件类型加载预览内容
+  if (isExcelFile(fileInfo.value.fileType)) {
+    await loadExcelPreview()
+  } else if (isWordFile(fileInfo.value.fileType)) {
+    await loadWordPreview()
+  }
+}
+
+// 加载Excel预览
+const loadExcelPreview = async () => {
+  excelLoading.value = true
+  excelData.value = []
+  excelColumns.value = []
+  
+  try {
+    // 下载文件
+    const response = await fetch(previewUrl.value)
+    const arrayBuffer = await response.arrayBuffer()
+    
+    // 使用xlsx解析
+    const XLSXModule = await import('xlsx')
+    // xlsx 导出为命名空间，直接使用模块对象
+    const XLSX = XLSXModule.default || XLSXModule
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+    const firstSheetName = workbook.SheetNames[0]
+    const worksheet = workbook.Sheets[firstSheetName]
+    
+    // 转换为JSON
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' })
+    
+    if (jsonData.length > 0) {
+      // 第一行作为表头
+      const headers = jsonData[0]
+      excelColumns.value = headers.map((h, i) => ({
+        prop: `col${i}`,
+        label: h || `列${i + 1}`,
+        width: 150
+      }))
+      
+      // 其余行作为数据
+      excelData.value = jsonData.slice(1).map(row => {
+        const obj = {}
+        headers.forEach((h, i) => {
+          obj[`col${i}`] = row[i] || ''
+        })
+        return obj
+      })
+    }
+  } catch (error) {
+    console.error('加载Excel预览失败', error)
+    ElMessage.error('加载Excel预览失败: ' + error.message)
+  } finally {
+    excelLoading.value = false
+  }
+}
+
+// 加载Word预览
+const loadWordPreview = async () => {
+  wordLoading.value = true
+  wordContent.value = ''
+  
+  try {
+    // 下载文件
+    const response = await fetch(previewUrl.value)
+    const arrayBuffer = await response.arrayBuffer()
+    
+    // 使用docx-preview渲染
+    const docxPreview = await import('docx-preview')
+    const renderAsync = docxPreview.renderAsync || docxPreview.default?.renderAsync || docxPreview.default
+    const container = document.createElement('div')
+    await renderAsync(arrayBuffer, container, null, {
+      className: 'docx-wrapper',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      ignoreFonts: false,
+      breakPages: true,
+      ignoreLastRenderedPageBreak: true
+    })
+    
+    wordContent.value = container.innerHTML
+  } catch (error) {
+    console.error('加载Word预览失败', error)
+    // Word预览失败时，提示下载
+    ElMessage.warning('Word文件预览暂不支持，请下载后查看')
+    wordContent.value = '<div style="text-align: center; padding: 40px;"><p>Word文件预览暂不支持</p><p>请下载文件后使用Microsoft Word打开</p></div>'
+  } finally {
+    wordLoading.value = false
+  }
 }
 
 const handleFilePreviewClose = () => {
   previewUrl.value = ''
+  excelData.value = []
+  excelColumns.value = []
+  wordContent.value = ''
 }
 
 const openInNewWindow = () => {
@@ -778,6 +1074,142 @@ const formatTime = (time) => {
   return new Date(time).toLocaleString('zh-CN')
 }
 
+// 检查是否可以编辑知识
+const canEdit = (knowledgeItem) => {
+  if (!userStore.userInfo) return false
+  // ADMIN可以编辑所有知识
+  if (hasRole(userStore.userInfo, ROLE_ADMIN)) return true
+  // EDITOR只能编辑自己创建的知识
+  if (hasRole(userStore.userInfo, ROLE_EDITOR) && knowledgeItem.author === userStore.userInfo.realName) {
+    return true
+  }
+  return false
+}
+
+// 检查是否可以删除评论
+const canDeleteComment = (comment) => {
+  if (!userStore.userInfo) return false
+  // ADMIN可以删除所有评论
+  if (hasRole(userStore.userInfo, ROLE_ADMIN)) return true
+  // 用户可以删除自己的评论
+  if (comment.userId === userStore.userInfo.id) return true
+  return false
+}
+
+// 加载知识关联关系
+const loadKnowledgeRelations = async () => {
+  if (!route.params.id) return
+  try {
+    const res = await api.get(`/knowledge/${route.params.id}/relations`)
+    if (res.code === 200 && res.data) {
+      knowledgeRelations.value = res.data || []
+    }
+  } catch (error) {
+    // 如果接口不存在（404），静默处理，不显示错误
+    if (error.response?.status !== 404) {
+      console.error('加载知识关联关系失败', error)
+    }
+    knowledgeRelations.value = []
+  }
+}
+
+// 搜索知识用于添加关联
+const searchKnowledgeForRelation = async () => {
+  if (!relationSearchKeyword.value.trim()) {
+    relationSearchResults.value = []
+    return
+  }
+  try {
+    const res = await api.get('/knowledge/search', {
+      params: {
+        keyword: relationSearchKeyword.value,
+        pageNum: 1,
+        pageSize: 10
+      }
+    })
+    if (res.code === 200 && res.data) {
+      // 过滤掉当前知识本身
+      relationSearchResults.value = (res.data.list || []).filter(
+        item => item.id !== route.params.id
+      )
+    }
+  } catch (error) {
+    console.error('搜索知识失败', error)
+    relationSearchResults.value = []
+  }
+}
+
+// 添加知识关联
+const addKnowledgeRelation = async () => {
+  if (!addRelationForm.value.relatedKnowledgeId) {
+    ElMessage.warning('请选择要关联的知识')
+    return
+  }
+  try {
+    const res = await api.post(`/knowledge/${route.params.id}/relations`, {
+      relatedKnowledgeId: addRelationForm.value.relatedKnowledgeId,
+      relationType: addRelationForm.value.relationType
+    })
+    if (res.code === 200) {
+      ElMessage.success('添加关联成功')
+      showAddRelationDialog.value = false
+      addRelationForm.value = {
+        relatedKnowledgeId: null,
+        relationType: 'RELATED'
+      }
+      relationSearchKeyword.value = ''
+      relationSearchResults.value = []
+      await loadKnowledgeRelations()
+    } else {
+      ElMessage.error(res.message || '添加关联失败')
+    }
+  } catch (error) {
+    console.error('添加关联失败', error)
+    ElMessage.error('添加关联失败')
+  }
+}
+
+// 删除知识关联
+const deleteRelation = async (relationId) => {
+  try {
+    await ElMessageBox.confirm('确定要删除这个关联吗？', '提示', {
+      type: 'warning'
+    })
+    const res = await api.delete(`/knowledge/${route.params.id}/relations/${relationId}`)
+    if (res.code === 200) {
+      ElMessage.success('删除关联成功')
+      await loadKnowledgeRelations()
+    } else {
+      ElMessage.error(res.message || '删除关联失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除关联失败', error)
+      ElMessage.error('删除关联失败')
+    }
+  }
+}
+
+// 获取关联类型标签类型
+const getRelationTypeTag = (type) => {
+  const map = {
+    'RELATED': 'primary',
+    'CITED': 'success',
+    'SIMILAR': 'info'
+  }
+  return map[type] || 'default'
+}
+
+// 获取关联类型文本
+const getRelationTypeText = (type) => {
+  const map = {
+    'RELATED': '相关',
+    'CITED': '引用',
+    'SIMILAR': '相似'
+  }
+  return map[type] || type
+}
+
 const loadAuditHistory = async () => {
   if (!route.params.id) return
   auditLoading.value = true
@@ -790,6 +1222,77 @@ const loadAuditHistory = async () => {
     console.error('加载审核历史失败', error)
   } finally {
     auditLoading.value = false
+  }
+}
+
+// 加载评论
+const loadComments = async () => {
+  if (!route.params.id) return
+  try {
+    const res = await api.get(`/knowledge/${route.params.id}/comments`)
+    if (res.code === 200 && res.data) {
+      comments.value = res.data || []
+    }
+  } catch (error) {
+    // 如果接口不存在（404），静默处理
+    if (error.response?.status !== 404) {
+      console.error('加载评论失败', error)
+    }
+    comments.value = []
+  }
+}
+
+// 提交评论
+const submitComment = async () => {
+  if (!newCommentContent.value.trim()) {
+    ElMessage.warning('请输入评论内容')
+    return
+  }
+  if (!userStore.userInfo || !userStore.userInfo.id) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  
+  commentSubmitting.value = true
+  try {
+    const res = await api.post(`/knowledge/${route.params.id}/comments`, {
+      content: newCommentContent.value,
+      parentId: replyToCommentId.value
+    })
+    if (res.code === 200) {
+      ElMessage.success('评论成功')
+      newCommentContent.value = ''
+      replyToCommentId.value = null
+      await loadComments()
+    } else {
+      ElMessage.error(res.message || '评论失败')
+    }
+  } catch (error) {
+    console.error('提交评论失败', error)
+    ElMessage.error('评论失败')
+  } finally {
+    commentSubmitting.value = false
+  }
+}
+
+// 删除评论
+const deleteComment = async (commentId) => {
+  try {
+    await ElMessageBox.confirm('确定要删除这条评论吗？', '提示', {
+      type: 'warning'
+    })
+    const res = await api.delete(`/knowledge/${route.params.id}/comments/${commentId}`)
+    if (res.code === 200) {
+      ElMessage.success('删除成功')
+      await loadComments()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除评论失败', error)
+      ElMessage.error('删除失败')
+    }
   }
 }
 

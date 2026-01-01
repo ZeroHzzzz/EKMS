@@ -9,6 +9,7 @@ import Register from '../views/Register.vue'
 import UserManagement from '../views/UserManagement.vue'
 import UserCenter from '../views/UserCenter.vue'
 import MyCollections from '../views/MyCollections.vue'
+import KnowledgeTree from '../views/KnowledgeTree.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
 
@@ -66,6 +67,12 @@ const routes = [
     path: '/my-collections',
     name: 'MyCollections',
     component: MyCollections
+  },
+  {
+    path: '/knowledge-tree',
+    name: 'KnowledgeTree',
+    component: KnowledgeTree,
+    meta: { permission: 'MANAGE_STRUCTURE' }
   }
 ]
 

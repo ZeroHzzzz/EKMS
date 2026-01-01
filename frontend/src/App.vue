@@ -50,8 +50,12 @@
           <el-menu-item v-if="hasPermission(userInfo, 'MANAGE_USER')" index="/user-management">
             <el-icon><User /></el-icon>
             <span>用户管理</span>
-          </el-menu-item>
-          <el-divider />
+                </el-menu-item>
+                <el-menu-item v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')" index="/knowledge-tree">
+                  <el-icon><FolderOpened /></el-icon>
+                  <span>知识结构</span>
+                </el-menu-item>
+                <el-divider />
           <el-menu-item index="/user-center">
             <el-icon><UserFilled /></el-icon>
             <span>个人中心</span>

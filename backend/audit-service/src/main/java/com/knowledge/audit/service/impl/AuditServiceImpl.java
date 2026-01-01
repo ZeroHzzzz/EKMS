@@ -121,7 +121,21 @@ public class AuditServiceImpl implements AuditService {
         LambdaQueryWrapper<Audit> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Audit::getStatus, Constants.AUDIT_STATUS_PENDING);
         wrapper.orderByDesc(Audit::getCreateTime);
-        
+
+        List<Audit> audits = auditMapper.selectList(wrapper);
+        return audits.stream().map(audit -> {
+            AuditDTO dto = new AuditDTO();
+            BeanUtils.copyProperties(audit, dto);
+            dto.setSubmitTime(audit.getCreateTime());
+            return dto;
+        }).collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
+    public List<AuditDTO> getAllAudits() {
+        LambdaQueryWrapper<Audit> wrapper = new LambdaQueryWrapper<>();
+        wrapper.orderByDesc(Audit::getCreateTime);
+
         List<Audit> audits = auditMapper.selectList(wrapper);
         return audits.stream().map(audit -> {
             AuditDTO dto = new AuditDTO();

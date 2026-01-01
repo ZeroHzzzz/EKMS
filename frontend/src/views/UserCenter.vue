@@ -2,10 +2,10 @@
   <div class="user-center">
     <div class="page-header">
       <h2>个人中心</h2>
-    </div>
-    
+        </div>
+
     <el-row :gutter="24">
-      <!-- 个人信息 -->
+        <!-- 个人信息 -->
       <el-col :span="12">
         <div class="form-section">
           <h3 class="section-title">个人信息</h3>
@@ -31,8 +31,8 @@
           </el-form>
         </div>
       </el-col>
-      
-      <!-- 修改密码 -->
+
+        <!-- 修改密码 -->
       <el-col :span="12">
         <div class="form-section">
           <h3 class="section-title">修改密码</h3>

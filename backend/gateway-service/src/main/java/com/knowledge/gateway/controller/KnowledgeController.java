@@ -121,6 +121,12 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
+    @GetMapping("/{id}/path")
+    public Result<List<KnowledgeDTO>> getKnowledgePath(@PathVariable Long id) {
+        List<KnowledgeDTO> result = knowledgeService.getKnowledgePath(id);
+        return Result.success(result);
+    }
+
     @GetMapping("/{id}/collect/status")
     public Result<Boolean> isCollected(@PathVariable Long id, @RequestParam Long userId) {
         boolean result = knowledgeService.isCollected(userId, id);
@@ -160,9 +166,59 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
+    @PostMapping("/batch/update")
+    public Result<Boolean> batchUpdateKnowledge(@RequestBody BatchUpdateRequest request) {
+        try {
+            boolean result = knowledgeService.batchUpdateKnowledge(
+                request.getKnowledgeIds(),
+                request.getUpdateData()
+            );
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("批量更新失败", e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/tree")
+    public Result<List<KnowledgeDTO>> getKnowledgeTree() {
+        List<KnowledgeDTO> result = knowledgeService.getKnowledgeTree();
+        return Result.success(result);
+    }
+
+    @PutMapping("/{id}/move")
+    public Result<Boolean> moveKnowledge(
+            @PathVariable Long id,
+            @RequestBody MoveKnowledgeRequest request) {
+        try {
+            boolean result = knowledgeService.moveKnowledge(
+                id,
+                request.getParentId(),
+                request.getSortOrder()
+            );
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("移动知识失败", e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    // 内部类：移动知识请求
+    @lombok.Data
+    public static class MoveKnowledgeRequest {
+        private Long parentId;
+        private Integer sortOrder;
+    }
+
     @GetMapping("/audit/pending")
     public Result<List<AuditDTO>> getPendingAudits() {
         List<AuditDTO> result = auditService.getPendingAudits();
+        return Result.success(result);
+    }
+
+    @GetMapping("/audit/all")
+    public Result<List<AuditDTO>> getAllAudits() {
+        List<AuditDTO> result = auditService.getAllAudits();
         return Result.success(result);
     }
 

@@ -67,7 +67,30 @@ public class FileController {
             FileDTO fileDTO = fileService.completeUpload(uploadId);
             return Result.success(fileDTO);
         } catch (Exception e) {
-            log.error("完成上传失败", e);
+            log.error("完成上传失败: uploadId={}, error={}", uploadId, e.getMessage(), e);
+            // 返回更友好的错误信息
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && errorMessage.contains("文件哈希校验失败")) {
+                return Result.error("文件上传失败：文件哈希校验不通过，可能是文件传输过程中出现错误，请重新上传");
+            } else if (errorMessage != null && errorMessage.contains("分片不完整")) {
+                return Result.error("文件上传失败：分片不完整，请重新上传");
+            } else if (errorMessage != null && errorMessage.contains("上传任务不存在")) {
+                return Result.error("文件上传失败：上传任务已过期，请重新上传");
+            } else {
+                return Result.error("文件上传失败：" + (errorMessage != null ? errorMessage : "未知错误"));
+            }
+        }
+    }
+
+    @GetMapping("/check/{fileHash}")
+    public Result<FileDTO> checkFileByHash(@PathVariable String fileHash) {
+        try {
+            // 通过文件哈希查找文件
+            FileDTO fileDTO = fileService.getFileByHash(fileHash);
+            // 文件不存在时返回成功但data为null，这是正常情况，不应该作为错误处理
+            return Result.success(fileDTO);
+        } catch (Exception e) {
+            log.error("检查文件失败: fileHash={}", fileHash, e);
             return Result.error(e.getMessage());
         }
     }

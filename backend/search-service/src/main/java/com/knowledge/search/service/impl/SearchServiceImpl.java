@@ -106,9 +106,12 @@ public class SearchServiceImpl implements SearchService {
             //     boolQuery.must(QueryBuilders.termQuery("fileType", request.getFileType()));
             // }
             
-            // 如果查询为空，使用 match_all 查询
+            // 只搜索文件（有fileId的），过滤掉文件夹
+            boolQuery.must(QueryBuilders.existsQuery("fileId"));
+            
+            // 如果查询为空，使用 match_all 查询（但仍需要过滤文件夹）
             if (!boolQuery.hasClauses()) {
-                sourceBuilder.query(QueryBuilders.matchAllQuery());
+                sourceBuilder.query(QueryBuilders.boolQuery().must(QueryBuilders.existsQuery("fileId")));
             } else {
                 sourceBuilder.query(boolQuery);
             }
@@ -150,6 +153,10 @@ public class SearchServiceImpl implements SearchService {
                 dto.setCategory((String) source.get("category"));
                 dto.setKeywords((String) source.get("keywords"));
                 dto.setClickCount(Long.valueOf(source.get("clickCount").toString()));
+                // 设置fileId（搜索结果中只包含文件，所以fileId一定存在）
+                if (source.get("fileId") != null) {
+                    dto.setFileId(Long.valueOf(source.get("fileId").toString()));
+                }
                 
                 // 提取高亮信息
                 if (hit.getHighlightFields() != null && !hit.getHighlightFields().isEmpty()) {
@@ -247,6 +254,12 @@ public class SearchServiceImpl implements SearchService {
     public void indexKnowledge(KnowledgeDTO knowledgeDTO) {
         if (knowledgeDTO == null || knowledgeDTO.getId() == null) {
             log.warn("知识数据为空，跳过索引");
+            return;
+        }
+        
+        // 只索引文件（有fileId的），不索引文件夹
+        if (knowledgeDTO.getFileId() == null) {
+            log.debug("跳过文件夹索引: id={}, title={}", knowledgeDTO.getId(), knowledgeDTO.getTitle());
             return;
         }
         

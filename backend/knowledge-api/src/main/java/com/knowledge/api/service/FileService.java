@@ -11,6 +11,7 @@ public interface FileService {
     UploadResponseDTO uploadChunk(ChunkUploadDTO chunkUploadDTO);
     FileDTO completeUpload(String uploadId);
     FileDTO getFileById(Long fileId);
+    FileDTO getFileByHash(String fileHash);
     List<FileDTO> batchDownload(List<Long> fileIds);
     boolean deleteFile(Long fileId);
     String getFilePreviewUrl(Long fileId);

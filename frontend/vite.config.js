@@ -9,6 +9,10 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  optimizeDeps: {
+    include: ['xlsx', 'docx-preview'],
+    exclude: []
+  },
   server: {
     port: 3000,
     proxy: {

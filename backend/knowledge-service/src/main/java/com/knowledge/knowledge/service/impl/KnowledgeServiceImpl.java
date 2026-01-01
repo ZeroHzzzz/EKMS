@@ -8,6 +8,7 @@ import com.knowledge.api.dto.KnowledgeVersionDTO;
 import com.knowledge.api.dto.StatisticsDTO;
 import com.knowledge.api.service.FileService;
 import com.knowledge.api.service.KnowledgeService;
+import com.knowledge.api.service.SearchService;
 import com.knowledge.common.util.DiffUtil;
 import com.knowledge.common.constant.Constants;
 import com.knowledge.knowledge.entity.Knowledge;
@@ -48,6 +49,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     
     @DubboReference(check = false, timeout = 10000)
     private FileService fileService;
+
+    @DubboReference(check = false, timeout = 10000)
+    private SearchService searchService;
 
     @Override
     @Transactional
@@ -251,6 +255,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     public List<KnowledgeDTO> listKnowledge(KnowledgeQueryDTO queryDTO) {
         LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
         
+        // 只查询文件（有fileId的），过滤掉文件夹
+        wrapper.isNotNull(Knowledge::getFileId);
+        
         if (queryDTO.getCategory() != null) {
             wrapper.eq(Knowledge::getCategory, queryDTO.getCategory());
         }
@@ -329,6 +336,53 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Transactional
     public void updateCollectCount(Long id, boolean collect) {
         knowledgeMapper.updateCollectCount(id, collect ? 1 : -1);
+    }
+
+    @Override
+    @Transactional
+    public boolean batchUpdateKnowledge(List<Long> knowledgeIds, Map<String, Object> updateData) {
+        if (knowledgeIds == null || knowledgeIds.isEmpty()) {
+            return false;
+        }
+        
+        if (updateData == null || updateData.isEmpty()) {
+            return false;
+        }
+        
+        for (Long id : knowledgeIds) {
+            Knowledge knowledge = knowledgeMapper.selectById(id);
+            if (knowledge == null) {
+                continue;
+            }
+            
+            // 更新字段
+            if (updateData.containsKey("category")) {
+                knowledge.setCategory((String) updateData.get("category"));
+            }
+            if (updateData.containsKey("status")) {
+                knowledge.setStatus((String) updateData.get("status"));
+            }
+            if (updateData.containsKey("keywords")) {
+                knowledge.setKeywords((String) updateData.get("keywords"));
+            }
+            if (updateData.containsKey("department")) {
+                knowledge.setDepartment((String) updateData.get("department"));
+            }
+            
+            knowledge.setUpdateTime(LocalDateTime.now());
+            knowledgeMapper.updateById(knowledge);
+            
+            // 同步更新Elasticsearch索引
+            try {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                searchService.updateIndex(dto);
+            } catch (Exception e) {
+                log.warn("同步更新索引失败: knowledgeId={}", id, e);
+            }
+        }
+        
+        return true;
     }
 
     @Override
@@ -517,6 +571,58 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         Long pendingAudit = knowledgeMapper.selectCount(pendingWrapper);
         statistics.setPendingAudit(pendingAudit != null ? pendingAudit : 0L);
         
+        // 计算平均点击率和收藏率
+        if (totalKnowledge != null && totalKnowledge > 0) {
+            statistics.setAverageClickRate(totalClicks != null ? (double) totalClicks / totalKnowledge : 0.0);
+            statistics.setAverageCollectRate(totalCollections != null ? (double) totalCollections / totalKnowledge : 0.0);
+        } else {
+            statistics.setAverageClickRate(0.0);
+            statistics.setAverageCollectRate(0.0);
+        }
+        
+        // 计算收藏点击比
+        if (totalClicks != null && totalClicks > 0) {
+            statistics.setCollectClickRatio(totalCollections != null ? (double) totalCollections / totalClicks : 0.0);
+        } else {
+            statistics.setCollectClickRatio(0.0);
+        }
+        
+        // 分类统计
+        List<Map<String, Object>> categoryStatsData = knowledgeMapper.getCategoryStats();
+        List<StatisticsDTO.CategoryStatDTO> categoryStats = categoryStatsData.stream().map(map -> {
+            StatisticsDTO.CategoryStatDTO stat = new StatisticsDTO.CategoryStatDTO();
+            stat.setCategory((String) map.get("category"));
+            stat.setCount(((Number) map.get("count")).longValue());
+            stat.setClicks(((Number) map.get("clicks")).longValue());
+            stat.setCollections(((Number) map.get("collections")).longValue());
+            return stat;
+        }).collect(Collectors.toList());
+        statistics.setCategoryStats(categoryStats);
+        
+        // 点击量趋势（最近7天）
+        List<Map<String, Object>> clickTrendData = knowledgeMapper.getClickTrend();
+        List<StatisticsDTO.TrendDataDTO> clickTrend = clickTrendData.stream().map(map -> {
+            StatisticsDTO.TrendDataDTO trend = new StatisticsDTO.TrendDataDTO();
+            trend.setDate(map.get("date").toString());
+            trend.setValue(((Number) map.get("value")).longValue());
+            return trend;
+        }).collect(Collectors.toList());
+        statistics.setClickTrend(clickTrend);
+        
+        // 收藏量趋势（最近7天）
+        List<Map<String, Object>> collectTrendData = knowledgeMapper.getCollectTrend();
+        List<StatisticsDTO.TrendDataDTO> collectTrend = collectTrendData.stream().map(map -> {
+            StatisticsDTO.TrendDataDTO trend = new StatisticsDTO.TrendDataDTO();
+            trend.setDate(map.get("date").toString());
+            trend.setValue(((Number) map.get("value")).longValue());
+            return trend;
+        }).collect(Collectors.toList());
+        statistics.setCollectTrend(collectTrend);
+        
+        // 热门知识（Top 10）
+        List<KnowledgeDTO> hotKnowledge = getHotKnowledge(10);
+        statistics.setHotKnowledge(hotKnowledge);
+        
         return statistics;
     }
 
@@ -607,6 +713,104 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 return dto;
             })
             .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<KnowledgeDTO> getKnowledgeTree() {
+        // 获取所有知识（不限制状态，让前端根据权限过滤）
+        LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
+        wrapper.orderByAsc(Knowledge::getSortOrder);
+        wrapper.orderByDesc(Knowledge::getCreateTime);
+        
+        List<Knowledge> knowledges = knowledgeMapper.selectList(wrapper);
+        return knowledges.stream().map(k -> {
+            KnowledgeDTO dto = new KnowledgeDTO();
+            BeanUtils.copyProperties(k, dto);
+            return dto;
+        }).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public boolean moveKnowledge(Long knowledgeId, Long parentId, Integer sortOrder) {
+        Knowledge knowledge = knowledgeMapper.selectById(knowledgeId);
+        if (knowledge == null) {
+            return false;
+        }
+        
+        // 检查不能移动到自己或自己的子节点
+        if (parentId != null && parentId.equals(knowledgeId)) {
+            throw new RuntimeException("不能移动到自己");
+        }
+        
+        // 检查是否是自己的子节点（简化检查，实际应该递归检查）
+        if (parentId != null) {
+            Knowledge parent = knowledgeMapper.selectById(parentId);
+            if (parent != null && parent.getParentId() != null && parent.getParentId().equals(knowledgeId)) {
+                throw new RuntimeException("不能移动到自己的子节点");
+            }
+        }
+        
+        knowledge.setParentId(parentId);
+        knowledge.setSortOrder(sortOrder != null ? sortOrder : 0);
+        knowledge.setUpdateTime(LocalDateTime.now());
+        
+        knowledgeMapper.updateById(knowledge);
+        
+        // 同步更新Elasticsearch索引
+        try {
+            KnowledgeDTO dto = new KnowledgeDTO();
+            BeanUtils.copyProperties(knowledge, dto);
+            searchService.updateIndex(dto);
+        } catch (Exception e) {
+            log.warn("同步更新索引失败: knowledgeId={}", knowledgeId, e);
+        }
+        
+        return true;
+    }
+
+    @Override
+    public List<KnowledgeDTO> getKnowledgePath(Long knowledgeId) {
+        List<KnowledgeDTO> path = new ArrayList<>();
+        Knowledge current = knowledgeMapper.selectById(knowledgeId);
+        
+        if (current == null) {
+            return path;
+        }
+        
+        // 从当前节点向上追溯到根节点
+        while (current != null) {
+            KnowledgeDTO dto = new KnowledgeDTO();
+            BeanUtils.copyProperties(current, dto);
+            path.add(0, dto); // 插入到列表开头，保持从根到当前的顺序
+            
+            if (current.getParentId() != null) {
+                current = knowledgeMapper.selectById(current.getParentId());
+            } else {
+                current = null;
+            }
+        }
+        
+        return path;
+    }
+
+    @Override
+    public List<KnowledgeDTO> getChildren(Long parentId) {
+        LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
+        if (parentId == null) {
+            wrapper.isNull(Knowledge::getParentId);
+        } else {
+            wrapper.eq(Knowledge::getParentId, parentId);
+        }
+        wrapper.orderByAsc(Knowledge::getSortOrder);
+        wrapper.orderByDesc(Knowledge::getCreateTime);
+        
+        List<Knowledge> children = knowledgeMapper.selectList(wrapper);
+        return children.stream().map(k -> {
+            KnowledgeDTO dto = new KnowledgeDTO();
+            BeanUtils.copyProperties(k, dto);
+            return dto;
+        }).collect(Collectors.toList());
     }
 }
 

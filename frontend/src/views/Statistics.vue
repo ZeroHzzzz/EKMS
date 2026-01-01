@@ -2,8 +2,18 @@
   <div class="statistics-page">
     <div class="page-header">
       <h2>统计分析</h2>
+      <el-date-picker
+        v-model="dateRange"
+        type="daterange"
+        range-separator="至"
+        start-placeholder="开始日期"
+        end-placeholder="结束日期"
+        @change="handleDateRangeChange"
+      />
     </div>
-    <el-row :gutter="20">
+    
+    <!-- 基础统计卡片 -->
+    <el-row :gutter="20" style="margin-bottom: 20px">
       <el-col :span="6">
         <el-card>
           <div class="stat-item">
@@ -17,6 +27,7 @@
           <div class="stat-item">
             <div class="stat-value">{{ statistics.totalClicks }}</div>
             <div class="stat-label">总点击量</div>
+            <div class="stat-detail">平均: {{ formatNumber(statistics.averageClickRate) }}</div>
           </div>
         </el-card>
       </el-col>
@@ -25,6 +36,7 @@
           <div class="stat-item">
             <div class="stat-value">{{ statistics.totalCollections }}</div>
             <div class="stat-label">总收藏量</div>
+            <div class="stat-detail">平均: {{ formatNumber(statistics.averageCollectRate) }}</div>
           </div>
         </el-card>
       </el-col>
@@ -33,7 +45,53 @@
           <div class="stat-item">
             <div class="stat-value">{{ statistics.pendingAudit }}</div>
             <div class="stat-label">待审核</div>
+            <div class="stat-detail">收藏率: {{ formatPercent(statistics.collectClickRatio) }}</div>
           </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 趋势图表 -->
+    <el-row :gutter="20" style="margin-bottom: 20px">
+      <el-col :span="12">
+        <el-card>
+          <template #header>
+            <span>点击量趋势（最近7天）</span>
+          </template>
+          <div ref="clickTrendChart" style="width: 100%; height: 300px;"></div>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card>
+          <template #header>
+            <span>收藏量趋势（最近7天）</span>
+          </template>
+          <div ref="collectTrendChart" style="width: 100%; height: 300px;"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 分类统计 -->
+    <el-row :gutter="20" style="margin-bottom: 20px">
+      <el-col :span="12">
+        <el-card>
+          <template #header>
+            <span>分类统计</span>
+          </template>
+          <div ref="categoryChart" style="width: 100%; height: 300px;"></div>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card>
+          <template #header>
+            <span>分类详情</span>
+          </template>
+          <el-table :data="statistics.categoryStats" stripe>
+            <el-table-column prop="category" label="分类" />
+            <el-table-column prop="count" label="数量" align="right" />
+            <el-table-column prop="clicks" label="点击量" align="right" />
+            <el-table-column prop="collections" label="收藏量" align="right" />
+          </el-table>
         </el-card>
       </el-col>
     </el-row>
@@ -67,7 +125,7 @@
             <el-button size="small" type="primary" link @click="viewDetail(scope.row.id)">
               查看
             </el-button>
-          </template>
+      </template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -75,21 +133,39 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts'
 import api from '../api'
 
 const statistics = ref({
   totalKnowledge: 0,
   totalClicks: 0,
   totalCollections: 0,
-  pendingAudit: 0
+  pendingAudit: 0,
+  averageClickRate: 0,
+  averageCollectRate: 0,
+  collectClickRatio: 0,
+  categoryStats: [],
+  clickTrend: [],
+  collectTrend: [],
+  hotKnowledge: []
 })
 
 const hotKnowledge = ref([])
 const loading = ref(false)
 const router = useRouter()
+const dateRange = ref(null)
+
+// 图表引用
+const clickTrendChart = ref(null)
+const collectTrendChart = ref(null)
+const categoryChart = ref(null)
+
+let clickTrendChartInstance = null
+let collectTrendChartInstance = null
+let categoryChartInstance = null
 
 // 获取排名样式类
 const getRankClass = (rank) => {
@@ -110,16 +186,25 @@ const loadStatistics = async () => {
     // 获取统计数据
     const statsRes = await api.get('/knowledge/statistics')
     if (statsRes.data) {
-      statistics.value.totalKnowledge = statsRes.data.totalKnowledge || 0
-      statistics.value.totalClicks = statsRes.data.totalClicks || 0
-      statistics.value.totalCollections = statsRes.data.totalCollections || 0
-      statistics.value.pendingAudit = statsRes.data.pendingAudit || 0
+      statistics.value = {
+        totalKnowledge: statsRes.data.totalKnowledge || 0,
+        totalClicks: statsRes.data.totalClicks || 0,
+        totalCollections: statsRes.data.totalCollections || 0,
+        pendingAudit: statsRes.data.pendingAudit || 0,
+        averageClickRate: statsRes.data.averageClickRate || 0,
+        averageCollectRate: statsRes.data.averageCollectRate || 0,
+        collectClickRatio: statsRes.data.collectClickRatio || 0,
+        categoryStats: statsRes.data.categoryStats || [],
+        clickTrend: statsRes.data.clickTrend || [],
+        collectTrend: statsRes.data.collectTrend || [],
+        hotKnowledge: statsRes.data.hotKnowledge || []
+      }
+      hotKnowledge.value = statistics.value.hotKnowledge
     }
     
-    // 获取热门知识
-    const hotRes = await api.get('/knowledge/hot', { params: { limit: 10 } })
-    hotKnowledge.value = hotRes.data || []
-    console.log('热门知识数据:', hotKnowledge.value)
+    // 渲染图表
+    await nextTick()
+    renderCharts()
   } catch (error) {
     console.error('加载统计数据失败', error)
     ElMessage.error('加载统计数据失败: ' + (error.message || '未知错误'))
@@ -128,8 +213,126 @@ const loadStatistics = async () => {
   }
 }
 
+// 渲染图表
+const renderCharts = () => {
+  // 点击量趋势图
+  if (clickTrendChart.value && statistics.value.clickTrend) {
+    if (!clickTrendChartInstance) {
+      clickTrendChartInstance = echarts.init(clickTrendChart.value)
+    }
+    const option = {
+      tooltip: { trigger: 'axis' },
+      xAxis: {
+        type: 'category',
+        data: statistics.value.clickTrend.map(t => t.date)
+      },
+      yAxis: { type: 'value' },
+      series: [{
+        data: statistics.value.clickTrend.map(t => t.value),
+        type: 'line',
+        smooth: true,
+        areaStyle: {},
+        itemStyle: { color: '#409eff' }
+      }]
+    }
+    clickTrendChartInstance.setOption(option)
+  }
+
+  // 收藏量趋势图
+  if (collectTrendChart.value && statistics.value.collectTrend) {
+    if (!collectTrendChartInstance) {
+      collectTrendChartInstance = echarts.init(collectTrendChart.value)
+    }
+    const option = {
+      tooltip: { trigger: 'axis' },
+      xAxis: {
+        type: 'category',
+        data: statistics.value.collectTrend.map(t => t.date)
+      },
+      yAxis: { type: 'value' },
+      series: [{
+        data: statistics.value.collectTrend.map(t => t.value),
+        type: 'line',
+        smooth: true,
+        areaStyle: {},
+        itemStyle: { color: '#67c23a' }
+      }]
+    }
+    collectTrendChartInstance.setOption(option)
+  }
+
+  // 分类统计饼图
+  if (categoryChart.value && statistics.value.categoryStats) {
+    if (!categoryChartInstance) {
+      categoryChartInstance = echarts.init(categoryChart.value)
+    }
+    const option = {
+      tooltip: {
+        trigger: 'item',
+        formatter: '{a} <br/>{b}: {c} ({d}%)'
+      },
+      legend: {
+        orient: 'vertical',
+        left: 'left'
+      },
+      series: [{
+        name: '知识数量',
+        type: 'pie',
+        radius: '50%',
+        data: statistics.value.categoryStats.map(c => ({
+          value: c.count,
+          name: c.category
+        })),
+        emphasis: {
+          itemStyle: {
+            shadowBlur: 10,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0, 0, 0, 0.5)'
+          }
+        }
+      }]
+    }
+    categoryChartInstance.setOption(option)
+  }
+}
+
+// 格式化数字
+const formatNumber = (num) => {
+  if (!num) return '0.00'
+  return num.toFixed(2)
+}
+
+// 格式化百分比
+const formatPercent = (num) => {
+  if (!num) return '0.00%'
+  return (num * 100).toFixed(2) + '%'
+}
+
+// 日期范围变化
+const handleDateRangeChange = () => {
+  // 可以在这里实现按日期范围筛选统计
+  loadStatistics()
+}
+
+// 窗口大小变化时重新调整图表
+const handleResize = () => {
+  if (clickTrendChartInstance) clickTrendChartInstance.resize()
+  if (collectTrendChartInstance) collectTrendChartInstance.resize()
+  if (categoryChartInstance) categoryChartInstance.resize()
+}
+
 onMounted(() => {
   loadStatistics()
+  window.addEventListener('resize', handleResize)
+})
+
+// 组件卸载时清理
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  if (clickTrendChartInstance) clickTrendChartInstance.dispose()
+  if (collectTrendChartInstance) collectTrendChartInstance.dispose()
+  if (categoryChartInstance) categoryChartInstance.dispose()
 })
 </script>
 
@@ -231,6 +434,12 @@ onMounted(() => {
 .collect-count {
   color: #67c23a;
   font-weight: 600;
+}
+
+.stat-detail {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
 }
 </style>
 
