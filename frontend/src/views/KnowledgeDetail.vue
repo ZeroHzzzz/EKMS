@@ -137,7 +137,7 @@
             <h3>评论 ({{ comments.length }})</h3>
             <div class="comment-input-area">
               <el-input
-                v-model="newComment"
+                v-model="newCommentContent"
                 type="textarea"
                 :rows="3"
                 placeholder="写下你的评论..."
@@ -457,28 +457,30 @@
               frameborder="0"
             ></iframe>
           </div>
-          <!-- Excel文件 -->
-          <div v-else-if="isExcelFile(fileInfo.fileType)" class="excel-preview" v-loading="excelLoading">
-            <div v-if="excelData" class="excel-table-container">
-              <el-table :data="excelData" border stripe max-height="600" style="width: 100%">
-                <el-table-column 
-                  v-for="(col, index) in excelColumns" 
-                  :key="index"
-                  :prop="col.prop"
-                  :label="col.label"
-                  :min-width="col.width || 120"
-                />
-              </el-table>
-            </div>
-            <div v-else class="excel-loading">
-              <el-empty description="正在加载Excel文件..." />
-            </div>
-          </div>
-          <!-- Word文件 -->
-          <div v-else-if="isWordFile(fileInfo.fileType)" class="word-preview" v-loading="wordLoading">
-            <div v-if="wordContent" class="word-content" v-html="wordContent"></div>
-            <div v-else class="word-loading">
-              <el-empty description="正在加载Word文件..." />
+          <!-- Office文件（Word、Excel、PPT）使用 kkFileView 预览 -->
+          <div v-else-if="isWordFile(fileInfo.fileType) || isExcelFile(fileInfo.fileType) || isPptFile(fileInfo.fileType)" class="office-preview">
+            <iframe 
+              :src="getKkFileViewUrl()" 
+              class="preview-iframe"
+              frameborder="0"
+              style="width: 100%; height: 600px;"
+            ></iframe>
+            <div class="office-fallback-actions" style="margin-top: 10px; text-align: center;">
+              <el-alert
+                title="如果预览无法显示，请尝试以下方式"
+                type="info"
+                :closable="false"
+                show-icon
+              >
+                <template #default>
+                  <el-button type="primary" @click="downloadFile" style="margin-top: 10px">
+                    下载文件
+                  </el-button>
+                  <el-button @click="openKkFileViewInNewWindow" style="margin-top: 10px; margin-left: 10px">
+                    在新窗口打开
+                  </el-button>
+                </template>
+              </el-alert>
             </div>
           </div>
           <!-- 视频文件 -->
@@ -550,6 +552,7 @@ const comments = ref([])
 const newCommentContent = ref('')
 const replyToCommentId = ref(null)
 const commentSubmitting = ref(false)
+const commentsLoading = ref(false)
 
 // 关联知识相关
 const showAddRelationDialog = ref(false)
@@ -587,6 +590,11 @@ const auditLoading = ref(false)
 // 文件预览相关
 const showFilePreviewDialog = ref(false)
 const previewUrl = ref('')
+const excelLoading = ref(false)
+const wordLoading = ref(false)
+const excelData = ref([])
+const excelColumns = ref([])
+const wordContent = ref('')
 
 const loadDetail = async () => {
   loading.value = true
@@ -679,12 +687,8 @@ const previewFile = async () => {
   previewUrl.value = `/api/file/preview/${fileInfo.value.id}`
   showFilePreviewDialog.value = true
   
-  // 根据文件类型加载预览内容
-  if (isExcelFile(fileInfo.value.fileType)) {
-    await loadExcelPreview()
-  } else if (isWordFile(fileInfo.value.fileType)) {
-    await loadWordPreview()
-  }
+  // Office文件（Word、Excel、PPT）统一使用Office Online Viewer，不需要额外加载
+  // 其他文件类型（如Excel、Word）如果需要特殊处理，可以在这里添加
 }
 
 // 加载Excel预览
@@ -770,6 +774,36 @@ const loadWordPreview = async () => {
   }
 }
 
+// 获取Office Online Viewer URL
+// 获取 kkFileView 预览 URL
+const getKkFileViewUrl = () => {
+  if (!fileInfo.value || !fileInfo.value.id) return ''
+  
+  // 获取当前页面的完整URL
+  const baseUrl = window.location.origin
+  const fileUrl = `${baseUrl}/api/file/preview/${fileInfo.value.id}`
+  
+  // kkFileView 预览 URL 格式
+  // 优先使用环境变量配置，如果没有配置则使用默认的 Docker 部署地址
+  // 可以通过 .env 文件配置: VITE_KKFILEVIEW_URL=http://localhost:8012
+  const kkFileViewBaseUrl = import.meta.env.VITE_KKFILEVIEW_URL || 'http://localhost:8012'
+  
+  // kkFileView 需要 Base64 编码的 URL
+  // 直接对原始 URL 进行 Base64 编码（使用 UTF-8 编码处理中文）
+  const base64Url = btoa(unescape(encodeURIComponent(fileUrl)))
+  
+  // kkFileView 预览接口格式: /onlinePreview?url={base64编码的URL}
+  return `${kkFileViewBaseUrl}/onlinePreview?url=${base64Url}`
+}
+
+// 在新窗口打开 kkFileView 预览
+const openKkFileViewInNewWindow = () => {
+  const url = getKkFileViewUrl()
+  if (url) {
+    window.open(url, '_blank')
+  }
+}
+
 const handleFilePreviewClose = () => {
   previewUrl.value = ''
   excelData.value = []
@@ -795,9 +829,39 @@ const isTextFile = (fileType) => {
   return fileType && fileType.toUpperCase() === 'TXT'
 }
 
+const isExcelFile = (fileType) => {
+  if (!fileType) return false
+  const excelTypes = ['EXCEL', 'XLS', 'XLSX', 'CSV']
+  return excelTypes.includes(fileType.toUpperCase())
+}
+
+const isWordFile = (fileType) => {
+  if (!fileType) return false
+  const wordTypes = ['WORD', 'DOC', 'DOCX']
+  return wordTypes.includes(fileType.toUpperCase())
+}
+
+const isPptFile = (fileType) => {
+  if (!fileType) return false
+  const pptTypes = ['PPT', 'PPTX', 'POWERPOINT']
+  return pptTypes.includes(fileType.toUpperCase())
+}
+
+const isVideoFile = (fileType) => {
+  if (!fileType) return false
+  const videoTypes = ['VIDEO', 'MP4', 'AVI', 'MOV', 'WMV', 'FLV', 'MKV', 'WEBM']
+  return videoTypes.includes(fileType.toUpperCase())
+}
+
+const isAudioFile = (fileType) => {
+  if (!fileType) return false
+  const audioTypes = ['AUDIO', 'MP3', 'WAV', 'OGG', 'AAC', 'M4A', 'FLAC']
+  return audioTypes.includes(fileType.toUpperCase())
+}
+
 const canPreview = (fileType) => {
   if (!fileType) return false
-  const previewableTypes = ['PDF', 'WORD', 'EXCEL', 'PPT', 'IMAGE', 'TXT']
+  const previewableTypes = ['PDF', 'WORD', 'EXCEL', 'PPT', 'PPTX', 'IMAGE', 'TXT', 'DOC', 'DOCX', 'XLS', 'XLSX', 'CSV', 'VIDEO', 'AUDIO', 'MP4', 'MP3', 'WAV']
   return previewableTypes.includes(fileType.toUpperCase())
 }
 
@@ -1101,14 +1165,14 @@ const loadKnowledgeRelations = async () => {
   if (!route.params.id) return
   try {
     const res = await api.get(`/knowledge/${route.params.id}/relations`)
+    // 404 接口不存在时，静默处理
     if (res.code === 200 && res.data) {
       knowledgeRelations.value = res.data || []
+    } else {
+      knowledgeRelations.value = []
     }
   } catch (error) {
-    // 如果接口不存在（404），静默处理，不显示错误
-    if (error.response?.status !== 404) {
-      console.error('加载知识关联关系失败', error)
-    }
+    // 静默处理，不输出错误
     knowledgeRelations.value = []
   }
 }
@@ -1228,17 +1292,20 @@ const loadAuditHistory = async () => {
 // 加载评论
 const loadComments = async () => {
   if (!route.params.id) return
+  commentsLoading.value = true
   try {
     const res = await api.get(`/knowledge/${route.params.id}/comments`)
+    // 404 接口不存在时，静默处理
     if (res.code === 200 && res.data) {
       comments.value = res.data || []
+    } else {
+      comments.value = []
     }
   } catch (error) {
-    // 如果接口不存在（404），静默处理
-    if (error.response?.status !== 404) {
-      console.error('加载评论失败', error)
-    }
+    // 静默处理，不输出错误
     comments.value = []
+  } finally {
+    commentsLoading.value = false
   }
 }
 
@@ -1689,5 +1756,68 @@ onMounted(() => {
   padding: 40px;
   text-align: center;
 }
+
+/* PPT预览样式 */
+.ppt-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ppt-slides-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ppt-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.ppt-page-info {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
+  min-width: 120px;
+  text-align: center;
+}
+
+.ppt-slide-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  background: #fafafa;
+}
+
+.ppt-slide-container canvas {
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  background: #fff;
+  border-radius: 4px;
+}
+
+.ppt-online-viewer {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ppt-fallback-actions {
+  padding: 16px;
+}
 </style>
+
 

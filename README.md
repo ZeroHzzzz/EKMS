@@ -50,14 +50,18 @@
 # 在项目根目录执行（WSL 环境）
 cd /mnt/c/Users/ZeroHzzzz/Desktop/java
 
-# 启动所有基础服务（MySQL、Redis、ElasticSearch、Nacos）
+# 启动所有基础服务（MySQL、Redis、ElasticSearch、Nacos、kkFileView）
 sudo docker compose up -d
 
 # 等待服务启动（约 30-60 秒）
 # 验证 Nacos：访问 http://localhost:8848/nacos (用户名/密码: nacos/nacos)
+# 验证 kkFileView：访问 http://localhost:8012 (文件预览服务)
 ```
 
-**注意**：数据库会在首次启动时自动初始化（通过 `docker-compose.yml` 配置）。
+**注意**：
+- 数据库会在首次启动时自动初始化（通过 `docker-compose.yml` 配置）
+- kkFileView 文件预览服务会自动启动，默认端口 8012
+- 如果修改了 kkFileView 端口，需要在 `frontend/.env` 中配置 `VITE_KKFILEVIEW_URL`
 
 ### 第二步：导入测试数据（可选）
 

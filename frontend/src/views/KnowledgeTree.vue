@@ -139,8 +139,9 @@
           <el-input
             v-model="listSearchKeyword"
             placeholder="搜索节点..."
-            style="width: 250px; margin-right: 10px"
+            style="width: 300px; margin-right: 10px"
             clearable
+            size="large"
             @input="handleListTreeSearch"
           >
             <template #prefix>
@@ -149,13 +150,13 @@
           </el-input>
         </div>
         <div class="toolbar-right">
-          <el-button type="primary" @click="handleNewFolder">
+          <el-button type="primary" @click="handleNewFolder" size="large">
             <el-icon><Plus /></el-icon>
             新建文件夹
           </el-button>
-          <el-button @click="expandAll">展开全部</el-button>
-          <el-button @click="collapseAll">折叠全部</el-button>
-          <el-button @click="refreshTree">刷新</el-button>
+          <el-button @click="expandAll" size="large">展开全部</el-button>
+          <el-button @click="collapseAll" size="large">折叠全部</el-button>
+          <el-button @click="refreshTree" size="large" :icon="Refresh">刷新</el-button>
         </div>
       </div>
       
@@ -175,17 +176,97 @@
           :allow-drag="allowDrag"
           @node-drop="handleNodeDrop"
           @node-click="handleNodeClick"
+          class="modern-tree"
         >
           <template #default="{ node, data }">
             <div 
-              class="tree-node-item"
+              class="tree-node-card"
+              :class="{ 'node-selected': selectedListNode?.id === data.id }"
               @contextmenu.prevent="showContextMenu($event, node, data)"
+              @mouseenter="selectedListNode = data"
+              @mouseleave="selectedListNode = null"
+              @click="handleCardClick(data, node, $event)"
             >
+              <div class="node-main-content">
+                <div class="node-icon-wrapper">
               <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
                 <Folder v-if="isFolder(data)" />
                 <Document v-else />
               </el-icon>
-              <span class="node-label">{{ data.title }}</span>
+                </div>
+                <div class="node-info">
+                  <div class="node-title-row">
+                    <span class="node-title">{{ data.title }}</span>
+                    <el-tag v-if="isFolder(data)" size="small" type="warning" class="folder-tag">
+                      文件夹
+                    </el-tag>
+                    <el-tag v-else size="small" type="info" class="file-tag">
+                      文件
+                    </el-tag>
+                  </div>
+                  <div v-if="data.summary" class="node-summary">
+                    {{ data.summary }}
+                  </div>
+                  <div class="node-meta">
+                    <span v-if="data.author" class="meta-item">
+                      <el-icon><User /></el-icon>
+                      {{ data.author }}
+                    </span>
+                    <span v-if="data.createTime" class="meta-item">
+                      <el-icon><Clock /></el-icon>
+                      {{ formatTime(data.createTime) }}
+                    </span>
+                    <span v-if="data.children && data.children.length > 0" class="meta-item">
+                      <el-icon><Files /></el-icon>
+                      {{ data.children.length }} 项
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div class="node-actions">
+                <el-button 
+                  v-if="!isFolder(data)"
+                  size="small" 
+                  text 
+                  type="primary" 
+                  @click.stop="viewDetail(data.id)"
+                  class="action-btn"
+                >
+                  <el-icon><View /></el-icon>
+                  查看
+                </el-button>
+                <el-button 
+                  size="small" 
+                  text 
+                  type="warning" 
+                  @click.stop="editNode(data)"
+                  class="action-btn"
+                >
+                  <el-icon><Edit /></el-icon>
+                  编辑
+                </el-button>
+                <el-button 
+                  v-if="isFolder(data)" 
+                  size="small" 
+                  text 
+                  type="success" 
+                  @click.stop="addChildNode(data)"
+                  class="action-btn"
+                >
+                  <el-icon><Plus /></el-icon>
+                  添加
+                </el-button>
+                <el-button 
+                  size="small" 
+                  text 
+                  type="danger" 
+                  @click.stop="deleteNode(data)"
+                  class="action-btn"
+                >
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-button>
+              </div>
             </div>
           </template>
         </el-tree>
@@ -437,7 +518,7 @@
 import { ref, onMounted, nextTick, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ZoomIn, ZoomOut, Refresh, Search, Close, Document, Folder, FolderOpened, Plus, Delete, Edit, CopyDocument, Files, UploadFilled, Upload } from '@element-plus/icons-vue'
+import { ZoomIn, ZoomOut, Refresh, Search, Close, Document, Folder, FolderOpened, Plus, Delete, Edit, CopyDocument, Files, UploadFilled, Upload, User, Clock, View } from '@element-plus/icons-vue'
 import * as d3 from 'd3'
 import CryptoJS from 'crypto-js'
 import api from '../api'
@@ -688,10 +769,57 @@ const handleNodeDrop = async (draggingNode, dropNode, dropType, ev) => {
   }
 }
 
-// 点击节点
-const handleNodeClick = (data) => {
-  // 所有模式下，点击节点直接查看详情
+// 点击卡片（自定义模板中的卡片）
+const handleCardClick = (data, node, event) => {
+  // 如果点击的是按钮，不处理（按钮已经使用了 @click.stop）
+  if (event && event.target.closest('.node-actions')) {
+    return
+  }
+  
+  // 在列表模式下，区分文件夹和文件
+  if (viewMode.value === 'list') {
+    // 如果是文件夹，展开/折叠节点
+    if (isFolder(data)) {
+      // 使用 el-tree 的节点对象来切换展开状态
+      if (listTreeRef.value && node) {
+        // node 是 el-tree 的节点对象，直接切换
+        node.expanded = !node.expanded
+      } else if (listTreeRef.value) {
+        // 如果没有 node 对象，通过 store 获取
+        const treeNode = listTreeRef.value.store.nodesMap[data.id]
+        if (treeNode) {
+          treeNode.expanded = !treeNode.expanded
+        }
+      }
+    } else {
+      // 如果是文件，打开详情页
   viewDetail(data.id)
+    }
+  }
+}
+
+// 点击节点（el-tree 的原生事件）
+const handleNodeClick = (data, node) => {
+  // 在列表模式下，区分文件夹和文件
+  if (viewMode.value === 'list') {
+    // 如果是文件夹，展开/折叠节点
+    if (isFolder(data)) {
+      // 使用 el-tree 的 store 来切换展开状态
+      if (listTreeRef.value && node) {
+        const treeNode = listTreeRef.value.store.nodesMap[data.id]
+        if (treeNode) {
+          // 切换展开状态
+          treeNode.expanded = !treeNode.expanded
+        }
+      }
+    } else {
+      // 如果是文件，打开详情页
+      viewDetail(data.id)
+    }
+  } else {
+    // 其他模式下，直接查看详情
+    viewDetail(data.id)
+  }
 }
 
 // 查看详情
@@ -1961,6 +2089,12 @@ const flattenTree = (nodes) => {
   return result
 }
 
+// 格式化时间
+const formatTime = (time) => {
+  if (!time) return '-'
+  return new Date(time).toLocaleString('zh-CN')
+}
+
 // 监听窗口大小变化
 const handleResize = () => {
   if (viewMode.value === 'visual' && svg && treeContainer.value) {
@@ -2175,52 +2309,242 @@ watch(viewMode, (newMode) => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 20px;
+  padding: 24px;
 }
 
 .tree-list-container {
   flex: 1;
-  padding: 20px;
-  background: #fff;
-  border-radius: 4px;
+  padding: 16px;
+  background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+  border-radius: 8px;
   min-height: 500px;
-  height: calc(100vh - 280px);
+  height: calc(100vh - 300px);
   overflow: auto;
 }
 
-.tree-node-item {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 10px 8px;
-  min-height: 40px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  border-radius: 4px;
+/* 现代化树组件样式 */
+.modern-tree :deep(.el-tree-node) {
+  margin-bottom: 12px;
 }
 
-.tree-node-item:hover {
-  background-color: #f5f7fa;
+.modern-tree :deep(.el-tree-node__content) {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.modern-tree :deep(.el-tree-node__expand-icon) {
+  display: none !important;
+}
+
+.modern-tree :deep(.el-tree-node__children) {
+  padding-left: 32px;
+  margin-top: 8px;
+  margin-left: 24px;
+  position: relative;
+}
+
+.modern-tree :deep(.el-tree-node__children)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #e4e7ed 0%, transparent 100%);
+  border-radius: 2px;
+}
+
+/* 节点卡片样式 */
+.tree-node-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 20px;
+  margin-bottom: 8px;
+  background: #ffffff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.tree-node-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: transparent;
+  transition: background 0.3s;
+}
+
+.tree-node-card:hover {
+  background: linear-gradient(to right, #f0f9ff, #ffffff);
+  border-color: #409EFF;
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.tree-node-card:hover::before {
+  background: linear-gradient(to bottom, #409EFF, #66b1ff);
+}
+
+.tree-node-card.node-selected {
+  background: linear-gradient(to right, #ecf5ff, #ffffff);
+  border-color: #409EFF;
+  box-shadow: 0 4px 16px rgba(64, 158, 255, 0.2);
+}
+
+.tree-node-card.node-selected::before {
+  background: linear-gradient(to bottom, #409EFF, #66b1ff);
+}
+
+.node-main-content {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  gap: 16px;
+  min-width: 0;
+}
+
+.node-icon-wrapper {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+  border-radius: 10px;
+  transition: all 0.3s;
+}
+
+.tree-node-card:hover .node-icon-wrapper {
+  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  transform: scale(1.1);
 }
 
 .node-icon {
-  margin-right: 12px;
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.node-label {
-  flex: 1;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 24px;
+  transition: all 0.3s;
 }
 
 .folder-icon {
-  color: #FFA500;
+  color: #FF9800;
 }
 
 .file-icon {
   color: #409EFF;
+}
+
+.tree-node-card:hover .folder-icon {
+  color: #FF6B00;
+  transform: scale(1.1);
+}
+
+.tree-node-card:hover .file-icon {
+  color: #66b1ff;
+  transform: scale(1.1);
+}
+
+.node-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.node-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.node-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-tag,
+.file-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.node-summary {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin-top: 4px;
+}
+
+.node-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.meta-item .el-icon {
+  font-size: 14px;
+}
+
+.node-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.3s;
+  margin-left: 16px;
+}
+
+.tree-node-card:hover .node-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  background: #f0f9ff;
+  transform: translateY(-1px);
 }
 </style>
 
