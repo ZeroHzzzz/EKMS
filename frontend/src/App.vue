@@ -39,9 +39,9 @@
             <el-icon><Document /></el-icon>
             <span>知识库</span>
           </el-menu-item>
-          <el-menu-item v-if="hasPermission(userInfo, 'AUDIT')" index="/audit">
+          <el-menu-item v-if="hasPermission(userInfo, 'EDIT') || hasPermission(userInfo, 'AUDIT')" index="/knowledge-management">
             <el-icon><Edit /></el-icon>
-            <span>审核管理</span>
+            <span>知识管理</span>
           </el-menu-item>
           <el-menu-item v-if="hasPermission(userInfo, 'VIEW_STATISTICS')" index="/statistics">
             <el-icon><DataAnalysis /></el-icon>

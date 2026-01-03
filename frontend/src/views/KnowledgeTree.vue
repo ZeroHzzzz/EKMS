@@ -25,21 +25,32 @@
           <el-button @click="fitToScreen" style="margin-left: 10px">适应屏幕</el-button>
         </div>
         <div class="toolbar-right">
-          <el-input
+          <el-autocomplete
             v-model="searchKeyword"
             placeholder="搜索节点并定位..."
             style="width: 250px; margin-right: 10px"
             clearable
+            :fetch-suggestions="fetchSearchSuggestions"
+            :trigger-on-focus="false"
+            @select="handleVisualSearchSelect"
             @keyup.enter="handleSearch"
             @input="handleSearchInput"
+            class="search-autocomplete"
           >
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>
-          </el-input>
-          <el-button @click="showNodeList = !showNodeList" style="margin-right: 10px">
-            {{ showNodeList ? '隐藏节点列表' : '显示节点列表' }}
-          </el-button>
+            <template #default="{ item }">
+              <div class="suggestion-item">
+                <div class="suggestion-left">
+                  <el-icon v-if="item.type === 'history'" class="history-icon"><Clock /></el-icon>
+                  <el-icon v-else-if="item.type === 'title'" class="keyword-icon"><Search /></el-icon>
+                  <el-icon v-else class="knowledge-icon"><Document /></el-icon>
+                  <span class="suggestion-title">{{ item.value }}</span>
+                </div>
+              </div>
+            </template>
+          </el-autocomplete>
           <el-button @click="refreshTree">刷新</el-button>
         </div>
       </div>
@@ -47,38 +58,6 @@
       <div class="visual-tree-wrapper">
         <div class="visual-tree-container" ref="treeContainer">
           <svg ref="svgRef" class="tree-svg"></svg>
-        </div>
-        <!-- 节点列表侧边栏 -->
-        <div v-if="showNodeList" class="node-list-sidebar">
-          <div class="node-list-header">
-            <h4>节点列表</h4>
-            <el-icon class="close-icon" @click="showNodeList = false"><Close /></el-icon>
-          </div>
-          <div class="node-list-content">
-            <el-input
-              v-model="nodeListSearch"
-              placeholder="搜索节点..."
-              size="small"
-              style="margin-bottom: 10px"
-              clearable
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-            <div class="node-list-items">
-              <div
-                v-for="node in filteredNodeList"
-                :key="node.id"
-                class="node-list-item"
-                :class="{ 'highlighted': highlightedNode === node.id }"
-                @click="locateNode(node.id)"
-              >
-                <div class="node-item-title">{{ node.title }}</div>
-                <div class="node-item-path">{{ getNodePath(node.id) }}</div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </el-card>
@@ -146,18 +125,33 @@
       <!-- 顶部工具栏 -->
       <div class="list-toolbar">
         <div class="toolbar-left">
-          <el-input
+          <el-autocomplete
             v-model="listSearchKeyword"
             placeholder="搜索知识..."
             style="width: 300px"
             clearable
             size="large"
-            @input="handleListTreeSearch"
+            :fetch-suggestions="fetchSearchSuggestions"
+            :trigger-on-focus="false"
+            @select="handleSearchSelect"
+            @keyup.enter="handleListTreeSearch"
+            @input="handleListTreeSearchInput"
+            class="search-autocomplete"
           >
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>
-          </el-input>
+            <template #default="{ item }">
+              <div class="suggestion-item">
+                <div class="suggestion-left">
+                  <el-icon v-if="item.type === 'history'" class="history-icon"><Clock /></el-icon>
+                  <el-icon v-else-if="item.type === 'title'" class="keyword-icon"><Search /></el-icon>
+                  <el-icon v-else class="knowledge-icon"><Document /></el-icon>
+                  <span class="suggestion-title">{{ item.value }}</span>
+                </div>
+              </div>
+            </template>
+          </el-autocomplete>
         </div>
         <div class="toolbar-right">
           <el-button @click="expandAll" size="large">展开全部</el-button>
@@ -166,170 +160,98 @@
         </div>
       </div>
 
-      <!-- 部门分区列表 -->
-      <div class="dept-sections-container">
-        <!-- 共享知识区域 -->
-        <div class="dept-section shared-section" v-if="sharedKnowledge.length > 0">
-          <div class="dept-section-header" @click="toggleSection('shared')">
-            <div class="dept-header-left">
-              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections.shared }">
-                <ArrowRight />
-              </el-icon>
-              <el-icon class="dept-icon shared-icon"><Share /></el-icon>
-              <span class="dept-title">共享知识</span>
-              <el-tag size="small" type="primary">{{ sharedKnowledge.length }}</el-tag>
-            </div>
-            <div class="dept-header-actions">
-              <el-button size="small" type="primary" text @click.stop="addToSection('shared')">
-                <el-icon><Plus /></el-icon>
-                添加
-              </el-button>
-            </div>
+      <!-- 资源管理器布局 -->
+      <div class="explorer-layout">
+        <!-- 左侧导航树 -->
+        <div class="explorer-sidebar">
+          <div class="sidebar-header">
+            <span>目录结构</span>
           </div>
-          <el-collapse-transition>
-            <div v-show="expandedSections.shared" class="dept-section-content">
-              <el-tree
-                :ref="el => setTreeRef('shared', el)"
-                :data="sharedKnowledge"
-                :props="treeProps"
-                node-key="id"
-                :default-expand-all="false"
-                draggable
-                :allow-drop="allowDrop"
-                :allow-drag="allowDrag"
-                @node-drop="handleNodeDrop"
-                class="dept-tree"
-              >
-                <template #default="{ node, data }">
-                  <div class="tree-node-item" @click="handleCardClick(data, node, $event)">
-                    <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
-                      <Folder v-if="isFolder(data)" />
-                      <Document v-else />
-                    </el-icon>
-                    <span class="node-title">{{ data.title }}</span>
-                    <div class="node-actions">
-                      <el-button v-if="!isFolder(data)" size="small" text @click.stop="viewDetail(data.id)">查看</el-button>
-                      <el-button size="small" text @click.stop="editNode(data)">编辑</el-button>
-                      <el-button size="small" text type="danger" @click.stop="deleteNode(data)">删除</el-button>
-                    </div>
-                  </div>
-                </template>
-              </el-tree>
-            </div>
-          </el-collapse-transition>
+          <el-scrollbar>
+            <el-tree
+              ref="navTreeRef"
+              :data="navigationTreeData"
+              :props="navTreeProps"
+              node-key="uniqueId"
+              :default-expand-all="true"
+              :expand-on-click-node="false"
+              highlight-current
+              @node-click="handleNavNodeClick"
+              class="nav-tree"
+            >
+              <template #default="{ node, data }">
+                <div class="nav-tree-node">
+                  <el-icon class="nav-icon">
+                    <Folder v-if="!data.isRoot" />
+                    <OfficeBuilding v-else-if="data.type === 'dept'" />
+                    <Share v-else-if="data.type === 'shared'" />
+                    <QuestionFilled v-else-if="data.type === 'unclassified'" />
+                  </el-icon>
+                  <span class="nav-label">{{ node.label }}</span>
+                </div>
+              </template>
+            </el-tree>
+          </el-scrollbar>
         </div>
 
-        <!-- 各部门区域 -->
-        <div 
-          v-for="dept in departmentSections" 
-          :key="dept.id" 
-          class="dept-section"
-          :class="{ 'is-expanded': expandedSections[dept.id] }"
-        >
-          <div class="dept-section-header" @click="toggleSection(dept.id)">
-            <div class="dept-header-left">
-              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections[dept.id] }">
-                <ArrowRight />
-              </el-icon>
-              <el-icon class="dept-icon"><OfficeBuilding /></el-icon>
-              <span class="dept-title">{{ dept.title }}</span>
-              <el-tag size="small" type="success">{{ dept.children?.length || 0 }}</el-tag>
+        <!-- 右侧内容区域 -->
+        <div class="explorer-content">
+          <div class="content-header">
+            <div class="breadcrumb-container">
+              <el-breadcrumb separator="/">
+                <el-breadcrumb-item v-for="(item, index) in currentBreadcrumb" :key="index">
+                  {{ item.title }}
+                </el-breadcrumb-item>
+              </el-breadcrumb>
             </div>
-            <div class="dept-header-actions">
-              <el-button size="small" type="primary" text @click.stop="addToSection(dept.id)">
-                <el-icon><Plus /></el-icon>
-                添加
+            <div class="content-actions">
+              <el-button type="primary" size="small" @click="addNodeToCurrentList">
+                <el-icon><Plus /></el-icon> 新建文件夹
               </el-button>
-              <el-button size="small" type="success" text @click.stop="uploadToSection(dept.id)">
-                <el-icon><Upload /></el-icon>
-                上传
+              <el-button type="success" size="small" @click="uploadToCurrentList">
+                <el-icon><Upload /></el-icon> 上传知识
               </el-button>
             </div>
           </div>
-          <el-collapse-transition>
-            <div v-show="expandedSections[dept.id]" class="dept-section-content">
-              <div v-if="!dept.children || dept.children.length === 0" class="empty-section">
-                <el-empty description="暂无知识" :image-size="60">
-                  <el-button type="primary" size="small" @click="addToSection(dept.id)">添加知识</el-button>
-                </el-empty>
-              </div>
-              <el-tree
-                v-else
-                :ref="el => setTreeRef(dept.id, el)"
-                :data="dept.children"
-                :props="treeProps"
-                node-key="id"
-                :default-expand-all="false"
-                draggable
-                :allow-drop="allowDrop"
-                :allow-drag="allowDrag"
-                @node-drop="handleNodeDrop"
-                class="dept-tree"
-              >
-                <template #default="{ node, data }">
-                  <div class="tree-node-item" @click="handleCardClick(data, node, $event)">
-                    <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
-                      <Folder v-if="isFolder(data)" />
-                      <Document v-else />
-                    </el-icon>
-                    <span class="node-title">{{ data.title }}</span>
-                    <el-tag v-if="data.isShared" size="small" type="primary" class="shared-tag">共享</el-tag>
-                    <div class="node-actions">
-                      <el-button v-if="!isFolder(data)" size="small" text @click.stop="viewDetail(data.id)">查看</el-button>
-                      <el-button v-if="isFolder(data)" size="small" text type="success" @click.stop="addChildNode(data)">添加</el-button>
-                      <el-button size="small" text @click.stop="editNode(data)">编辑</el-button>
-                      <el-button size="small" text type="danger" @click.stop="deleteNode(data)">删除</el-button>
-                    </div>
-                  </div>
-                </template>
-              </el-tree>
-            </div>
-          </el-collapse-transition>
-        </div>
 
-        <!-- 未分类知识 -->
-        <div class="dept-section unclassified-section" v-if="unclassifiedKnowledge.length > 0">
-          <div class="dept-section-header" @click="toggleSection('unclassified')">
-            <div class="dept-header-left">
-              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections.unclassified }">
-                <ArrowRight />
-              </el-icon>
-              <el-icon class="dept-icon unclassified-icon"><QuestionFilled /></el-icon>
-              <span class="dept-title">未分类</span>
-              <el-tag size="small" type="warning">{{ unclassifiedKnowledge.length }}</el-tag>
-            </div>
-          </div>
-          <el-collapse-transition>
-            <div v-show="expandedSections.unclassified" class="dept-section-content">
-              <el-tree
-                :ref="el => setTreeRef('unclassified', el)"
-                :data="unclassifiedKnowledge"
-                :props="treeProps"
-                node-key="id"
-                :default-expand-all="false"
-                draggable
-                :allow-drop="allowDrop"
-                :allow-drag="allowDrag"
-                @node-drop="handleNodeDrop"
-                class="dept-tree"
-              >
-                <template #default="{ node, data }">
-                  <div class="tree-node-item" @click="handleCardClick(data, node, $event)">
-                    <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
-                      <Folder v-if="isFolder(data)" />
-                      <Document v-else />
-                    </el-icon>
-                    <span class="node-title">{{ data.title }}</span>
-                    <div class="node-actions">
-                      <el-button v-if="!isFolder(data)" size="small" text @click.stop="viewDetail(data.id)">查看</el-button>
-                      <el-button size="small" text @click.stop="editNode(data)">编辑</el-button>
-                      <el-button size="small" text type="danger" @click.stop="deleteNode(data)">删除</el-button>
-                    </div>
-                  </div>
-                </template>
-              </el-tree>
-            </div>
-          </el-collapse-transition>
+          <el-table
+            :data="currentTableData"
+            style="width: 100%; height: 100%"
+            height="100%"
+            @row-dblclick="handleRowDoubleClick"
+            highlight-current-row
+          >
+            <el-table-column label="名称" min-width="300">
+              <template #default="{ row }">
+                <div class="explorer-item" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                  <el-icon class="item-icon" :class="{ 'folder-icon': isFolder(row), 'file-icon': !isFolder(row) }">
+                    <Folder v-if="isFolder(row)" />
+                    <Document v-else />
+                  </el-icon>
+                  <span class="item-title">{{ row.title }}</span>
+                  <el-tag v-if="row.isShared" size="small" type="primary" class="shared-tag">共享</el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="类型" width="100">
+              <template #default="{ row }">
+                {{ isFolder(row) ? '文件夹' : '文件' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="作者" prop="author" width="120" show-overflow-tooltip />
+            <el-table-column label="创建时间" width="180">
+              <template #default="{ row }">
+                {{ formatTime(row.createTime) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="200" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="!isFolder(row)" size="small" text type="primary" @click.stop="viewDetail(row.id)">查看</el-button>
+                <el-button size="small" text type="warning" @click.stop="editNode(row)">编辑</el-button>
+                <el-button size="small" text type="danger" @click.stop="deleteNode(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </div>
     </div>
@@ -694,7 +616,19 @@
 
       <!-- 上传信息表单 -->
       <div v-if="fileList.length > 0" class="upload-form" style="margin-top: 20px">
-        <el-form :model="uploadForm" label-width="100px">
+        <el-form :model="uploadForm" label-width="120px">
+          <el-form-item label="存放的知识结构">
+            <el-input 
+              v-model="uploadForm.parentPath" 
+              placeholder="将从选中的节点自动填充" 
+              readonly
+              style="cursor: default;"
+            >
+              <template #prefix>
+                <el-icon><FolderOpened /></el-icon>
+              </template>
+            </el-input>
+          </el-form-item>
           <el-form-item label="摘要">
             <el-input v-model="uploadForm.summary" type="textarea" :rows="3" placeholder="请输入文件摘要" />
           </el-form-item>
@@ -733,6 +667,7 @@ import * as d3 from 'd3'
 import CryptoJS from 'crypto-js'
 import api from '../api'
 import { useUserStore } from '../stores/user'
+import { hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -803,27 +738,309 @@ const toggleSection = (sectionId) => {
   expandedSections.value[sectionId] = !expandedSections.value[sectionId]
 }
 
-// 添加知识到分区
-const addToSection = (sectionId) => {
-  isNewFolder.value = false
+// 转换 parentId 为后端需要的格式（Long 类型）
+// 注意：部门根节点的 ID 是负数（如 -1），这些是虚拟节点，不存在于数据库中
+// 当用户在部门根节点下创建知识时，parentId 应该为 null（表示该部门下的顶级知识）
+const normalizeParentId = (parentId) => {
+  // 1. 处理空值
+  if (parentId === 'root' || parentId === null || parentId === undefined) {
+    return null
+  }
+  
+  // 2. 处理字符串类型的 ID
+  if (typeof parentId === 'string') {
+    // 如果是 "dept-X" 格式，说明是部门根节点，返回 null
+    if (parentId.startsWith('dept-')) {
+      return null
+    }
+    
+    // 尝试转换为数字
+    const num = parseInt(parentId)
+    if (isNaN(num)) {
+      // 无法转换为数字，可能是其他非数字 ID，返回 null
+      return null
+    }
+    
+    // 如果是负数，说明是部门根节点，返回 null
+    if (num < 0) {
+      return null
+    }
+    
+    // 正常的正数 ID
+    return num
+  }
+  
+  // 3. 处理数字类型的 ID
+  if (typeof parentId === 'number') {
+    // 负数 ID 是部门根节点，不存在于数据库
+    if (parentId < 0) {
+      return null
+    }
+    return parentId
+  }
+  
+  // 其他情况返回 null
+  return null
+}
+
+// 添加节点（文件夹）到分区
+const addNodeToSection = (sectionId) => {
+  isNewFolder.value = true
+  // 设计原则：部门根节点是虚拟节点，不存在于数据库中
+  // 在部门根节点下创建的知识应该是顶级知识（parentId = null）
+  // 但需要设置 department 字段来标识知识所属的部门
   if (sectionId === 'shared') {
     // 共享知识区域
     parentNodeId.value = null
-    nodeForm.value = { title: '', summary: '', keywords: '', isShared: true }
+    nodeForm.value = { title: '', summary: '', keywords: '', isShared: true, department: null }
   } else if (sectionId === 'unclassified') {
     parentNodeId.value = null
-    nodeForm.value = { title: '', summary: '', keywords: '' }
+    nodeForm.value = { title: '', summary: '', keywords: '', department: null }
   } else {
-    // 部门分区
-    parentNodeId.value = sectionId
-    nodeForm.value = { title: '', summary: '', keywords: '' }
+    // 部门分区：找到对应的部门名称
+    const dept = departmentSections.value.find(d => d.id === sectionId)
+    const departmentName = dept ? dept.title : null
+    // 部门根节点是虚拟节点，parentId 应该为 null，但需要设置 department
+    parentNodeId.value = null
+    nodeForm.value = { title: '', summary: '', keywords: '', department: departmentName }
+  }
+  showAddDialog.value = true
+}
+// 新增节点到当前列表 (Explorer模式)
+const addNodeToCurrentList = () => {
+  if (!currentNavNode.value) {
+    ElMessage.warning('请先选择一个目录')
+    return
+  }
+  
+  if (currentNavNode.value.type === 'shared') {
+    addNodeToSection('shared')
+  } else if (currentNavNode.value.type === 'unclassified') {
+    addNodeToSection('unclassified')
+  } else if (currentNavNode.value.type === 'dept') {
+    addNodeToSection(currentNavNode.value.id)
+  } else {
+    // 普通文件夹
+    parentNodeId.value = currentNavNode.value.id
+    // 如果是部门根节点的子节点，设置 department
+    if (currentNavNode.value.department) {
+      nodeForm.value = { title: '', summary: '', keywords: '', department: currentNavNode.value.department }
+    } else {
+      nodeForm.value = { title: '', summary: '', keywords: '', department: null }
+    }
+    showAddDialog.value = true
+  }
+}
+
+// 资源管理器相关状态
+const navTreeRef = ref(null)
+const currentNavNode = ref(null) // 当前选中的导航节点
+const currentPath = ref([]) // 当前路径面包屑
+
+// 导航树属性配置
+const navTreeProps = {
+  children: 'children',
+  label: 'title',
+  isLeaf: (data) => !data.children || data.children.length === 0
+}
+
+// 构建统一的导航树数据
+const navigationTreeData = computed(() => {
+  const result = []
+  
+  // 1. 共享知识 (Root)
+  if (sharedKnowledge.value) {
+    result.push({
+      uniqueId: 'root-shared',
+      id: 'shared',
+      title: '共享知识',
+      type: 'shared',
+      isRoot: true,
+      children: filterFolders(sharedKnowledge.value)
+    })
+  }
+  
+  // 2. 部门知识 (Roots)
+  if (departmentSections.value) {
+    departmentSections.value.forEach(dept => {
+      result.push({
+        uniqueId: `root-dept-${dept.id}`,
+        id: dept.id,
+        title: dept.title,
+        type: 'dept',
+        isRoot: true,
+        children: filterFolders(dept.children || [])
+      })
+    })
+  }
+  
+  // 3. 未分类 (Root)
+  if (unclassifiedKnowledge.value) {
+    result.push({
+      uniqueId: 'root-unclassified',
+      id: 'unclassified',
+      title: '未分类',
+      type: 'unclassified',
+      isRoot: true,
+      children: filterFolders(unclassifiedKnowledge.value)
+    })
+  }
+  
+  return result
+})
+
+// 递归过滤只显示文件夹用于导航树
+const filterFolders = (nodes) => {
+  if (!nodes) return []
+  const folders = nodes.filter(node => isFolder(node)) // 只保留文件夹
+  return folders.map(folder => ({
+    ...folder,
+    uniqueId: folder.id, // 使用真实ID
+    children: filterFolders(folder.children)
+  }))
+}
+
+// 当前右侧列表数据
+const currentTableData = computed(() => {
+  if (!currentNavNode.value) return []
+  
+  // 如果是根节点，需要从原始数据源获取完整children（包含文件）
+  if (currentNavNode.value.isRoot) {
+    if (currentNavNode.value.type === 'shared') return sharedKnowledge.value
+    if (currentNavNode.value.type === 'unclassified') return unclassifiedKnowledge.value
+    if (currentNavNode.value.type === 'dept') {
+      const dept = departmentSections.value.find(d => d.id === currentNavNode.value.id)
+      return dept ? dept.children : []
+    }
+  }
+  
+  // 如果是普通文件夹，需要从原始大树中找到该节点（因为navTree只有文件夹）
+  const fullNode = findNodeInFullTree(currentNavNode.value.id)
+  return fullNode ? fullNode.children : []
+})
+
+// 在完整树中查找节点（包含文件）
+const findNodeInFullTree = (id) => {
+  // 遍历所有数据源查找
+  const sources = [
+    ...sharedKnowledge.value,
+    ...unclassifiedKnowledge.value,
+    ...departmentSections.value.flatMap(d => d.children || [])
+  ]
+  
+  const findBtn = (list) => {
+    for (const item of list) {
+      if (item.id === id) return item
+      if (item.children) {
+        const found = findBtn(item.children)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  
+  return findBtn(sources)
+}
+
+// 面包屑导航
+const currentBreadcrumb = computed(() => {
+  if (!currentNavNode.value) return []
+  if (currentNavNode.value.isRoot) return [{ title: currentNavNode.value.title }]
+  
+  // 构建路径：根 -> ... -> 当前
+  const path = []
+  // 递归查找父级... (简化版：直接显示当前节点，或者需要后端支持path)
+  // 这里暂时只显示当前节点名，优化可后续做
+  return [{ title: currentNavNode.value.title }]
+})
+
+// 处理导航节点点击
+const handleNavNodeClick = (data) => {
+  currentNavNode.value = data
+}
+
+// 处理表格行双击（进入文件夹）
+const handleRowDoubleClick = (row) => {
+  if (isFolder(row)) {
+    // 在左侧树中找到该节点并选中
+    // 注意：el-tree的setCurrentKey需要key
+    if (navTreeRef.value) {
+      navTreeRef.value.setCurrentKey(row.id)
+      // 如果节点在树中存在（即它是文件夹），更新currentNavNode
+      // 如果el-tree没有该节点（比如刚创建未刷新），可能需要手动设置
+      const node = navTreeRef.value.getNode(row.id)
+      if (node) {
+        currentNavNode.value = node.data
+        // 展开节点
+        node.expand()
+      }
+    }
+  }
+}
+
+// 上传到当前列表
+const uploadToCurrentList = () => {
+    if (!currentNavNode.value) {
+    ElMessage.warning('请先选择一个目录')
+    return
+  }
+  
+  if (currentNavNode.value.isRoot) {
+    uploadToSection(currentNavNode.value.type === 'dept' ? currentNavNode.value.id : currentNavNode.value.type)
+  } else {
+    // 上传到文件夹
+    uploadForm.value.parentId = currentNavNode.value.id
+    // 继承 department
+    uploadForm.value.department = currentNavNode.value.department || null
+    uploadForm.value.parentPath = currentNavNode.value.title
+    showUploadDialog.value = true
+  }
+}
+const addToSection = (sectionId) => {
+  isNewFolder.value = false
+  // 设计原则：部门根节点是虚拟节点，不存在于数据库中
+  // 在部门根节点下创建的知识应该是顶级知识（parentId = null）
+  // 但需要设置 department 字段来标识知识所属的部门
+  if (sectionId === 'shared') {
+    // 共享知识区域
+    parentNodeId.value = null
+    nodeForm.value = { title: '', summary: '', keywords: '', isShared: true, department: null }
+  } else if (sectionId === 'unclassified') {
+    parentNodeId.value = null
+    nodeForm.value = { title: '', summary: '', keywords: '', department: null }
+  } else {
+    // 部门分区：找到对应的部门名称
+    const dept = departmentSections.value.find(d => d.id === sectionId)
+    const departmentName = dept ? dept.title : null
+    // 部门根节点是虚拟节点，parentId 应该为 null，但需要设置 department
+    parentNodeId.value = null
+    nodeForm.value = { title: '', summary: '', keywords: '', department: departmentName }
   }
   showAddDialog.value = true
 }
 
 // 上传到分区
 const uploadToSection = (sectionId) => {
-  uploadForm.value.parentId = sectionId === 'shared' ? null : sectionId
+  // 设计原则：部门根节点是虚拟节点，不存在于数据库中
+  // 在部门根节点下上传的知识应该是顶级知识（parentId = null）
+  // 但需要设置 department 字段来标识知识所属的部门
+  if (sectionId === 'shared') {
+    uploadForm.value.parentId = null
+    uploadForm.value.department = null
+    uploadForm.value.parentPath = '共享知识'
+  } else if (sectionId === 'unclassified') {
+    uploadForm.value.parentId = null
+    uploadForm.value.department = null
+    uploadForm.value.parentPath = '未分类'
+  } else {
+    // 部门分区：找到对应的部门名称
+    const dept = departmentSections.value.find(d => d.id === sectionId)
+    const departmentName = dept ? dept.title : null
+    // 部门根节点是虚拟节点，parentId 应该为 null，但需要设置 department
+    uploadForm.value.parentId = null
+    uploadForm.value.department = departmentName
+    uploadForm.value.parentPath = departmentName || '根目录'
+  }
   showUploadDialog.value = true
 }
 
@@ -857,8 +1074,10 @@ const uploadProgress = ref(0)
 const currentFileName = ref('')
 const uploadForm = ref({
   parentId: null,
+  department: null, // 部门名称（当在部门根节点下上传时使用）
   summary: '',
-  keywords: ''
+  keywords: '',
+  parentPath: '' // 存放的知识结构路径（显示用）
 })
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
 
@@ -882,7 +1101,8 @@ const treeProps = {
 const nodeForm = ref({
   title: '',
   summary: '',
-  keywords: ''
+  keywords: '',
+  department: null // 部门名称（当在部门根节点下创建时使用）
 })
 
 // 加载知识树
@@ -898,6 +1118,9 @@ const loadTree = async () => {
         ElMessage.info('暂无知识数据，请先添加部门或知识')
         treeData.value = []
       } else {
+        // 强制更新 treeData，确保响应式系统检测到变化
+        treeData.value = []
+        await nextTick()
         treeData.value = builtTree
       }
       
@@ -905,10 +1128,12 @@ const loadTree = async () => {
       initExpandedSections()
       
       // 根据当前视图模式更新显示
+      await nextTick()
       if (viewMode.value === 'visual') {
-        await nextTick()
         initVisualTree(flatData)
       } else if (viewMode.value === 'list') {
+        // 列表模式：计算属性会自动更新，但需要确保 DOM 刷新
+        // 强制触发计算属性的重新计算
         initListTree()
       }
     } else {
@@ -972,11 +1197,16 @@ const buildTree = (list) => {
     } else {
       // 没有父节点，挂载到对应部门下
       if (item.department) {
-        const deptRoot = departmentRoots.find(dept => dept.department === item.department)
+        // 匹配部门：优先使用 department 字段，如果匹配不到，尝试使用 title 字段
+        let deptRoot = departmentRoots.find(dept => 
+          dept.department === item.department || dept.title === item.department
+        )
         if (deptRoot) {
           const deptId = deptRoot.id < 0 ? `dept-${Math.abs(deptRoot.id)}` : `dept-${deptRoot.id}`
           map[deptId].children.push(map[item.id])
         } else {
+          // 找不到匹配的部门，作为根节点（这种情况不应该发生，但容错处理）
+          console.warn('找不到匹配的部门:', item.department, '知识ID:', item.id, '知识标题:', item.title)
           roots.push(map[item.id])
         }
       } else {
@@ -1097,10 +1327,14 @@ const collapseAll = () => {
 }
 
 // 刷新树
-const refreshTree = () => {
+const refreshTree = async () => {
   selectedVisualNode.value = null
   selectedListNode.value = null
-  loadTree()
+  // 清空当前树数据，强制触发响应式更新
+  treeData.value = []
+  await nextTick()
+  // 重新加载树
+  await loadTree()
 }
 
 // 允许拖拽
@@ -1141,7 +1375,11 @@ const allowDrop = (draggingNode, dropNode, type) => {
 // 处理节点拖拽
 const handleNodeDrop = async (draggingNode, dropNode, dropType, ev) => {
   try {
-    const newParentId = dropType === 'inner' ? dropNode.data.id : (dropNode.parent ? dropNode.parent.data.id : null)
+    const rawParentId = dropType === 'inner' ? dropNode.data.id : (dropNode.parent ? dropNode.parent.data.id : null)
+    let newParentId = rawParentId;
+    if (newParentId !== null) {
+      newParentId = normalizeParentId(newParentId);
+    }
     const newSortOrder = dropType === 'inner' 
       ? (dropNode.data.children?.length || 0) 
       : (dropNode.nextSibling ? dropNode.nextSibling.data.sortOrder : (dropNode.data.sortOrder + 1))
@@ -1164,8 +1402,9 @@ const handleNodeDrop = async (draggingNode, dropNode, dropType, ev) => {
   }
 }
 
+// 格式化时间
 // 点击卡片（自定义模板中的卡片）
-const handleCardClick = (data, node, event) => {
+const handleCardClick = (data, node, event, sectionId) => {
   // 如果点击的是按钮，不处理（按钮已经使用了 @click.stop）
   if (event && event.target.closest('.node-actions')) {
     return
@@ -1175,8 +1414,13 @@ const handleCardClick = (data, node, event) => {
   if (viewMode.value === 'list') {
     // 如果是文件夹，展开/折叠节点
     if (isFolder(data)) {
-      // 使用 el-tree 的节点对象来切换展开状态
-      if (listTreeRef.value && node) {
+      if (sectionId) {
+        // 使用 el-table 的 toggleRowExpansion
+        const table = deptTreeRefs.value[sectionId]
+        if (table) {
+          table.toggleRowExpansion(data)
+        }
+      } else if (listTreeRef.value && node) {
         // node 是 el-tree 的节点对象，直接切换
         node.expanded = !node.expanded
       } else if (listTreeRef.value) {
@@ -1235,7 +1479,8 @@ const editNode = (data) => {
     title: data.title || '',
     category: data.category || '',
     summary: data.summary || '',
-    keywords: data.keywords || ''
+    keywords: data.keywords || '',
+    department: data.department || null
   }
   // 如果 parentId 是 'root'，转换为 null
   parentNodeId.value = data.parentId === 'root' ? null : data.parentId
@@ -1249,7 +1494,8 @@ const addChildNode = (data) => {
     title: '',
     category: data.category || '',
     summary: '',
-    keywords: ''
+    keywords: '',
+    department: data.department || null
   }
   // 如果是虚拟根节点，parentId 应该为 null
   parentNodeId.value = data.id === 'root' ? null : data.id
@@ -1293,8 +1539,10 @@ const saveNode = async () => {
   try {
     if (editingNode.value) {
       // 更新
-      // 如果 parentNodeId 是 'root'，转换为 null
-      const actualParentId = parentNodeId.value === 'root' ? null : parentNodeId.value
+      let actualParentId = parentNodeId.value;
+      if (actualParentId !== null) {
+        actualParentId = normalizeParentId(actualParentId);
+      }
       const res = await api.put(`/knowledge/${editingNode.value.id}`, {
         ...nodeForm.value,
         parentId: actualParentId
@@ -1308,17 +1556,40 @@ const saveNode = async () => {
       }
     } else {
       // 创建
-      // 如果 parentNodeId 是 'root'，转换为 null
-      const actualParentId = parentNodeId.value === 'root' ? null : parentNodeId.value
+      let actualParentId = parentNodeId.value;
+      if (actualParentId !== null) {
+        actualParentId = normalizeParentId(actualParentId);
+      }
+      
+      // 确定 department：优先使用 nodeForm.value.department（从部门根节点创建时设置）
+      // 如果为 null 且 parentId 也为 null，则使用用户信息中的部门
+      let department = nodeForm.value.department
+      if (department === null && actualParentId === null) {
+        const userInfo = userStore.userInfo
+        department = userInfo?.department || null
+      }
+      
+      // 所有创建的知识初始状态都是待审核
+      const userInfo = userStore.userInfo
       const res = await api.post('/knowledge', {
         ...nodeForm.value,
         parentId: actualParentId,
-        status: 'DRAFT'
+        department: department,
+        status: 'PENDING' // 所有创建的知识都是待审核状态
       })
+      
+      // 创建知识后，自动提交审核
+      if (res.code === 200 && userInfo) {
+        try {
+          await api.post(`/knowledge/${res.data.id}/submit-audit?userId=${userInfo.id}`)
+        } catch (error) {
+          console.warn('提交审核失败，但知识已创建', error)
+        }
+      }
       if (res.code === 200) {
         ElMessage.success('创建成功')
         showAddDialog.value = false
-        nodeForm.value = { title: '', category: '', summary: '', keywords: '' }
+        nodeForm.value = { title: '', category: '', summary: '', keywords: '', department: null }
         parentNodeId.value = null
         await loadTree()
       } else {
@@ -1872,6 +2143,15 @@ const locateNode = (nodeId) => {
   }
 }
 
+// 图画模式搜索选择处理
+const handleVisualSearchSelect = (item) => {
+  searchKeyword.value = item.value
+  if (item.type !== 'history') {
+    saveSearchHistory(item.value)
+  }
+  handleSearch()
+}
+
 // 搜索输入处理
 const handleSearchInput = () => {
   if (!searchKeyword.value.trim()) {
@@ -1891,7 +2171,7 @@ const handleSearchInput = () => {
 }
 
 // 搜索节点
-const handleSearch = () => {
+const handleSearch = async () => {
   if (!searchKeyword.value.trim()) {
     highlightedNode = null
     if (g && root && root.nodes) {
@@ -1906,15 +2186,50 @@ const handleSearch = () => {
   
   if (!root || !root.nodes || !svg) return
   
-  // 在力导向图中搜索匹配的节点
-  const foundNode = root.nodes.find(n => 
-    n.id !== 'root' && n.title && n.title.toLowerCase().includes(searchKeyword.value.toLowerCase())
-  )
-  
-  if (foundNode) {
-    focusForceNode(foundNode)
-  } else {
-    ElMessage.warning('未找到匹配的节点')
+  try {
+    // 保存搜索历史
+    saveSearchHistory(searchKeyword.value.trim())
+    
+    // 使用搜索API
+    const res = await api.post('/knowledge/search', {
+      keyword: searchKeyword.value.trim(),
+      searchType: 'AUTO'
+    })
+    
+    const searchResults = res.data.results || []
+    
+    if (searchResults.length === 0) {
+      ElMessage.warning('未找到匹配的节点')
+      return
+    }
+    
+    // 在力导向图中搜索匹配的节点
+    const foundNode = root.nodes.find(n => {
+      if (n.id === 'root' || String(n.id).startsWith('dept-')) return false
+      return searchResults.some(result => result.id === n.id)
+    })
+    
+    if (foundNode) {
+      // 更新节点的高亮信息
+      const searchResult = searchResults.find(r => r.id === foundNode.id)
+      if (searchResult && searchResult.highlight) {
+        foundNode.highlight = searchResult.highlight
+      }
+      focusForceNode(foundNode)
+    } else {
+      ElMessage.warning('未找到匹配的节点')
+    }
+  } catch (error) {
+    console.error('搜索失败', error)
+    // 降级到本地搜索
+    const foundNode = root.nodes.find(n => 
+      n.id !== 'root' && n.title && n.title.toLowerCase().includes(searchKeyword.value.toLowerCase())
+    )
+    if (foundNode) {
+      focusForceNode(foundNode)
+    } else {
+      ElMessage.warning('未找到匹配的节点')
+    }
   }
 }
 
@@ -1935,14 +2250,176 @@ const initListTree = () => {
   filteredTreeData.value = JSON.parse(JSON.stringify(treeData.value))
 }
 
-// 列表格式搜索
-const handleListTreeSearch = (value) => {
-  if (listTreeRef.value) {
-    listTreeRef.value.filter(value)
+// 搜索历史
+const searchHistory = ref([])
+const MAX_SEARCH_HISTORY = 10
+
+// 保存搜索历史
+const saveSearchHistory = (keyword) => {
+  if (!keyword || !keyword.trim()) return
+  const trimmed = keyword.trim()
+  // 移除重复项
+  const index = searchHistory.value.findIndex(item => item.value === trimmed)
+  if (index > -1) {
+    searchHistory.value.splice(index, 1)
+  }
+  // 添加到开头
+  searchHistory.value.unshift({ value: trimmed, type: 'history' })
+  // 限制数量
+  if (searchHistory.value.length > MAX_SEARCH_HISTORY) {
+    searchHistory.value = searchHistory.value.slice(0, MAX_SEARCH_HISTORY)
+  }
+  // 保存到本地存储
+  localStorage.setItem('knowledgeTreeSearchHistory', JSON.stringify(searchHistory.value))
+}
+
+// 加载搜索历史
+const loadSearchHistory = () => {
+  try {
+    const saved = localStorage.getItem('knowledgeTreeSearchHistory')
+    if (saved) {
+      searchHistory.value = JSON.parse(saved)
+    }
+  } catch (e) {
+    console.error('加载搜索历史失败', e)
   }
 }
 
-// 树节点过滤方法
+// 获取搜索建议
+const fetchSearchSuggestions = async (queryString, cb) => {
+  if (!queryString || queryString.trim().length < 1) {
+    // 显示搜索历史
+    cb(searchHistory.value.slice(0, 5))
+    return
+  }
+
+  try {
+    const res = await api.get('/knowledge/search/suggestions', {
+      params: {
+        keyword: queryString,
+        limit: 10
+      }
+    })
+
+    const suggestions = []
+    
+    // 添加标题建议
+    if (res.data.suggestions && res.data.suggestions.length > 0) {
+      res.data.suggestions.forEach(title => {
+        suggestions.push({
+          value: title,
+          type: 'title'
+        })
+      })
+    }
+
+    // 添加预览结果作为建议
+    if (res.data.previewResults && res.data.previewResults.length > 0) {
+      res.data.previewResults.forEach(item => {
+        // 避免重复
+        if (!suggestions.find(s => s.value === item.title)) {
+          suggestions.push({
+            value: item.title,
+            type: 'knowledge',
+            id: item.id
+          })
+        }
+      })
+    }
+
+    cb(suggestions)
+  } catch (error) {
+    console.error('获取搜索建议失败', error)
+    cb([])
+  }
+}
+
+// 选择搜索建议
+const handleSearchSelect = (item) => {
+  listSearchKeyword.value = item.value
+  if (item.type !== 'history') {
+    saveSearchHistory(item.value)
+  }
+  handleListTreeSearch()
+}
+
+// 列表格式搜索输入处理
+const handleListTreeSearchInput = () => {
+  // 实时搜索
+  handleListTreeSearch()
+}
+
+// 列表格式搜索
+const handleListTreeSearch = async () => {
+  const keyword = listSearchKeyword.value?.trim()
+  
+  if (!keyword) {
+    // 清空搜索，恢复原始数据
+    await loadTree()
+    return
+  }
+  
+  try {
+    // 保存搜索历史
+    saveSearchHistory(keyword)
+    
+    // 使用搜索API
+    const res = await api.post('/knowledge/search', {
+      keyword: keyword,
+      searchType: 'AUTO'
+    })
+    
+    const searchResults = res.data.results || []
+    
+    // 将搜索结果合并到树结构中，保留高亮信息
+    const searchResultMap = new Map()
+    searchResults.forEach(item => {
+      searchResultMap.set(item.id, item)
+    })
+    
+    // 递归更新树数据，添加高亮信息
+    const updateTreeWithHighlight = (nodes) => {
+      return nodes.map(node => {
+        const highlighted = searchResultMap.get(node.id)
+        const newNode = { ...node }
+        if (highlighted && highlighted.highlight) {
+          newNode.highlight = highlighted.highlight
+        }
+        if (newNode.children && newNode.children.length > 0) {
+          newNode.children = updateTreeWithHighlight(newNode.children)
+        }
+        return newNode
+      })
+    }
+    
+    // 更新树数据
+    const updatedTree = updateTreeWithHighlight(treeData.value)
+    treeData.value = updatedTree
+    
+    // 展开所有包含匹配项的部门
+    if (searchResults.length > 0) {
+      searchResults.forEach(result => {
+        if (result.department) {
+          // 找到对应的部门并展开
+          const dept = departmentSections.value.find(d => d.title === result.department)
+          if (dept) {
+            expandedSections.value[dept.id] = true
+          }
+        } else {
+          // 未分类或共享知识
+          if (result.department === null || result.department === '') {
+            expandedSections.value.unclassified = true
+          }
+        }
+      })
+    }
+  } catch (error) {
+    console.error('搜索失败', error)
+    ElMessage.error('搜索失败: ' + (error.message || '未知错误'))
+  }
+}
+
+// 树节点过滤方法（保留用于兼容）
 const filterTreeNode = (value, data) => {
   if (!value) return true
   return data.title.toLowerCase().includes(value.toLowerCase())
@@ -2048,8 +2525,8 @@ const showContextMenuOnVisualNode = (event, nodeData) => {
 const handleAddChildToVisualNode = () => {
   if (!selectedVisualNode.value) return
   isNewFolder.value = false
-  // 如果是虚拟根节点，parentId 应该为 null
-  parentNodeId.value = selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id
+  // 如果是虚拟根节点或部门根节点，parentId 应该为 null
+  parentNodeId.value = normalizeParentId(selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id)
   nodeForm.value = {
     title: '',
     summary: '',
@@ -2061,16 +2538,30 @@ const handleAddChildToVisualNode = () => {
 // 在可视化节点上上传文件到文件夹
 const handleUploadToFolder = () => {
   if (!selectedVisualNode.value || !isFolder(selectedVisualNode.value)) return
-  // 如果是虚拟根节点，parentId 应该为 null
-  uploadForm.value.parentId = selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id
+  // 如果是虚拟根节点或部门根节点，parentId 应该为 null
+  const nodeId = selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id
+  uploadForm.value.parentId = normalizeParentId(nodeId)
+  // 获取节点路径
+  if (nodeId) {
+    uploadForm.value.parentPath = getNodePath(nodeId) || selectedVisualNode.value.title || '根目录'
+  } else {
+    uploadForm.value.parentPath = '根目录'
+  }
   showUploadDialog.value = true
 }
 
 // 上传文件到文件夹（通用方法）
 const uploadToFolder = (folderData) => {
   if (!folderData || !isFolder(folderData)) return
-  // 如果是虚拟根节点，parentId 应该为 null
-  uploadForm.value.parentId = folderData.id === 'root' ? null : folderData.id
+  // 如果是虚拟根节点或部门根节点，parentId 应该为 null
+  const nodeId = folderData.id === 'root' ? null : folderData.id
+  uploadForm.value.parentId = normalizeParentId(nodeId)
+  // 获取节点路径
+  if (nodeId) {
+    uploadForm.value.parentPath = getNodePath(nodeId) || folderData.title || '根目录'
+  } else {
+    uploadForm.value.parentPath = '根目录'
+  }
   showUploadDialog.value = true
 }
 
@@ -2108,7 +2599,7 @@ const handleAddSiblingToVisualNode = () => {
 // 添加同级节点（通用方法）
 const handleAddSiblingNode = (nodeData, isFolder = false) => {
   // 直接使用节点的parentId，不需要调用API
-  const parentId = nodeData.parentId || null
+  const parentId = normalizeParentId(nodeData.parentId || null)
   
   // 判断是否是叶子节点（有fileId的节点）
   const isLeafNode = nodeData.fileId != null && nodeData.fileId !== undefined
@@ -2125,7 +2616,8 @@ const handleAddSiblingNode = (nodeData, isFolder = false) => {
     nodeForm.value = {
       title: '',
       summary: '',
-      keywords: ''
+      keywords: '',
+      department: null
     }
     showAddDialog.value = true
   }
@@ -2137,8 +2629,8 @@ const handleAddChildToListNode = (nodeData = null) => {
   const targetNode = nodeData || selectedListNode.value
   if (!targetNode || !isFolder(targetNode)) return
   isNewFolder.value = false
-  // 如果是虚拟根节点，parentId 应该为 null
-  parentNodeId.value = targetNode.id === 'root' ? null : targetNode.id
+  // 如果是虚拟根节点或部门根节点，parentId 应该为 null
+  parentNodeId.value = normalizeParentId(targetNode.id === 'root' ? null : targetNode.id)
   nodeForm.value = {
     title: '',
     summary: '',
@@ -2150,8 +2642,8 @@ const handleAddChildToListNode = (nodeData = null) => {
 // 在列表节点上上传文件到文件夹
 const handleUploadToListFolder = () => {
   if (!selectedListNode.value || !isFolder(selectedListNode.value)) return
-  // 如果是虚拟根节点，parentId 应该为 null
-  uploadForm.value.parentId = selectedListNode.value.id === 'root' ? null : selectedListNode.value.id
+  // 如果是虚拟根节点或部门根节点，parentId 应该为 null
+  uploadForm.value.parentId = normalizeParentId(selectedListNode.value.id === 'root' ? null : selectedListNode.value.id)
   showUploadDialog.value = true
 }
 
@@ -2208,7 +2700,7 @@ const handleContextMenuClick = (action) => {
   switch (action) {
     case 'newFolder':
       isNewFolder.value = true
-      parentNodeId.value = data.id
+      parentNodeId.value = normalizeParentId(data.id)
       nodeForm.value = {
         title: '',
         summary: '',
@@ -2218,7 +2710,7 @@ const handleContextMenuClick = (action) => {
       break
     case 'newFile':
       isNewFolder.value = false
-      parentNodeId.value = data.id
+      parentNodeId.value = normalizeParentId(data.id)
       nodeForm.value = {
         title: '',
         summary: '',
@@ -2249,7 +2741,17 @@ const handleContextMenuClick = (action) => {
       break
     case 'uploadFile':
       // 上传文件到文件夹
-      uploadToFolder(data)
+      if (data && isFolder(data)) {
+        const nodeId = data.id === 'root' ? null : data.id
+        uploadForm.value.parentId = normalizeParentId(nodeId)
+        // 获取节点路径
+        if (nodeId) {
+          uploadForm.value.parentPath = getNodePath(nodeId) || data.title || '根目录'
+        } else {
+          uploadForm.value.parentPath = '根目录'
+        }
+        showUploadDialog.value = true
+      }
       break
     case 'viewDetail':
       // 查看详情
@@ -2275,8 +2777,12 @@ const confirmMove = async () => {
   }
   
   try {
+    let actualParentId = moveTargetId.value;
+    if (actualParentId !== null) {
+      actualParentId = normalizeParentId(actualParentId);
+    }
     const res = await api.put(`/knowledge/${moveSourceId.value}/move`, {
-      parentId: moveTargetId.value,
+      parentId: actualParentId,
       sortOrder: 0
     })
     
@@ -2483,8 +2989,18 @@ const startUpload = async () => {
         }
       }
       
-      // 如果 parentId 是 'root'，转换为 null
-      const actualParentId = uploadForm.value.parentId === 'root' ? null : uploadForm.value.parentId
+      // 设计原则：部门根节点是虚拟节点，parentId 应该为 null
+      // 如果 uploadForm.value.parentId 不是 null，说明是在某个文件夹下上传，需要标准化
+      let actualParentId = uploadForm.value.parentId
+      if (actualParentId !== null) {
+        actualParentId = normalizeParentId(actualParentId)
+      }
+      
+      // 确定 department：优先使用 uploadForm.value.department（从部门根节点上传时设置）
+      // 否则使用用户信息中的部门
+      const department = uploadForm.value.department || userInfo.department || '未知'
+      
+      // 所有上传的知识初始状态都是待审核
       const knowledgeRes = await api.post('/knowledge', {
         title: fileNameWithoutExt,
         content: fileContent,
@@ -2493,20 +3009,32 @@ const startUpload = async () => {
         fileId: fileDTO.id,
         parentId: actualParentId,
         author: userInfo.realName || userInfo.username || '未知',
-        department: userInfo.department || '未知',
-        createBy: userInfo.username
+        department: department,
+        createBy: userInfo.username,
+        status: 'PENDING' // 所有上传的知识都是待审核状态
       })
       
       if (knowledgeRes.code !== 200) {
         throw new Error(knowledgeRes.message || '创建知识条目失败')
       }
       
+      // 创建知识后，自动提交审核
+      try {
+        await api.post(`/knowledge/${knowledgeRes.data.id}/submit-audit?userId=${userInfo.id}`)
+      } catch (error) {
+        console.warn('提交审核失败，但知识已创建', error)
+      }
+      
       uploadProgress.value = Math.round(((i + 1) / fileList.value.length) * 100)
     }
     
     ElMessage.success(`成功上传 ${fileList.value.length} 个文件`)
+    // 先关闭对话框
     handleUploadDialogClose()
-    await loadTree() // 刷新树
+    // 等待一小段时间确保后端数据同步完成
+    await new Promise(resolve => setTimeout(resolve, 500))
+    // 强制刷新树
+    await refreshTree()
   } catch (error) {
     ElMessage.error(`上传失败：${error.message}`)
   } finally {
@@ -2521,8 +3049,10 @@ const handleUploadDialogClose = () => {
   fileList.value = []
   uploadForm.value = {
     parentId: null,
+    department: null,
     summary: '',
-    keywords: ''
+    keywords: '',
+    parentPath: ''
   }
   uploading.value = false
   uploadProgress.value = 0
@@ -2560,6 +3090,7 @@ const handleResize = () => {
 
 onMounted(() => {
   loadTree()
+  loadSearchHistory()
   window.addEventListener('resize', handleResize)
 })
 
@@ -3138,6 +3669,85 @@ watch(viewMode, (newMode) => {
   padding: 8px 0;
 }
 
+/* 列表表格树形结构样式 - 增强层级区分 */
+.knowledge-tree-table {
+  --el-table-indent-size: 35px;
+}
+
+/* 增加树形表格的缩进大小，让层级更明显 */
+.knowledge-tree-table :deep(.el-table__indent) {
+  padding-left: 35px !important;
+  position: relative;
+}
+
+/* 为缩进区域添加视觉指示器（竖线） */
+.knowledge-tree-table :deep(.el-table__indent)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, 
+    transparent 0%, 
+    transparent 8%,
+    #409EFF 8%, 
+    #409EFF 92%,
+    transparent 92%,
+    transparent 100%);
+  opacity: 0.6;
+}
+
+/* 为不同层级添加不同的左边距，增强视觉区分 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row {
+  background-color: #fff;
+  transition: background-color 0.2s;
+}
+
+.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row:hover {
+  background-color: #ecf5ff !important;
+}
+
+/* 为树形节点项添加左边框，增强层级区分 - 使用更兼容的方式 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) td:first-child {
+  position: relative;
+}
+
+/* 为有缩进的单元格添加左边框 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) .tree-node-item {
+  position: relative;
+  padding-left: 12px;
+}
+
+/* 当父级有缩进时，为节点项添加视觉指示 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) td:first-child .tree-node-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: #409EFF;
+  border-radius: 2px;
+  opacity: 0.3;
+  display: none;
+}
+
+/* 通过父元素的缩进类来判断层级 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row[class*="el-table__row"] td:first-child .tree-node-item {
+  margin-left: 0;
+}
+
+/* 增强表格行的视觉区分 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__body tr {
+  border-bottom: 1px solid #ebeef5;
+}
+
+.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__body tr:hover {
+  background-color: #ecf5ff !important;
+}
+
 .tree-node-item {
   display: flex;
   align-items: center;
@@ -3146,6 +3756,7 @@ watch(viewMode, (newMode) => {
   border-radius: 6px;
   width: 100%;
   transition: background 0.2s;
+  position: relative;
 }
 
 .tree-node-item:hover {
@@ -3154,6 +3765,7 @@ watch(viewMode, (newMode) => {
 
 .tree-node-item .node-icon {
   font-size: 18px;
+  flex-shrink: 0;
 }
 
 .tree-node-item .folder-icon {
@@ -3168,6 +3780,7 @@ watch(viewMode, (newMode) => {
   flex: 1;
   font-size: 14px;
   color: #303133;
+  font-weight: 500;
 }
 
 .tree-node-item .shared-tag {
@@ -3183,6 +3796,67 @@ watch(viewMode, (newMode) => {
 
 .tree-node-item:hover .node-actions {
   opacity: 1;
+}
+
+/* 搜索高亮样式 */
+.tree-node-item .node-title :deep(mark) {
+  background-color: #fff566;
+  color: #303133;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+.tree-node-item .match-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+/* 搜索建议样式 */
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.suggestion-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.suggestion-title {
+  flex: 1;
+  font-size: 14px;
+  color: #303133;
+}
+
+.history-icon {
+  color: #909399;
+  font-size: 14px;
+}
+
+.keyword-icon {
+  color: #409eff;
+  font-size: 14px;
+}
+
+.knowledge-icon {
+  color: #67c23a;
+  font-size: 14px;
+}
+
+:deep(.search-autocomplete .el-autocomplete-suggestion__list) {
+  padding: 0;
+}
+
+:deep(.search-autocomplete .el-autocomplete-suggestion__list li) {
+  padding: 0 15px;
+  line-height: normal;
 }
 </style>
 
@@ -3298,6 +3972,81 @@ watch(viewMode, (newMode) => {
 
 .close-toolbar:hover {
   color: #303133;
+}
+
+/* 资源管理器布局样式 */
+.explorer-layout {
+  display: flex;
+  height: calc(100vh - 150px);
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.explorer-sidebar {
+  width: 280px;
+  border-right: 1px solid #dcdfe6;
+  display: flex;
+  flex-direction: column;
+  background: #f5f7fa;
+}
+
+.sidebar-header {
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #606266;
+  border-bottom: 1px solid #ebeef5;
+  background: #fff;
+}
+
+.nav-tree {
+  background: transparent;
+  padding: 10px 0;
+}
+
+.nav-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-icon {
+  font-size: 16px;
+  color: #909399;
+}
+
+.explorer-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  overflow: hidden;
+}
+
+.content-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid #ebeef5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.content-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.item-icon.folder-icon {
+  color: #E6A23C;
+  font-size: 18px;
+}
+
+.item-icon.file-icon {
+  color: #409EFF;
+  font-size: 18px;
 }
 </style>
 

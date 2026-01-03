@@ -38,28 +38,7 @@
 
     <div class="filter-bar">
       <div class="filter-left">
-      <el-select 
-        v-if="hasPermission(userInfo, 'VIEW_AUDIT') || hasRole(userInfo, ROLE_ADMIN)" 
-        v-model="filters.status" 
-          placeholder="状态筛选" 
-        clearable 
-          style="width: 150px"
-      >
-        <el-option label="已发布" value="APPROVED" />
-        <el-option label="待审核" value="PENDING" />
-        <el-option label="草稿" value="DRAFT" />
-      </el-select>
-      <!-- EDITOR可以看到草稿和已发布状态 -->
-      <el-select 
-        v-else-if="hasRole(userInfo, ROLE_EDITOR)"
-        v-model="filters.status" 
-          placeholder="状态筛选" 
-        clearable 
-          style="width: 150px"
-      >
-        <el-option label="已发布" value="APPROVED" />
-        <el-option label="草稿" value="DRAFT" />
-      </el-select>
+      <!-- 知识库页面只显示已发布的知识，不显示状态筛选 -->
         <el-input
           v-model="filters.author"
           placeholder="作者筛选"
@@ -197,38 +176,7 @@
       <el-table-column label="操作" :width="getActionColumnWidth()" fixed="right">
         <template #default="scope">
           <el-button size="small" type="primary" @click.stop="collect(scope.row)">收藏</el-button>
-          <el-button 
-            v-if="canEdit(scope.row)" 
-            size="small" 
-            type="warning" 
-            @click.stop="editKnowledge(scope.row)"
-          >
-            编辑
-          </el-button>
-          <el-button 
-            v-if="canPublish(scope.row)" 
-            size="small" 
-            type="success" 
-            @click.stop="publishKnowledge(scope.row)"
-          >
-            发布
-          </el-button>
-          <el-button 
-            v-if="canSubmitAudit(scope.row)" 
-            size="small" 
-            type="primary" 
-            @click.stop="submitAudit(scope.row)"
-          >
-            提交审核
-          </el-button>
-          <el-button 
-            v-if="canDelete(scope.row)" 
-            size="small" 
-            type="danger" 
-            @click.stop="deleteKnowledge(scope.row)"
-          >
-            删除
-          </el-button>
+          <!-- 知识库页面只用于浏览已发布的知识，不提供编辑和删除操作 -->
         </template>
       </el-table-column>
     </el-table>
@@ -315,7 +263,6 @@ const userInfo = computed(() => userStore.userInfo)
 
 const searchKeyword = ref('')
 const filters = ref({
-  status: null, // 将在onMounted中根据权限设置
   author: '',
   dateRange: null
 })
@@ -368,10 +315,10 @@ const loadData = async () => {
       searchParams.searchType = 'AUTO'
       }
     
+    // 知识库页面只显示已发布的知识
+    searchParams.status = 'APPROVED'
+    
     // 添加筛选条件
-      if (filters.value.status) {
-      searchParams.status = filters.value.status
-      }
     if (filters.value.author && filters.value.author.trim()) {
       searchParams.author = filters.value.author.trim()
     }
@@ -384,15 +331,19 @@ const loadData = async () => {
     if (searchParams.keyword) {
       // 使用搜索接口
       res = await api.post('/knowledge/search', searchParams)
-      // 过滤掉文件夹（只显示有fileId的文件）
-      const results = (res.data.results || []).filter(item => item.fileId != null)
+      // 过滤掉文件夹（只显示有fileId的文件）和只显示已发布的知识
+      const results = (res.data.results || []).filter(item => 
+        item.fileId != null && item.status === 'APPROVED'
+      )
       knowledgeList.value = results
       total.value = results.length
     } else {
       // 使用列表接口
       res = await api.get('/knowledge/list', { params: searchParams })
-      // 过滤掉文件夹（只显示有fileId的文件）
-      const results = (res.data || []).filter(item => item.fileId != null)
+      // 过滤掉文件夹（只显示有fileId的文件）和只显示已发布的知识
+      const results = (res.data || []).filter(item => 
+        item.fileId != null && item.status === 'APPROVED'
+      )
       knowledgeList.value = results
       total.value = results.length
     }
@@ -471,7 +422,6 @@ const handleSearch = () => {
   // 清空筛选
   const clearFilters = () => {
     filters.value = {
-      status: null,
       author: '',
       dateRange: null
     }
@@ -916,17 +866,7 @@ const getActionColumnWidth = () => {
 }
 
 onMounted(() => {
-  // 普通用户（USER）默认只显示已发布的知识
-  // EDITOR和ADMIN可以看到所有状态（包括DRAFT），不设置status过滤
-  const isEditor = hasRole(userInfo.value, ROLE_EDITOR)
-  const isAdmin = hasRole(userInfo.value, ROLE_ADMIN)
-  const hasViewAudit = hasPermission(userInfo.value, 'VIEW_AUDIT')
-  
-  // 只有普通用户才设置默认过滤为APPROVED
-  if (!isEditor && !isAdmin && !hasViewAudit) {
-    filters.value.status = 'APPROVED'
-  }
-  // EDITOR、ADMIN 或有 VIEW_AUDIT 权限的用户，不设置 status，这样可以看所有状态
+  // 知识库页面只显示已发布的知识
   loadData()
 })
 </script>

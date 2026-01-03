@@ -1,5 +1,6 @@
 package com.knowledge.api.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.Data;
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -22,6 +23,7 @@ public class KnowledgeDTO implements Serializable {
     private Long clickCount;
     private Long collectCount;
     private Long version;
+    @JsonDeserialize(using = ParentIdDeserializer.class)
     private Long parentId;
     private Integer sortOrder;
     private LocalDateTime createTime;
@@ -33,5 +35,24 @@ public class KnowledgeDTO implements Serializable {
     private List<String> tags;
     private HighlightDTO highlight; // 搜索高亮信息（仅搜索时使用）
     private Boolean isDepartmentRoot; // 是否为部门根节点
+    
+    /**
+     * 自定义 setter 方法，处理 parentId 的容错
+     * 如果传入的是负数，转换为 null（部门根节点不存在于数据库）
+     * 注意：字符串格式的部门ID（如 "dept-1"）会由 ParentIdDeserializer 处理
+     */
+    public void setParentId(Long parentId) {
+        if (parentId == null) {
+            this.parentId = null;
+            return;
+        }
+        
+        // 如果是负数，说明是部门根节点，返回 null
+        if (parentId < 0) {
+            this.parentId = null;
+        } else {
+            this.parentId = parentId;
+        }
+    }
 }
 

@@ -180,6 +180,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   mysql_data:

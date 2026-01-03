@@ -1,6 +1,8 @@
 package com.knowledge.gateway.controller;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.knowledge.api.dto.*;
+import com.knowledge.api.dto.ParentIdDeserializer;
 import com.knowledge.api.service.*;
 import com.knowledge.common.constant.Constants;
 import com.knowledge.common.result.Result;
@@ -147,17 +149,34 @@ public class KnowledgeController {
 
     @PostMapping("/{id}/submit-audit")
     public Result<AuditDTO> submitForAudit(@PathVariable Long id, @RequestParam Long userId) {
-        // 提交审核时，将知识状态改为PENDING
+        // 提交审核
         KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
-        if (knowledge != null && Constants.FILE_STATUS_DRAFT.equals(knowledge.getStatus())) {
+        if (knowledge == null) {
+            return Result.error("知识不存在");
+        }
+        
+        // 检查是否已有待审核记录
+        List<AuditDTO> pendingAudits = auditService.getPendingAudits();
+        boolean hasAudit = pendingAudits.stream()
+            .anyMatch(a -> a.getKnowledgeId().equals(id) && Constants.AUDIT_STATUS_PENDING.equals(a.getStatus()));
+        if (hasAudit) {
+            return Result.error("该知识已提交审核，请勿重复提交");
+        }
+        
+        // 如果知识状态是待审核或已驳回，可以提交审核
+        if (Constants.FILE_STATUS_PENDING.equals(knowledge.getStatus()) || 
+            Constants.FILE_STATUS_REJECTED.equals(knowledge.getStatus())) {
             // 创建审核记录
             AuditDTO auditDTO = auditService.submitForAudit(id, userId);
-            // 更新知识状态为待审核
-            knowledge.setStatus(Constants.FILE_STATUS_PENDING);
-            knowledgeService.updateKnowledge(knowledge);
+            // 确保知识状态为待审核
+            if (!Constants.FILE_STATUS_PENDING.equals(knowledge.getStatus())) {
+                knowledge.setStatus(Constants.FILE_STATUS_PENDING);
+                knowledgeService.updateKnowledge(knowledge);
+            }
             return Result.success(auditDTO);
         }
-        return Result.error("知识状态不正确，无法提交审核");
+        
+        return Result.error("知识状态不正确，无法提交审核（只有待审核或已驳回状态的知识可以提交审核）");
     }
 
     @GetMapping("/{id}/related")
@@ -206,6 +225,7 @@ public class KnowledgeController {
     // 内部类：移动知识请求
     @lombok.Data
     public static class MoveKnowledgeRequest {
+        @JsonDeserialize(using = ParentIdDeserializer.class)
         private Long parentId;
         private Integer sortOrder;
     }

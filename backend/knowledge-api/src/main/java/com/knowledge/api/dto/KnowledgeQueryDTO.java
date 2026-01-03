@@ -16,5 +16,6 @@ public class KnowledgeQueryDTO implements Serializable {
     private Integer pageSize = 10;
     private String sortField = "clickCount";
     private String sortOrder = "DESC";
+    private String includeFolders; // "true" or "false", 默认为null (false)
 }
 

@@ -67,9 +67,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     public KnowledgeDTO createKnowledge(KnowledgeDTO knowledgeDTO) {
         Knowledge knowledge = new Knowledge();
         BeanUtils.copyProperties(knowledgeDTO, knowledge);
-        // 如果创建时指定了状态，使用指定状态；否则默认为草稿
+        // 如果创建时指定了状态，使用指定状态；否则默认为待审核
         if (knowledgeDTO.getStatus() == null || knowledgeDTO.getStatus().isEmpty()) {
-            knowledge.setStatus(Constants.FILE_STATUS_DRAFT);
+            knowledge.setStatus(Constants.FILE_STATUS_PENDING);
         } else {
             knowledge.setStatus(knowledgeDTO.getStatus());
         }
@@ -264,8 +264,13 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     public List<KnowledgeDTO> listKnowledge(KnowledgeQueryDTO queryDTO) {
         LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
         
-        // 只查询文件（有fileId的），过滤掉文件夹
-        wrapper.isNotNull(Knowledge::getFileId);
+        // 根据includeFolders参数决定是否过滤文件夹
+        // 默认为false，保持向后兼容（只查询文件）
+        boolean includeFolders = "true".equalsIgnoreCase(queryDTO.getIncludeFolders());
+        if (!includeFolders) {
+            wrapper.isNotNull(Knowledge::getFileId);
+        }
+        // 如果includeFolders为true，则不过滤，返回所有知识（包括文件和文件夹）
         
         if (queryDTO.getCategory() != null) {
             wrapper.eq(Knowledge::getCategory, queryDTO.getCategory());
@@ -403,7 +408,22 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
         knowledge.setUpdateTime(LocalDateTime.now());
-        return knowledgeMapper.updateById(knowledge) > 0;
+        boolean result = knowledgeMapper.updateById(knowledge) > 0;
+        
+        // 同步更新Elasticsearch索引
+        if (result) {
+            try {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                searchService.updateIndex(dto);
+                log.info("发布知识并更新索引成功: knowledgeId={}", id);
+            } catch (Exception e) {
+                log.warn("发布知识后更新索引失败: knowledgeId={}", id, e);
+                // 索引失败不影响主流程
+            }
+        }
+        
+        return result;
     }
 
     @Override
@@ -412,6 +432,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         // 不限制状态，显示所有知识（包括草稿、已发布等），按点击量排序
         // 如果只想显示已发布的，可以取消下面的注释
         // wrapper.eq(Knowledge::getStatus, Constants.FILE_STATUS_APPROVED);
+
+        // 排除文件夹（文件夹没有文件ID，不应参与热点排序）
+        wrapper.isNotNull(Knowledge::getFileId);
         
         // 按点击量降序排序，如果点击量为null则按0处理
         wrapper.orderByDesc(Knowledge::getClickCount);
@@ -440,19 +463,62 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             return List.of();
         }
         
-        LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Knowledge::getCategory, knowledge.getCategory());
-        wrapper.ne(Knowledge::getId, id);
-        wrapper.eq(Knowledge::getStatus, Constants.FILE_STATUS_APPROVED);
-        wrapper.orderByDesc(Knowledge::getClickCount);
-        wrapper.last("LIMIT " + limit);
+        List<KnowledgeDTO> result = new ArrayList<>();
         
-        List<Knowledge> knowledges = knowledgeMapper.selectList(wrapper);
-        return knowledges.stream().map(k -> {
-            KnowledgeDTO dto = new KnowledgeDTO();
-            BeanUtils.copyProperties(k, dto);
-            return dto;
-        }).collect(Collectors.toList());
+        // 1. 尝试使用搜索引擎查找相关内容（基于关键词和标题）
+        try {
+            com.knowledge.api.dto.SearchRequestDTO searchRequest = new com.knowledge.api.dto.SearchRequestDTO();
+            // 构建搜索关键词：优先使用定义的关键词，其次使用标题
+            StringBuilder searchKeywords = new StringBuilder();
+            if (knowledge.getKeywords() != null && !knowledge.getKeywords().trim().isEmpty()) {
+                // 将逗号分隔的关键词转换为空格分隔，以便搜索引擎处理
+                searchKeywords.append(knowledge.getKeywords().replace(",", " ").replace("，", " "));
+            } else {
+                // 如果没有关键词，使用标题进行搜索
+                searchKeywords.append(knowledge.getTitle());
+            }
+            
+            searchRequest.setKeyword(searchKeywords.toString());
+            // 限制搜索范围为同分类（可选，根据需求决定是否限制）
+            searchRequest.setCategory(knowledge.getCategory());
+            searchRequest.setPageNum(1);
+            searchRequest.setPageSize(limit + 5); // 多取一些以便过滤掉自身
+            searchRequest.setStatus(Constants.FILE_STATUS_APPROVED); // 只推荐已发布的
+            
+            com.knowledge.api.dto.SearchResultDTO searchResult = searchService.search(searchRequest);
+            if (searchResult != null && searchResult.getResults() != null) {
+                // 过滤掉自身
+                result = searchResult.getResults().stream()
+                    .filter(k -> !k.getId().equals(id))
+                    .limit(limit)
+                    .collect(Collectors.toList());
+            }
+        } catch (Exception e) {
+            log.warn("使用搜索引擎获取相关知识失败，降级为数据库查询: knowledgeId={}, error={}", id, e.getMessage());
+        }
+        
+        // 2. 如果搜索引擎没有返回结果（或失败），使用数据库基于分类查询（兜底方案）
+        if (result.isEmpty()) {
+            LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
+            // 只要同分类的
+            if (knowledge.getCategory() != null) {
+                wrapper.eq(Knowledge::getCategory, knowledge.getCategory());
+            }
+            wrapper.ne(Knowledge::getId, id); // 排除自身
+            wrapper.eq(Knowledge::getStatus, Constants.FILE_STATUS_APPROVED);
+            // 优先按点击量排序
+            wrapper.orderByDesc(Knowledge::getClickCount);
+            wrapper.last("LIMIT " + limit);
+            
+            List<Knowledge> knowledges = knowledgeMapper.selectList(wrapper);
+            result = knowledges.stream().map(k -> {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(k, dto);
+                return dto;
+            }).collect(Collectors.toList());
+        }
+        
+        return result;
     }
     
     @Override
@@ -732,8 +798,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             .map(DepartmentDTO::getName)
             .collect(Collectors.toList());
         
-        // 获取所有知识（不限制状态，让前端根据权限过滤）
+        // 知识结构显示已发布的知识，以及待审核的文件夹（以便用户能看到新创建的文件夹）
         LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
+        wrapper.and(w -> w.eq(Knowledge::getStatus, Constants.FILE_STATUS_APPROVED)
+            .or(orW -> orW.isNull(Knowledge::getFileId).eq(Knowledge::getStatus, Constants.FILE_STATUS_PENDING)));
         wrapper.orderByAsc(Knowledge::getSortOrder);
         wrapper.orderByDesc(Knowledge::getCreateTime);
         

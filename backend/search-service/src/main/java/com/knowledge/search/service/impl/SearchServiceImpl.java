@@ -100,6 +100,24 @@ public class SearchServiceImpl implements SearchService {
                 boolQuery.must(QueryBuilders.termQuery("category", request.getCategory()));
             }
             
+            // 状态筛选
+            if (request.getStatus() != null && !request.getStatus().isEmpty()) {
+                boolQuery.must(QueryBuilders.termQuery("status", request.getStatus()));
+            }
+            
+            // 作者筛选
+            if (request.getAuthor() != null && !request.getAuthor().isEmpty()) {
+                boolQuery.must(QueryBuilders.termQuery("author", request.getAuthor()));
+            }
+            
+            // 日期范围筛选
+            if (request.getStartDate() != null && !request.getStartDate().isEmpty()) {
+                boolQuery.must(QueryBuilders.rangeQuery("createTime").gte(request.getStartDate()));
+            }
+            if (request.getEndDate() != null && !request.getEndDate().isEmpty()) {
+                boolQuery.must(QueryBuilders.rangeQuery("createTime").lte(request.getEndDate()));
+            }
+            
             // 文件类型筛选（暂时移除，因为索引中没有存储fileType字段）
             // 如果需要此功能，需要在索引时通过fileId查询文件信息获取fileType
             // if (request.getFileType() != null) {

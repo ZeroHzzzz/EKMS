@@ -94,16 +94,16 @@ public class AuditServiceImpl implements AuditService {
         audit.setUpdateTime(LocalDateTime.now());
         auditMapper.updateById(audit);
         
-        // 审核驳回后，将知识状态更新为草稿（可以重新提交审核）
+        // 审核驳回后，将知识状态更新为已驳回
         if (audit.getKnowledgeId() != null) {
             try {
                 // 获取知识信息
                 com.knowledge.api.dto.KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(audit.getKnowledgeId());
                 if (knowledge != null) {
-                    knowledge.setStatus(Constants.FILE_STATUS_DRAFT);
+                    knowledge.setStatus(Constants.FILE_STATUS_REJECTED);
                     knowledge.setUpdateBy("系统");
                     knowledgeService.updateKnowledge(knowledge);
-                    log.info("审核驳回后，已将知识状态更新为草稿: knowledgeId={}", audit.getKnowledgeId());
+                    log.info("审核驳回后，已将知识状态更新为已驳回: knowledgeId={}", audit.getKnowledgeId());
                 }
             } catch (Exception e) {
                 log.error("审核驳回后更新知识状态失败: knowledgeId={}", audit.getKnowledgeId(), e);

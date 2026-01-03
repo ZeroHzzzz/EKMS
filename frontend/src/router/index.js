@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import KnowledgeList from '../views/KnowledgeList.vue'
 import KnowledgeDetail from '../views/KnowledgeDetail.vue'
 import Upload from '../views/Upload.vue'
-import Audit from '../views/Audit.vue'
 import Statistics from '../views/Statistics.vue'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
@@ -10,6 +9,7 @@ import OrganizationManagement from '../views/OrganizationManagement.vue'
 import UserCenter from '../views/UserCenter.vue'
 import MyCollections from '../views/MyCollections.vue'
 import KnowledgeTree from '../views/KnowledgeTree.vue'
+import KnowledgeManagement from '../views/KnowledgeManagement.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
 
@@ -41,10 +41,10 @@ const routes = [
     meta: { permission: 'UPLOAD' }
   },
   {
-    path: '/audit',
-    name: 'Audit',
-    component: Audit,
-    meta: { permission: 'AUDIT' }
+    path: '/knowledge-management',
+    name: 'KnowledgeManagement',
+    component: KnowledgeManagement,
+    meta: { permission: 'EDIT' }
   },
   {
     path: '/statistics',
