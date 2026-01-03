@@ -50,7 +50,8 @@ const routes = [
     path: '/statistics',
     name: 'Statistics',
     component: Statistics,
-    meta: { permission: 'VIEW_STATISTICS' }
+    component: Statistics
+    // meta: { permission: 'VIEW_STATISTICS' } // 普通用户可见
   },
   {
     path: '/organization',
@@ -72,7 +73,8 @@ const routes = [
     path: '/knowledge-tree',
     name: 'KnowledgeTree',
     component: KnowledgeTree,
-    meta: { permission: 'MANAGE_STRUCTURE' }
+    component: KnowledgeTree
+    // meta: { permission: 'MANAGE_STRUCTURE' } // 普通用户可见
   }
 ]
 
@@ -83,7 +85,7 @@ const router = createRouter({
 
 router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token')
-  
+
   // 登录和注册页面不需要token
   if (to.path === '/login' || to.path === '/register') {
     if (token) {
@@ -94,13 +96,13 @@ router.beforeEach(async (to, from, next) => {
     }
     return
   }
-  
+
   // 其他页面需要token
   if (!token) {
     next('/login')
     return
   }
-  
+
   // 确保用户信息已加载
   const userStore = useUserStore()
   if (!userStore.userInfo) {
@@ -112,7 +114,7 @@ router.beforeEach(async (to, from, next) => {
       return
     }
   }
-  
+
   // 检查页面权限
   if (to.meta && to.meta.permission) {
     const userInfo = userStore.userInfo
@@ -122,7 +124,7 @@ router.beforeEach(async (to, from, next) => {
       return
     }
   }
-  
+
   next()
 })
 

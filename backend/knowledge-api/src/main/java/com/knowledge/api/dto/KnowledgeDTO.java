@@ -35,6 +35,7 @@ public class KnowledgeDTO implements Serializable {
     private List<String> tags;
     private HighlightDTO highlight; // 搜索高亮信息（仅搜索时使用）
     private Boolean isDepartmentRoot; // 是否为部门根节点
+    private String currentBranch; // 当前分支（用于版本控制）
     
     /**
      * 自定义 setter 方法，处理 parentId 的容错

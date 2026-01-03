@@ -7,7 +7,7 @@
           <el-radio-button value="visual">图画模式</el-radio-button>
           <el-radio-button value="list">列表格式</el-radio-button>
         </el-radio-group>
-        <el-button type="primary" @click="showAddDialog = true">
+        <el-button type="primary" @click="showAddDialog = true" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
           添加知识节点
         </el-button>
       </div>
@@ -68,7 +68,7 @@
         <span class="selected-node-title">{{ selectedVisualNode.title }}</span>
         <div class="node-toolbar-actions">
           <el-button 
-            v-if="isFolder(selectedVisualNode)" 
+            v-if="isFolder(selectedVisualNode) && hasPermission(userInfo, 'MANAGE_STRUCTURE')" 
             size="small" 
             type="primary" 
             @click="handleAddChildToVisualNode"
@@ -77,7 +77,7 @@
             添加子节点
           </el-button>
           <el-button 
-            v-if="isFolder(selectedVisualNode)" 
+            v-if="isFolder(selectedVisualNode) && hasPermission(userInfo, 'MANAGE_STRUCTURE')" 
             size="small" 
             type="success" 
             @click="handleUploadToFolder"
@@ -88,13 +88,14 @@
           <el-button 
             size="small" 
             type="primary" 
+            v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')"
             @click="handleAddSiblingToVisualNode"
           >
             <el-icon><Plus /></el-icon>
             添加同级节点
           </el-button>
           <el-button 
-            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
+            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-') && hasPermission(userInfo, 'MANAGE_STRUCTURE')"
             size="small" 
             @click="handleEditVisualNode"
           >
@@ -102,7 +103,7 @@
             编辑
           </el-button>
           <el-button 
-            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
+            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-') && hasPermission(userInfo, 'MANAGE_STRUCTURE')"
             size="small" 
             type="danger" 
             @click="handleDeleteVisualNode"
@@ -205,10 +206,10 @@
               </el-breadcrumb>
             </div>
             <div class="content-actions">
-              <el-button type="primary" size="small" @click="addNodeToCurrentList">
+              <el-button type="primary" size="small" @click="addNodeToCurrentList" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
                 <el-icon><Plus /></el-icon> 新建文件夹
               </el-button>
-              <el-button type="success" size="small" @click="uploadToCurrentList">
+              <el-button type="success" size="small" @click="uploadToCurrentList" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
                 <el-icon><Upload /></el-icon> 上传知识
               </el-button>
             </div>
@@ -247,8 +248,8 @@
             <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="!isFolder(row)" size="small" text type="primary" @click.stop="viewDetail(row.id)">查看</el-button>
-                <el-button size="small" text type="warning" @click.stop="editNode(row)">编辑</el-button>
-                <el-button size="small" text type="danger" @click.stop="deleteNode(row)">删除</el-button>
+                <el-button size="small" text type="warning" @click.stop="editNode(row)" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">编辑</el-button>
+                <el-button size="small" text type="danger" @click.stop="deleteNode(row)" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -667,7 +668,7 @@ import * as d3 from 'd3'
 import CryptoJS from 'crypto-js'
 import api from '../api'
 import { useUserStore } from '../stores/user'
-import { hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
+import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 
 const router = useRouter()
 const userStore = useUserStore()

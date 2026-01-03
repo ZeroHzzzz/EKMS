@@ -43,7 +43,7 @@
             <el-icon><Edit /></el-icon>
             <span>知识管理</span>
           </el-menu-item>
-          <el-menu-item v-if="hasPermission(userInfo, 'VIEW_STATISTICS')" index="/statistics">
+          <el-menu-item index="/statistics">
             <el-icon><DataAnalysis /></el-icon>
             <span>统计分析</span>
           </el-menu-item>
@@ -51,7 +51,7 @@
             <el-icon><OfficeBuilding /></el-icon>
             <span>组织管理</span>
           </el-menu-item>
-                <el-menu-item v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')" index="/knowledge-tree">
+                <el-menu-item index="/knowledge-tree">
                   <el-icon><FolderOpened /></el-icon>
                   <span>知识结构</span>
                 </el-menu-item>

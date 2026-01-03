@@ -105,10 +105,13 @@
                   ></iframe>
                 </div>
 
-                <!-- 不支持的类型 -->
+                 <!-- 不支持的类型 -->
                  <div v-else class="unsupported-box">
-                  <el-empty description="该格式暂不支持在线预览，请下载查看">
-                    <el-button type="primary" @click="downloadFile">下载文件</el-button>
+                  <el-empty description="该格式暂不支持直接嵌入预览，请尝试新窗口打开或下载">
+                    <div class="unsupported-actions">
+                        <el-button type="primary" @click="downloadFile">下载文件</el-button>
+                        <el-button type="success" @click="openInNewWindow">新窗口预览</el-button>
+                    </div>
                   </el-empty>
                 </div>
               </div>
@@ -231,7 +234,7 @@
                     </div>
                   </div>
                   
-                  <el-empty v-if="knowledgeRelations.length === 0 && suggestedRelations.length === 0" description="暂无关联" image-size="60" />
+                  <el-empty v-if="knowledgeRelations.length === 0 && suggestedRelations.length === 0" description="暂无关联" :image-size="60" />
                  </div>
                </div>
             </el-tab-pane>
@@ -297,14 +300,17 @@
                       :timestamp="formatTime(version.createTime)"
                       placement="top"
                     >
-                      <div class="history-card">
-                        <h4>v{{ version.version }}</h4>
-                        <p>{{ version.changeDescription || '无变更说明' }}</p>
-                        <div class="history-ops">
-                           <el-button size="small" link @click="viewVersion(version)">查看</el-button>
-                           <el-button size="small" link v-if="version.version !== knowledge.version" @click="compareVersion(version)">对比</el-button>
-                        </div>
-                      </div>
+                       <div class="history-card">
+                         <div class="history-header">
+                            <h4>v{{ version.version }} <el-tag size="small" v-if="version.branch" effect="plain">{{ version.branch }}</el-tag></h4>
+                            <span class="history-time">{{ formatTime(version.createTime) }}</span>
+                         </div>
+                         <p class="history-msg">{{ version.changeDescription || '无变更说明' }}</p>
+                         <div class="history-ops">
+                            <el-button size="small" link @click="viewVersion(version)">查看</el-button>
+                            <el-button size="small" link v-if="version.version !== knowledge.version" @click="compareVersion(version)">与当前版本对比</el-button>
+                         </div>
+                       </div>
                     </el-timeline-item>
                  </el-timeline>
                </div>
@@ -449,7 +455,7 @@ const loadComments = async () => {
     commentsLoading.value = true
     try {
         const res = await api.get(`/knowledge/${route.params.id}/comments`)
-        comments.value = res.data || []
+        comments.value = res.code === 200 ? (res.data || []) : []
     } catch (e) {
         comments.value = []
     } finally {
@@ -533,8 +539,8 @@ const isPdfFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['PDF'
 const isImageFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['JPG','JPEG','PNG','GIF','WEBP'])
 const isVideoFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['MP4','WEBM','OGG'])
 const isAudioFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['MP3','WAV'])
-const isOfficeFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['DOC','DOCX','XLS','XLSX','PPT','PPTX'])
-const isTextFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['TXT','MD','JSON','XML','LOG', 'JAVA', 'JS', 'VUE', 'HTML', 'CSS'])
+const isOfficeFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['DOC','DOCX','XLS','XLSX','PPT','PPTX','CSV','OFD'])
+const isTextFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['TXT','MD','JSON','XML','LOG', 'JAVA', 'JS', 'VUE', 'HTML', 'CSS', 'SQL', 'PROPERTIES', 'YML', 'YAML', 'INI', 'CONF', 'SH', 'BAT'])
 
 // Relations Graph
 const initRelationGraph = () => {
@@ -595,23 +601,16 @@ watch(activeRightTab, (val) => {
   }
 })
 
-// Comments
-const loadComments = async () => {
-  commentsLoading.value = true
-  try {
-     const res = await api.get(`/knowledge/${route.params.id}/comments`)
-     comments.value = res.code === 200 ? (res.data || []) : []
-  } catch(e) { comments.value = [] }
-  finally { commentsLoading.value = false }
-}
-
 const submitComment = async () => {
   if(!newCommentContent.value.trim()) return
   if(!userStore.userInfo?.id) return ElMessage.warning('请登录')
   
   commentSubmitting.value = true
   try {
-    await api.post(`/knowledge/${route.params.id}/comments`, { content: newCommentContent.value })
+    await api.post(`/knowledge/${route.params.id}/comments`, { 
+        content: newCommentContent.value,
+        userId: userStore.userInfo.id
+    })
     newCommentContent.value = ''
     loadComments()
     ElMessage.success('评论成功')
@@ -627,14 +626,6 @@ const remoteMethod = async (query) => {
      const res = await api.get('/knowledge/search', { params: { keyword: query, pageNum: 1, pageSize: 10 } })
      relationSearchResults.value = (res.data.list || []).filter(i => i.id !== route.params.id)
   } finally { searchLoading.value = false }
-}
-
-const loadKnowledgeRelations = async () => {
-   try {
-     const res = await api.get(`/knowledge/${route.params.id}/relations`)
-     knowledgeRelations.value = res.code === 200 ? (res.data || []) : []
-     if(activeRightTab.value === 'relations') nextTick(() => initRelationGraph())
-   } catch(e) {}
 }
 
 const addKnowledgeRelation = async () => {

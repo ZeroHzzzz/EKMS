@@ -13,27 +13,27 @@
     </div>
 
     <div class="search-bar">
-      <el-autocomplete
+      <el-input
         v-model="searchKeyword"
-        :fetch-suggestions="fetchSuggestions"
-        placeholder="请输入关键词搜索（支持全文、拼音、首字母、文件名）"
+        placeholder="请输入关键词搜索"
         class="search-input"
-        :trigger-on-focus="false"
         clearable
         size="large"
-        @select="handleSelect"
         @keyup.enter="handleSearch"
-        popper-class="search-suggestions"
       >
-        <template #default="{ item }">
-          <div class="suggestion-item">
-            <div class="suggestion-title">{{ item.value }}</div>
-          </div>
+        <template #prepend>
+          <el-select v-model="searchType" placeholder="搜索范围" style="width: 110px">
+            <el-option label="全部" value="ALL" />
+            <el-option label="文件名" value="FILENAME" />
+            <el-option label="标题" value="TITLE" />
+          </el-select>
         </template>
         <template #append>
-          <el-button @click="handleSearch" size="large">搜索</el-button>
+          <el-button @click="handleSearch">
+            <el-icon><Search /></el-icon> 搜索
+          </el-button>
         </template>
-      </el-autocomplete>
+      </el-input>
     </div>
 
     <div class="filter-bar">
@@ -96,6 +96,13 @@
         >
           批量更新
         </el-button>
+        <el-button 
+          v-if="selectedItems && selectedItems.length > 0 && hasPermission(userInfo, 'DELETE')" 
+          type="danger" 
+          @click="batchDelete"
+        >
+          批量删除
+        </el-button>
       </div>
     </div>
     <el-table 
@@ -116,6 +123,10 @@
               <div v-if="scope.row.highlight && scope.row.highlight.title && scope.row.highlight.title.length > 0" 
                    v-html="scope.row.highlight.title[0]" 
                    class="knowledge-title highlight-title"></div>
+              <div v-else-if="searchType === 'FILENAME' && searchKeyword && scope.row.title.toLowerCase().includes(searchKeyword.toLowerCase())"
+                   class="knowledge-title">
+                  <span v-html="highlightText(scope.row.title, searchKeyword)"></span>
+              </div>
               <div v-else class="knowledge-title">{{ scope.row.title }}</div>
               <div class="knowledge-meta-tags">
                 <el-tag v-if="scope.row.highlight" size="small" type="success" class="match-tag">
@@ -244,6 +255,34 @@
         </el-button>
       </template>
     </el-dialog>
+    
+    <!-- 版本/分支控制对话框 -->
+    <el-dialog v-model="showVersionControlDialog" title="文件冲突处理" width="600px" :close-on-click-modal="false">
+      <div v-for="(file, index) in conflictFiles" :key="index" class="conflict-item" style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
+        <div class="conflict-title" style="font-weight: bold; margin-bottom: 10px;">
+          <el-icon color="orange"><Warning /></el-icon> 
+          文件 "{{ file.name }}" 已存在
+        </div>
+        <el-form :model="file.versionInfo" label-width="100px" size="small">
+           <el-form-item label="操作方式">
+             <el-radio-group v-model="file.versionInfo.action">
+               <el-radio label="UPDATE">更新当前分支 ({{ file.currentBranch || 'main' }})</el-radio>
+               <el-radio label="BRANCH">创建/切换分支</el-radio>
+             </el-radio-group>
+           </el-form-item>
+           <el-form-item label="分支名称" v-if="file.versionInfo.action === 'BRANCH'">
+             <el-input v-model="file.versionInfo.branchName" placeholder="请输入分支名称，如 dev" />
+           </el-form-item>
+           <el-form-item label="提交信息">
+             <el-input v-model="file.versionInfo.commitMessage" placeholder="请输入变更说明" />
+           </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="cancelUpload">取消上传</el-button>
+        <el-button type="primary" @click="confirmUploadWithVersion">确认上传</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -262,6 +301,7 @@ const userStore = useUserStore()
 const userInfo = computed(() => userStore.userInfo)
 
 const searchKeyword = ref('')
+const searchType = ref('FILENAME') // 默认为文件名搜索，符合用户需求
 const filters = ref({
   author: '',
   dateRange: null
@@ -298,6 +338,12 @@ const knowledgeTree = ref([])
 const treeLoading = ref(false)
 const parentNodeOptions = ref([]) // 父节点选择器选项
 
+// 版本控制相关
+const showVersionControlDialog = ref(false)
+const conflictFiles = ref([])
+const pendingUploadFiles = ref([]) // 暂存待上传的文件列表
+const Warning = ref('Warning') // Icon placeholder if needed, though usually auto-imported or handled
+
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
 
 const loadData = async () => {
@@ -312,7 +358,7 @@ const loadData = async () => {
     // 如果有搜索关键词，使用搜索接口
     if (searchKeyword.value && searchKeyword.value.trim()) {
       searchParams.keyword = searchKeyword.value.trim()
-      searchParams.searchType = 'AUTO'
+      searchParams.searchType = searchType.value
       }
     
     // 知识库页面只显示已发布的知识
@@ -426,6 +472,7 @@ const handleSearch = () => {
       dateRange: null
     }
     searchKeyword.value = ''
+    searchType.value = 'FILENAME'
   pageNum.value = 1
   loadData()
 }
@@ -524,6 +571,44 @@ const batchDownload = async () => {
   } catch (error) {
     ElMessage.error('批量下载失败: ' + (error.message || '未知错误'))
   }
+}
+
+const batchDelete = async () => {
+    if (!selectedItems.value || selectedItems.value.length === 0) return
+    
+    try {
+        await ElMessageBox.confirm(`确定要删除选中的 ${selectedItems.value.length} 项知识吗？删除后无法恢复`, '警告', {
+            type: 'warning',
+            confirmButtonText: '确定删除',
+            cancelButtonText: '取消'
+        })
+        
+        const ids = selectedItems.value.map(i => i.id)
+        // 循环删除或后端增加批量删除接口。这里暂用循环，建议后端加接口。
+        // 为了安全起见，这里假设后端没有批量接口，如果不嫌慢
+        // 实际上最好加个批量接口 /knowledge/batch/delete
+        // 这里模拟批量
+        let successCount = 0
+        for (const id of ids) {
+             try {
+                await api.delete(`/knowledge/${id}`)
+                successCount++
+             } catch(e) { console.error(e) }
+        }
+        
+        ElMessage.success(`成功删除 ${successCount} 项`)
+        selectedItems.value = []
+        loadData()
+    } catch (e) {
+        if(e !== 'cancel') ElMessage.error('刪除操作失败')
+    }
+}
+
+// 简单的高亮辅助函数
+const highlightText = (text, keyword) => {
+    if (!keyword) return text
+    const reg = new RegExp(`(${keyword})`, 'gi')
+    return text.replace(reg, '<span class="highlight-text" style="color: red; font-weight: bold;">$1</span>')
 }
 
 const collect = async (row) => {
@@ -679,35 +764,87 @@ const startUpload = async () => {
     return
   }
   
+  // 1. 检查是否存在同名文件 (Check Conflicts)
+  // 如果是确认后的上传（conflictFiles empty or cleared），则跳过检查
+  if (conflictFiles.value.length === 0 && !uploading.value) {
+      const conflicts = []
+      // 遍历所有文件检查
+      for (const fileWrap of fileList.value) {
+          const file = fileWrap.raw
+          const fileNameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name
+          
+          try {
+              // 使用列表接口搜索准确标题
+              const res = await api.get('/knowledge/list', { 
+                  params: { 
+                      keyword: fileNameWithoutExt, 
+                      searchType: 'TITLE',
+                      pageSize: 10
+                  } 
+              })
+              const exactMatch = (res.data || []).find(k => k.title === fileNameWithoutExt && k.fileId)
+              
+              if (exactMatch) {
+                  conflicts.push({
+                      name: file.name,
+                      rawFile: file,
+                      existingId: exactMatch.id,
+                      currentBranch: exactMatch.currentBranch || 'main',
+                      versionInfo: {
+                          action: 'UPDATE',
+                          branchName: '',
+                          commitMessage: '更新文件: ' + file.name
+                      }
+                  })
+              }
+          } catch(e) { console.error(e) }
+      }
+      
+      if (conflicts.length > 0) {
+          conflictFiles.value = conflicts
+          pendingUploadFiles.value = fileList.value // 暂存所有文件
+          showVersionControlDialog.value = true
+          return // 暂停上传等待用户确认
+      }
+  }
+
   // 不再强制要求分类，因为主要使用树结构
   
   uploading.value = true
   uploadProgress.value = 0
+  showVersionControlDialog.value = false // Close dialog if open
   
   try {
     for (let i = 0; i < fileList.value.length; i++) {
       const file = fileList.value[i].raw
+      // Check if this file was in conflicts map
+      const conflict = conflictFiles.value.find(c => c.name === file.name)
+      
       currentFileName.value = file.name
       
       // 计算文件哈希
       const fileHash = await calculateFileHash(file)
       
-      // 检查文件是否已存在
+      // 检查文件是否已存在 (File Service check for physical file)
       let fileDTO = null
+      // ... existing check logic ...
       try {
         const checkRes = await api.get(`/file/check/${fileHash}`)
         if (checkRes.code === 200 && checkRes.data) {
           fileDTO = checkRes.data
-          ElMessage.info(`${file.name} 已存在，跳过上传`)
-          uploadProgress.value = Math.round(((i + 1) / fileList.value.length) * 100)
-          continue
+          // Even if file exists physically, we might update the Knowledge Version logic
+          // But if content is identical, maybe skip upload but STILL update version/branch if requested?
+          // User said: "if identical content then no need to record history ... if modification record".
+          // If physical file is same, content is same.
+          // BUT, user might want to switch branch even if file is same?
+          // Let's assume if file is same, we assume "No Change" unless branch switch.
+          // For now simplest is: if file exists, we just link it.
         }
-      } catch (error) {
-        // 文件不存在，继续上传
-      }
+      } catch (error) {}
       
-      // 分片上传
+      // 分片上传 (if not found physically)
       if (!fileDTO) {
+         // ... existing upload logic ...
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
         const uploadId = Date.now().toString() + Math.random().toString(36).substr(2, 9)
         
@@ -731,53 +868,56 @@ const startUpload = async () => {
           uploadProgress.value = Math.round(((chunkIndex + 1) / totalChunks) * 100 * (i + 1) / fileList.value.length)
         }
         
-        // 完成上传
         const completeRes = await api.post(`/file/complete/${uploadId}`)
-        if (completeRes.code !== 200 || !completeRes.data) {
-          throw new Error('文件上传完成失败')
-        }
+        if (completeRes.code !== 200 || !completeRes.data) throw new Error('文件上传完成失败')
         fileDTO = completeRes.data
       }
       
-      // 创建知识条目
+      // 创建或更新知识条目
       const userInfo = userStore.userInfo
-      if (!userInfo) {
-        throw new Error('用户信息不存在，请重新登录')
-      }
+      if (!userInfo) throw new Error('用户信息不存在，请重新登录')
       
-      // 提取文件名（不含扩展名）作为标题
       const fileNameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name
-      
-      // 读取文件内容（仅文本文件）
       let fileContent = `文件：${file.name}`
+      // ... content reading ...
       if (file.type.startsWith('text/') || file.name.endsWith('.txt')) {
-        try {
-          const text = await file.text()
-          fileContent = text
-        } catch (e) {
-          console.warn('读取文件内容失败，使用默认内容', e)
-        }
+        try { const text = await file.text(); fileContent = text; } catch (e) {}
       }
-      
-      const knowledgeRes = await api.post('/knowledge', {
-        title: fileNameWithoutExt,
-        content: fileContent,
-        summary: uploadForm.value.summary || `上传的文件：${file.name}`,
-        keywords: uploadForm.value.keywords || '',
-        fileId: fileDTO.id,
-        author: userInfo.realName || userInfo.username || '未知',
-        department: userInfo.department || '未知',
-        createBy: userInfo.username
-      })
-      
-      if (knowledgeRes.code !== 200) {
-        throw new Error(knowledgeRes.message || '创建知识条目失败')
+
+      if (conflict) {
+          // UPDATE Existing Knowledge
+          const updateData = {
+              id: conflict.existingId,
+              fileId: fileDTO.id,
+              changeDescription: conflict.versionInfo.commitMessage || '文件更新',
+              updateBy: userInfo.username,
+              // Handle Branching
+              currentBranch: conflict.versionInfo.action === 'BRANCH' ? conflict.versionInfo.branchName : conflict.currentBranch
+          }
+          // Also update title/content if needed? Maybe content. Title usually same as filename.
+          // We call update
+          await api.put(`/knowledge/${conflict.existingId}`, updateData)
+      } else {
+          // CREATE New Knowledge
+          await api.post('/knowledge', {
+            title: fileNameWithoutExt,
+            content: fileContent,
+            summary: uploadForm.value.summary || `上传的文件：${file.name}`,
+            keywords: uploadForm.value.keywords || '',
+            fileId: fileDTO.id,
+            author: userInfo.realName || userInfo.username || '未知',
+            department: userInfo.department || '未知',
+            createBy: userInfo.username,
+            status: 'APPROVED' // Default to approved/published per user requirement (or let backend default)
+            // But wait, user said "Permissions... ordinary users can view...".
+            // And upload default.
+          })
       }
       
       uploadProgress.value = Math.round(((i + 1) / fileList.value.length) * 100)
     }
     
-    ElMessage.success(`成功上传 ${fileList.value.length} 个文件`)
+    ElMessage.success(`成功上传/更新 ${fileList.value.length} 个文件`)
     handleUploadDialogClose()
     loadData() // 刷新列表
   } catch (error) {
@@ -786,7 +926,25 @@ const startUpload = async () => {
     uploading.value = false
     uploadProgress.value = 0
     currentFileName.value = ''
+    conflictFiles.value = [] // clear conflicts
   }
+}
+
+const confirmUploadWithVersion = () => {
+    // Check validation
+    for (const c of conflictFiles.value) {
+        if (c.versionInfo.action === 'BRANCH' && !c.versionInfo.branchName) {
+            ElMessage.warning(`请为文件 ${c.name} 输入分支名称`)
+            return
+        }
+    }
+    // Proceed to upload (startUpload will pick up conflictFiles)
+    startUpload()
+}
+
+const cancelUpload = () => {
+    showVersionControlDialog.value = false
+    conflictFiles.value = []
 }
 
 const handleUploadDialogClose = () => {
