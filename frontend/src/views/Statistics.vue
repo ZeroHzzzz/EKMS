@@ -71,31 +71,6 @@
       </el-col>
     </el-row>
 
-    <!-- 分类统计 -->
-    <el-row :gutter="20" style="margin-bottom: 20px">
-      <el-col :span="12">
-        <el-card>
-          <template #header>
-            <span>分类统计</span>
-          </template>
-          <div ref="categoryChart" style="width: 100%; height: 300px;"></div>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card>
-          <template #header>
-            <span>分类详情</span>
-          </template>
-          <el-table :data="statistics.categoryStats" stripe>
-            <el-table-column prop="category" label="分类" />
-            <el-table-column prop="count" label="数量" align="right" />
-            <el-table-column prop="clicks" label="点击量" align="right" />
-            <el-table-column prop="collections" label="收藏量" align="right" />
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
-
     <el-card style="margin-top: 20px" class="table-card">
       <template #header>
         <span>热点知识排行（按点击量）</span>
@@ -147,7 +122,6 @@ const statistics = ref({
   averageClickRate: 0,
   averageCollectRate: 0,
   collectClickRatio: 0,
-  categoryStats: [],
   clickTrend: [],
   collectTrend: [],
   hotKnowledge: []
@@ -161,11 +135,9 @@ const dateRange = ref(null)
 // 图表引用
 const clickTrendChart = ref(null)
 const collectTrendChart = ref(null)
-const categoryChart = ref(null)
 
 let clickTrendChartInstance = null
 let collectTrendChartInstance = null
-let categoryChartInstance = null
 
 // 获取排名样式类
 const getRankClass = (rank) => {
@@ -194,7 +166,6 @@ const loadStatistics = async () => {
         averageClickRate: statsRes.data.averageClickRate || 0,
         averageCollectRate: statsRes.data.averageCollectRate || 0,
         collectClickRatio: statsRes.data.collectClickRatio || 0,
-        categoryStats: statsRes.data.categoryStats || [],
         clickTrend: statsRes.data.clickTrend || [],
         collectTrend: statsRes.data.collectTrend || [],
         hotKnowledge: statsRes.data.hotKnowledge || []
@@ -260,40 +231,6 @@ const renderCharts = () => {
     }
     collectTrendChartInstance.setOption(option)
   }
-
-  // 分类统计饼图
-  if (categoryChart.value && statistics.value.categoryStats) {
-    if (!categoryChartInstance) {
-      categoryChartInstance = echarts.init(categoryChart.value)
-    }
-    const option = {
-      tooltip: {
-        trigger: 'item',
-        formatter: '{a} <br/>{b}: {c} ({d}%)'
-      },
-      legend: {
-        orient: 'vertical',
-        left: 'left'
-      },
-      series: [{
-        name: '知识数量',
-        type: 'pie',
-        radius: '50%',
-        data: statistics.value.categoryStats.map(c => ({
-          value: c.count,
-          name: c.category
-        })),
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.5)'
-          }
-        }
-      }]
-    }
-    categoryChartInstance.setOption(option)
-  }
 }
 
 // 格式化数字
@@ -318,7 +255,6 @@ const handleDateRangeChange = () => {
 const handleResize = () => {
   if (clickTrendChartInstance) clickTrendChartInstance.resize()
   if (collectTrendChartInstance) collectTrendChartInstance.resize()
-  if (categoryChartInstance) categoryChartInstance.resize()
 }
 
 onMounted(() => {
@@ -332,7 +268,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   if (clickTrendChartInstance) clickTrendChartInstance.dispose()
   if (collectTrendChartInstance) collectTrendChartInstance.dispose()
-  if (categoryChartInstance) categoryChartInstance.dispose()
 })
 </script>
 
