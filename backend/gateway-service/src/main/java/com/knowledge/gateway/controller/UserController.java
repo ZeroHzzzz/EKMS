@@ -1,12 +1,16 @@
 package com.knowledge.gateway.controller;
 
+import com.knowledge.api.dto.DepartmentDTO;
 import com.knowledge.api.dto.UserDTO;
+import com.knowledge.api.service.DepartmentService;
 import com.knowledge.api.service.UserService;
 import com.knowledge.common.result.Result;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @Slf4j
 @RestController
@@ -15,6 +19,20 @@ public class UserController {
 
     @DubboReference(check = false, timeout = 10000)
     private UserService userService;
+
+    @DubboReference(check = false, timeout = 10000)
+    private DepartmentService departmentService;
+
+    @GetMapping("/list")
+    public Result<List<UserDTO>> getAllUsers() {
+        try {
+            List<UserDTO> users = userService.getAllUsers();
+            return Result.success(users);
+        } catch (Exception e) {
+            log.error("获取用户列表失败: {}", e.getMessage(), e);
+            return Result.error(e.getMessage());
+        }
+    }
 
     @GetMapping("/{id}")
     public Result<UserDTO> getUser(@PathVariable Long id) {
@@ -32,6 +50,19 @@ public class UserController {
         }
     }
 
+    @DeleteMapping("/{id}")
+    public Result<Void> deleteUser(@PathVariable Long id) {
+        log.info("删除用户 - 用户ID: {}", id);
+        try {
+            userService.deleteUser(id);
+            log.info("用户删除成功 - 用户ID: {}", id);
+            return Result.success(null);
+        } catch (Exception e) {
+            log.error("删除用户失败 - 用户ID: {}, 错误: {}", id, e.getMessage(), e);
+            return Result.error(e.getMessage());
+        }
+    }
+
     @PutMapping("/{id}")
     public Result<UserDTO> updateUser(@PathVariable Long id, @RequestBody UpdateUserRequest request) {
         log.info("更新用户信息 - 用户ID: {}", id);
@@ -40,7 +71,8 @@ public class UserController {
             userDTO.setId(id);
             userDTO.setRealName(request.getRealName());
             userDTO.setEmail(request.getEmail());
-            userDTO.setDepartment(request.getDepartment());
+            userDTO.setDepartmentId(request.getDepartmentId());
+            userDTO.setRole(request.getRole());  // 允许更新角色
             
             UserDTO result = userService.updateUser(userDTO);
             result.setPassword(null); // 清除密码字段
@@ -66,11 +98,61 @@ public class UserController {
         }
     }
 
+    @PostMapping
+    public Result<UserDTO> createUser(@RequestBody CreateUserRequest request) {
+        log.info("创建用户 - 用户名: {}", request.getUsername());
+        try {
+            UserDTO userDTO = new UserDTO();
+            userDTO.setUsername(request.getUsername());
+            userDTO.setPassword(request.getPassword());
+            userDTO.setRealName(request.getRealName());
+            userDTO.setEmail(request.getEmail());
+            userDTO.setDepartmentId(request.getDepartmentId());
+            userDTO.setRole(request.getRole());
+            
+            UserDTO result = userService.createUser(userDTO);
+            result.setPassword(null); // 清除密码字段
+            
+            log.info("用户创建成功 - 用户ID: {}", result.getId());
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("创建用户失败 - 用户名: {}, 错误: {}", request.getUsername(), e.getMessage(), e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/departments")
+    @Deprecated
+    public Result<List<String>> getAllDepartments() {
+        // 此接口已废弃，请使用 /api/department 接口
+        try {
+            List<DepartmentDTO> departments = departmentService.getAllDepartments();
+            List<String> departmentNames = departments.stream()
+                .map(DepartmentDTO::getName)
+                .collect(java.util.stream.Collectors.toList());
+            return Result.success(departmentNames);
+        } catch (Exception e) {
+            log.error("获取部门列表失败: {}", e.getMessage(), e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @Data
+    static class CreateUserRequest {
+        private String username;
+        private String password;
+        private String realName;
+        private String email;
+        private Long departmentId;
+        private String role;
+    }
+
     @Data
     static class UpdateUserRequest {
         private String realName;
         private String email;
-        private String department;
+        private Long departmentId;  // 部门ID
+        private String role;  // 角色
     }
 
     @Data

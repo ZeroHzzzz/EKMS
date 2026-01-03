@@ -13,7 +13,11 @@
         <el-table-column prop="username" label="用户名" width="150" />
         <el-table-column prop="realName" label="真实姓名" width="150" />
         <el-table-column prop="email" label="邮箱" width="200" />
-        <el-table-column prop="department" label="部门" width="150" />
+        <el-table-column prop="department" label="部门" width="150">
+          <template #default="scope">
+            {{ scope.row.role === 'ADMIN' ? '系统' : (scope.row.department || '-') }}
+          </template>
+        </el-table-column>
         <el-table-column prop="role" label="角色" width="120">
           <template #default="scope">
             <el-tag :type="getRoleType(scope.row.role)">
@@ -60,15 +64,25 @@
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="userForm.email" />
         </el-form-item>
-        <el-form-item label="部门" prop="department">
-          <el-input v-model="userForm.department" />
-        </el-form-item>
         <el-form-item label="角色" prop="role">
-          <el-select v-model="userForm.role" style="width: 100%">
+          <el-select v-model="userForm.role" style="width: 100%" @change="handleRoleChange">
             <el-option label="普通用户" value="USER" />
             <el-option label="知识管理员" value="EDITOR" />
             <el-option label="系统管理员" value="ADMIN" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="部门" prop="departmentId" v-if="userForm.role !== 'ADMIN'">
+          <el-select v-model="userForm.departmentId" placeholder="请选择部门" style="width: 100%" :loading="loadingDepartments">
+            <el-option
+              v-for="dept in departmentList"
+              :key="dept.id"
+              :label="dept.name"
+              :value="dept.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else>
+          <el-text type="info">系统管理员无需选择部门</el-text>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -99,9 +113,12 @@ const userForm = ref({
   password: '',
   realName: '',
   email: '',
-  department: '',
+  departmentId: null,
   role: 'USER'
 })
+
+const departmentList = ref([])
+const loadingDepartments = ref(false)
 
 const dialogTitle = computed(() => isEdit.value ? '编辑用户' : '添加用户')
 
@@ -117,8 +134,8 @@ const rules = {
   realName: [
     { required: true, message: '请输入真实姓名', trigger: 'blur' }
   ],
-  department: [
-    { required: true, message: '请输入部门', trigger: 'blur' }
+  departmentId: [
+    { required: true, message: '请选择部门', trigger: 'change' }
   ],
   role: [
     { required: true, message: '请选择角色', trigger: 'change' }
@@ -169,10 +186,11 @@ const showAddDialog = () => {
     password: '',
     realName: '',
     email: '',
-    department: '',
+    departmentId: null,
     role: 'USER'
   }
   dialogVisible.value = true
+  loadDepartments()
 }
 
 const editUser = (row) => {
@@ -183,25 +201,67 @@ const editUser = (row) => {
     password: '',
     realName: row.realName,
     email: row.email,
-    department: row.department,
+    departmentId: row.departmentId,
     role: row.role
   }
   dialogVisible.value = true
+  loadDepartments()
+}
+
+const handleRoleChange = (role) => {
+  // 如果选择系统管理员，清空部门
+  if (role === 'ADMIN') {
+    userForm.value.departmentId = null
+  }
+}
+
+const loadDepartments = async () => {
+  loadingDepartments.value = true
+  try {
+    const res = await api.get('/department')
+    if (res.code === 200 && res.data) {
+      departmentList.value = res.data
+    }
+  } catch (error) {
+    ElMessage.error('加载部门列表失败')
+  } finally {
+    loadingDepartments.value = false
+  }
 }
 
 const saveUser = async () => {
   if (!userFormRef.value) return
+  
+  // 系统管理员不需要验证部门
+  const rulesToValidate = { ...rules }
+  if (userForm.value.role === 'ADMIN') {
+    delete rulesToValidate.departmentId
+  }
   
   await userFormRef.value.validate(async (valid) => {
     if (valid) {
       try {
         if (isEdit.value) {
           // 编辑用户
-          // await api.put(`/user/${userForm.value.id}`, userForm.value)
+          const updateData = {
+            realName: userForm.value.realName,
+            email: userForm.value.email,
+            departmentId: userForm.value.role === 'ADMIN' ? null : userForm.value.departmentId,
+            role: userForm.value.role
+          }
+          await api.put(`/user/${userForm.value.id}`, updateData)
           ElMessage.success('更新用户成功')
         } else {
           // 添加用户
-          // await api.post('/user', userForm.value)
+          const createData = {
+            username: userForm.value.username,
+            password: userForm.value.password,
+            realName: userForm.value.realName,
+            email: userForm.value.email,
+            departmentId: userForm.value.role === 'ADMIN' ? null : userForm.value.departmentId,
+            role: userForm.value.role
+          }
+          await api.post('/user', createData)
           ElMessage.success('添加用户成功')
         }
         dialogVisible.value = false

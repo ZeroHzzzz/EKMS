@@ -18,15 +18,25 @@
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="registerForm.email" placeholder="请输入邮箱" />
         </el-form-item>
-        <el-form-item label="部门" prop="department">
-          <el-input v-model="registerForm.department" placeholder="请输入部门" />
-        </el-form-item>
         <el-form-item label="用户角色" prop="role">
-          <el-select v-model="registerForm.role" placeholder="请选择用户角色" style="width: 100%">
+          <el-select v-model="registerForm.role" placeholder="请选择用户角色" style="width: 100%" @change="handleRoleChange">
             <el-option label="普通用户" value="USER" />
             <el-option label="知识管理员" value="EDITOR" />
             <el-option label="系统管理员" value="ADMIN" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="部门" prop="departmentId" v-if="registerForm.role !== 'ADMIN'">
+          <el-select v-model="registerForm.departmentId" placeholder="请选择部门" style="width: 100%" :loading="loadingDepartments">
+            <el-option
+              v-for="dept in departmentList"
+              :key="dept.id"
+              :label="dept.name"
+              :value="dept.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else>
+          <el-text type="info">系统管理员无需选择部门</el-text>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleRegister" style="width: 100%">注册</el-button>
@@ -42,10 +52,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
+import api from '../api'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -56,11 +67,13 @@ const registerForm = ref({
   confirmPassword: '',
   realName: '',
   email: '',
-  department: '',
+  departmentId: null,
   role: 'USER'
 })
 
 const registerFormRef = ref(null)
+const departmentList = ref([])
+const loadingDepartments = ref(false)
 
 const validateConfirmPassword = (rule, value, callback) => {
   if (value === '') {
@@ -85,6 +98,17 @@ const validateEmail = (rule, value, callback) => {
   }
 }
 
+// 部门验证：系统管理员不需要部门，其他角色必须选择
+const validateDepartment = (rule, value, callback) => {
+  if (registerForm.value.role === 'ADMIN') {
+    callback() // 系统管理员不需要部门
+  } else if (!value) {
+    callback(new Error('请选择部门'))
+  } else {
+    callback()
+  }
+}
+
 const rules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -103,12 +127,19 @@ const rules = {
   email: [
     { validator: validateEmail, trigger: 'blur' }
   ],
-  department: [
-    { required: true, message: '请输入部门', trigger: 'blur' }
+  departmentId: [
+    { validator: validateDepartment, trigger: 'change' }
   ],
   role: [
     { required: true, message: '请选择用户角色', trigger: 'change' }
   ]
+}
+
+const handleRoleChange = (role) => {
+  // 如果选择系统管理员，清空部门
+  if (role === 'ADMIN') {
+    registerForm.value.departmentId = null
+  }
 }
 
 const handleRegister = async () => {
@@ -117,18 +148,24 @@ const handleRegister = async () => {
   await registerFormRef.value.validate(async (valid) => {
     if (valid) {
       try {
-        await userStore.register(
+        const result = await userStore.register(
           registerForm.value.username,
           registerForm.value.password,
           registerForm.value.realName,
           registerForm.value.email,
-          registerForm.value.department,
+          registerForm.value.role === 'ADMIN' ? null : registerForm.value.departmentId,
           registerForm.value.role
         )
-        ElMessage.success('注册成功')
-        router.push('/login')
+        if (result.success) {
+          ElMessage.success('注册成功')
+          router.push('/login')
+        } else {
+          // 注册失败，显示错误消息
+          ElMessage.error(result.message || '注册失败')
+        }
       } catch (error) {
-        const errorMsg = error.message || '注册失败'
+        // 捕获意外错误
+        const errorMsg = error.message || '注册失败，请稍后重试'
         ElMessage.error(errorMsg)
         console.error('注册错误:', error)
       }
@@ -139,6 +176,24 @@ const handleRegister = async () => {
 const goToLogin = () => {
   router.push('/login')
 }
+
+const loadDepartments = async () => {
+  loadingDepartments.value = true
+  try {
+    const res = await api.get('/department')
+    if (res.code === 200 && res.data) {
+      departmentList.value = res.data
+    }
+  } catch (error) {
+    ElMessage.error('加载部门列表失败')
+  } finally {
+    loadingDepartments.value = false
+  }
+}
+
+onMounted(() => {
+  loadDepartments()
+})
 </script>
 
 <style scoped>

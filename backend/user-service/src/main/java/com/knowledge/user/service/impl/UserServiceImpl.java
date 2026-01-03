@@ -4,8 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.knowledge.api.dto.UserDTO;
 import com.knowledge.api.service.UserService;
 import com.knowledge.common.constant.Constants;
+import com.knowledge.common.exception.BusinessException;
 import com.knowledge.common.util.PasswordUtil;
+import com.knowledge.common.util.UserValidationUtil;
 import com.knowledge.user.entity.User;
+import com.knowledge.user.util.UserDTOUtil;
+import com.knowledge.user.mapper.DepartmentMapper;
 import com.knowledge.user.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboService;
@@ -16,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.Resource;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -25,14 +30,16 @@ public class UserServiceImpl implements UserService {
     @Resource
     private UserMapper userMapper;
 
+    @Resource
+    private DepartmentMapper departmentMapper;
+
     @Override
     public UserDTO getUserById(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             return null;
         }
-        UserDTO userDTO = new UserDTO();
-        BeanUtils.copyProperties(user, userDTO);
+        UserDTO userDTO = UserDTOUtil.toDTO(user, departmentMapper);
         userDTO.setPermissions(getPermissionsByRole(user.getRole()));
         return userDTO;
     }
@@ -45,8 +52,7 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             return null;
         }
-        UserDTO userDTO = new UserDTO();
-        BeanUtils.copyProperties(user, userDTO);
+        UserDTO userDTO = UserDTOUtil.toDTO(user, departmentMapper);
         userDTO.setPermissions(getPermissionsByRole(user.getRole()));
         return userDTO;
     }
@@ -58,11 +64,22 @@ public class UserServiceImpl implements UserService {
         wrapper.eq(User::getUsername, userDTO.getUsername());
         User existingUser = userMapper.selectOne(wrapper);
         if (existingUser != null) {
-            throw new RuntimeException("用户名已存在");
+            throw new BusinessException(400, "用户名已存在");
         }
+        
+        // 验证角色
+        if (userDTO.getRole() == null || !UserValidationUtil.isValidRole(userDTO.getRole())) {
+            throw new BusinessException(400, "无效的用户角色");
+        }
+        
+        // 验证部门
+        UserValidationUtil.validateDepartment(userDTO.getRole(), userDTO.getDepartmentId());
         
         User user = new User();
         BeanUtils.copyProperties(userDTO, user);
+        
+        // 设置部门ID（使用工具类统一处理）
+        UserDTOUtil.setDepartmentId(user, userDTO.getRole(), userDTO.getDepartmentId());
         
         // 如果密码不为空且不是已加密的BCrypt格式，则加密密码
         if (userDTO.getPassword() != null && !userDTO.getPassword().isEmpty()) {
@@ -79,15 +96,14 @@ public class UserServiceImpl implements UserService {
         
         userMapper.insert(user);
         
-        UserDTO result = new UserDTO();
-        BeanUtils.copyProperties(user, result);
+        UserDTO result = UserDTOUtil.toDTO(user, departmentMapper);
         result.setPermissions(getPermissionsByRole(user.getRole()));
         return result;
     }
 
     @Override
-    public UserDTO register(String username, String password, String realName, String email, String department, String role) {
-        log.info("注册请求 - 用户名: {}, 角色: {}", username, role);
+    public UserDTO register(String username, String password, String realName, String email, Long departmentId, String role) {
+        log.info("注册请求 - 用户名: {}, 角色: {}, 部门ID: {}", username, role, departmentId);
         
         // 检查用户名是否已存在
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
@@ -95,18 +111,17 @@ public class UserServiceImpl implements UserService {
         User existingUser = userMapper.selectOne(wrapper);
         if (existingUser != null) {
             log.warn("注册失败 - 用户名已存在: {}", username);
-            throw new RuntimeException("用户名已存在");
+            throw new BusinessException(400, "用户名已存在");
         }
         
         // 验证角色
         if (role == null || role.isEmpty()) {
             role = Constants.ROLE_USER; // 默认角色为普通用户
         }
-        if (!Constants.ROLE_ADMIN.equals(role) && 
-            !Constants.ROLE_EDITOR.equals(role) && 
-            !Constants.ROLE_USER.equals(role)) {
-            throw new RuntimeException("无效的用户角色");
-        }
+        UserValidationUtil.validateRegisterRole(role);
+        
+        // 验证部门：系统管理员不需要部门，其他角色必须选择部门
+        UserValidationUtil.validateDepartment(role, departmentId);
         
         // 创建用户
         User user = new User();
@@ -114,16 +129,16 @@ public class UserServiceImpl implements UserService {
         user.setPassword(PasswordUtil.encode(password)); // 加密密码
         user.setRealName(realName);
         user.setEmail(email);
-        user.setDepartment(department);
         user.setRole(role);
         
+        // 设置部门ID（使用工具类统一处理）
+        UserDTOUtil.setDepartmentId(user, role, departmentId);
+        
         userMapper.insert(user);
-        log.info("注册成功 - 用户名: {}, 角色: {}", username, role);
+        log.info("注册成功 - 用户名: {}, 角色: {}, 部门ID: {}", username, role, user.getDepartmentId());
         
         // 转换为UserDTO（不包含密码）
-        UserDTO userDTO = new UserDTO();
-        BeanUtils.copyProperties(user, userDTO);
-        userDTO.setPassword(null); // 清除密码字段
+        UserDTO userDTO = UserDTOUtil.toDTO(user, departmentMapper);
         userDTO.setPermissions(getPermissionsByRole(user.getRole()));
         return userDTO;
     }
@@ -135,20 +150,35 @@ public class UserServiceImpl implements UserService {
         
         User user = userMapper.selectById(userDTO.getId());
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BusinessException(404, "用户不存在");
         }
         
-        // 只更新允许的字段，不允许修改用户名和角色
+        // 只更新允许的字段，不允许修改用户名
         user.setRealName(userDTO.getRealName());
         user.setEmail(userDTO.getEmail());
-        user.setDepartment(userDTO.getDepartment());
+        
+        // 如果提供了角色且角色发生变化，允许更新角色（仅系统管理员可以修改角色）
+        String targetRole = userDTO.getRole() != null && !userDTO.getRole().isEmpty() 
+            ? userDTO.getRole() 
+            : user.getRole();
+        
+        // 验证角色
+        if (!UserValidationUtil.isValidRole(targetRole)) {
+            throw new BusinessException(400, "无效的用户角色");
+        }
+        
+        // 验证并设置部门ID（使用工具类统一处理）
+        UserValidationUtil.validateDepartment(targetRole, userDTO.getDepartmentId());
+        UserDTOUtil.setDepartmentId(user, targetRole, userDTO.getDepartmentId());
+        
+        // 更新角色
+        user.setRole(targetRole);
         
         userMapper.updateById(user);
         log.info("用户信息更新成功 - 用户ID: {}", userDTO.getId());
         
         // 返回更新后的用户信息
-        UserDTO result = new UserDTO();
-        BeanUtils.copyProperties(user, result);
+        UserDTO result = UserDTOUtil.toDTO(user, departmentMapper);
         result.setPermissions(getPermissionsByRole(user.getRole()));
         return result;
     }
@@ -160,13 +190,13 @@ public class UserServiceImpl implements UserService {
         
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new BusinessException(404, "用户不存在");
         }
         
         // 验证原密码
         if (!PasswordUtil.matches(oldPassword, user.getPassword())) {
             log.warn("密码修改失败 - 原密码错误，用户ID: {}", userId);
-            throw new RuntimeException("原密码错误");
+            throw new BusinessException(400, "原密码错误");
         }
         
         // 加密新密码
@@ -244,38 +274,63 @@ public class UserServiceImpl implements UserService {
         
         if (user == null) {
             log.warn("登录失败 - 用户不存在: {}", username);
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException(401, "用户名或密码错误");
         }
         
         log.info("找到用户 - ID: {}, 用户名: {}", user.getId(), user.getUsername());
         
         // 验证密码
         String storedPasswordHash = user.getPassword();
-        // 输出密码hash的前缀和长度，用于调试（不输出完整hash）
-        String hashPrefix = storedPasswordHash != null && storedPasswordHash.length() > 10 
-            ? storedPasswordHash.substring(0, 10) + "..." 
-            : storedPasswordHash;
-        log.info("存储的密码hash信息 - 长度: {}, 前缀: {}", 
-            storedPasswordHash != null ? storedPasswordHash.length() : 0, hashPrefix);
-        log.info("输入的密码长度: {}", password != null ? password.length() : 0);
-        
         boolean passwordMatches = PasswordUtil.matches(password, storedPasswordHash);
         
         log.info("密码验证结果 - 匹配: {}", passwordMatches);
         
         if (!passwordMatches) {
             log.warn("登录失败 - 密码不匹配，用户名: {}", username);
-            throw new RuntimeException("用户名或密码错误");
+            throw new BusinessException(401, "用户名或密码错误");
         }
         
         // 转换为UserDTO
-        UserDTO userDTO = new UserDTO();
-        BeanUtils.copyProperties(user, userDTO);
+        UserDTO userDTO = UserDTOUtil.toDTO(user, departmentMapper);
         userDTO.setPermissions(getPermissionsByRole(user.getRole()));
         
         log.info("登录成功 - 用户名: {}, 角色: {}", username, user.getRole());
         
         return userDTO;
+    }
+
+    @Override
+    public List<String> getAllDepartments() {
+        // 此方法已废弃，应该使用DepartmentService.getAllDepartments()
+        // 保留此方法以保持向后兼容，返回空列表
+        log.warn("getAllDepartments()方法已废弃，请使用DepartmentService.getAllDepartments()");
+        return List.of();
+    }
+
+    @Override
+    public List<UserDTO> getAllUsers() {
+        log.info("获取所有用户列表");
+        List<User> users = userMapper.selectList(null);
+        return users.stream()
+            .map(user -> {
+                UserDTO dto = UserDTOUtil.toDTO(user, departmentMapper);
+                dto.setPassword(null); // 不返回密码
+                dto.setPermissions(getPermissionsByRole(user.getRole()));
+                return dto;
+            })
+            .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(Long userId) {
+        log.info("删除用户 - 用户ID: {}", userId);
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(404, "用户不存在");
+        }
+        userMapper.deleteById(userId);
+        log.info("用户删除成功 - 用户ID: {}", userId);
     }
 }
 

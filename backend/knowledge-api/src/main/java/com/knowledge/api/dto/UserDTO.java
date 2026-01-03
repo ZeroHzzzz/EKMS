@@ -13,7 +13,8 @@ public class UserDTO implements Serializable {
     private String password;
     private String realName;
     private String email;
-    private String department;
+    private Long departmentId;  // 部门ID，系统管理员为null
+    private String department;  // 部门名称（用于显示）
     private String role;
     private List<String> permissions;
 }

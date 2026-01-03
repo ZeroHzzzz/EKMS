@@ -36,36 +36,39 @@ export const useUserStore = defineStore('user', () => {
   const login = async (username, password) => {
     try {
       const res = await api.post('/auth/login', { username, password })
-      if (res.code === 200 && res.data) {
+      // 如果到这里，说明 res.code === 200
+      if (res.data) {
         token.value = res.data.token
         userInfo.value = res.data.userInfo
         localStorage.setItem('token', token.value)
         localStorage.setItem('userInfo', JSON.stringify(res.data.userInfo))
+        return { success: true }
       } else {
-        throw new Error(res.message || '登录失败')
+        return { success: false, message: '登录失败：未返回用户数据' }
       }
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message || '登录失败')
+      // api拦截器会将错误格式化为 { code, message, data }
+      const errorMessage = error.message || '登录失败'
+      return { success: false, message: errorMessage }
     }
   }
 
-  const register = async (username, password, realName, email, department, role) => {
+  const register = async (username, password, realName, email, departmentId, role) => {
     try {
       const res = await api.post('/auth/register', {
         username,
         password,
         realName,
         email,
-        department,
+        departmentId,
         role
       })
-      if (res.code === 200 && res.data) {
-        return res.data
-      } else {
-        throw new Error(res.message || '注册失败')
-      }
+      // 如果到这里，说明 res.code === 200
+      return { success: true, data: res.data }
     } catch (error) {
-      throw new Error(error.response?.data?.message || error.message || '注册失败')
+      // api拦截器会将错误格式化为 { code, message, data }
+      const errorMessage = error.message || '注册失败'
+      return { success: false, message: errorMessage }
     }
   }
 

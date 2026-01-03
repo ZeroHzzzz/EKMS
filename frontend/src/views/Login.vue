@@ -83,11 +83,17 @@ const handleLogin = async () => {
     if (valid) {
       loading.value = true
       try {
-        await userStore.login(loginForm.value.username, loginForm.value.password)
-        ElMessage.success('登录成功')
-        router.push('/')
+        const result = await userStore.login(loginForm.value.username, loginForm.value.password)
+        if (result.success) {
+          ElMessage.success('登录成功')
+          router.push('/')
+        } else {
+          // 登录失败，显示错误消息
+          ElMessage.error(result.message || '登录失败')
+        }
       } catch (error) {
-        const errorMsg = error.message || '登录失败'
+        // 捕获意外错误
+        const errorMsg = error.message || '登录失败，请稍后重试'
         ElMessage.error(errorMsg)
         console.error('登录错误:', error)
       } finally {

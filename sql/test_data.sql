@@ -8,6 +8,20 @@ USE knowledge_db;
 -- 1. 用户测试数据
 -- ============================================
 
+-- 首先创建部门（如果不存在）
+INSERT IGNORE INTO `department` (`name`, `description`, `create_time`, `create_by`) VALUES
+('业务部', '业务部门', NOW(), 'system'),
+('技术部', '技术部门', NOW(), 'system'),
+('客户服务部', '客户服务部门', NOW(), 'system'),
+('财务部', '财务部门', NOW(), 'system'),
+('IT部门', 'IT支持部门', NOW(), 'system');
+
+-- 获取部门ID（用于后续插入用户）
+SET @dept_business = (SELECT id FROM department WHERE name='业务部' LIMIT 1);
+SET @dept_tech = (SELECT id FROM department WHERE name='技术部' LIMIT 1);
+SET @dept_service = (SELECT id FROM department WHERE name='客户服务部' LIMIT 1);
+SET @dept_finance = (SELECT id FROM department WHERE name='财务部' LIMIT 1);
+
 -- 清空现有测试用户（保留admin，如果admin已存在则使用INSERT IGNORE避免错误）
 -- 只删除测试用户，不删除admin（如果admin已存在）
 DELETE FROM `user` WHERE `username` IN (
@@ -17,22 +31,22 @@ DELETE FROM `user` WHERE `username` IN (
 
 -- 插入测试用户（如果已存在则忽略，避免重复键错误）
 -- 注意：密码使用BCrypt加密，所有测试账号的默认密码都是 'password123'
--- 如果需要生成新的密码hash，可以使用 PasswordUtil.java 工具类
-INSERT IGNORE INTO `user` (`username`, `password`, `real_name`, `email`, `department`, `role`, `create_time`, `create_by`) VALUES
--- 总管理员（密码：password123）
-('admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '系统管理员', 'admin@knowledge.com', 'IT部门', 'ADMIN', NOW(), 'system'),
+-- 系统管理员不需要department_id（为NULL），其他用户需要关联部门
+INSERT IGNORE INTO `user` (`username`, `password`, `real_name`, `email`, `department_id`, `role`, `create_time`, `create_by`) VALUES
+-- 总管理员（密码：password123，系统管理员不需要部门）
+('admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '系统管理员', 'admin@knowledge.com', NULL, 'ADMIN', NOW(), 'system'),
 
 -- 各部门知识管理员（密码：password123）
-('editor1', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '王编辑', 'editor1@knowledge.com', '业务部', 'EDITOR', NOW(), 'admin'),
-('editor2', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '赵编辑', 'editor2@knowledge.com', '技术部', 'EDITOR', NOW(), 'admin'),
-('editor3', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '钱编辑', 'editor3@knowledge.com', '客户服务部', 'EDITOR', NOW(), 'admin'),
+('editor1', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '王编辑', 'editor1@knowledge.com', @dept_business, 'EDITOR', NOW(), 'admin'),
+('editor2', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '赵编辑', 'editor2@knowledge.com', @dept_tech, 'EDITOR', NOW(), 'admin'),
+('editor3', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '钱编辑', 'editor3@knowledge.com', @dept_service, 'EDITOR', NOW(), 'admin'),
 
 -- 普通员工（密码：password123）
-('user1', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '张三', 'user1@knowledge.com', '业务部', 'USER', NOW(), 'admin'),
-('user2', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '李四', 'user2@knowledge.com', '业务部', 'USER', NOW(), 'admin'),
-('user3', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '王五', 'user3@knowledge.com', '技术部', 'USER', NOW(), 'admin'),
-('user4', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '赵六', 'user4@knowledge.com', '客户服务部', 'USER', NOW(), 'admin'),
-('user5', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '钱七', 'user5@knowledge.com', '财务部', 'USER', NOW(), 'admin');
+('user1', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '张三', 'user1@knowledge.com', @dept_business, 'USER', NOW(), 'admin'),
+('user2', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '李四', 'user2@knowledge.com', @dept_business, 'USER', NOW(), 'admin'),
+('user3', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '王五', 'user3@knowledge.com', @dept_tech, 'USER', NOW(), 'admin'),
+('user4', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '赵六', 'user4@knowledge.com', @dept_service, 'USER', NOW(), 'admin'),
+('user5', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iwy8pQ5O', '钱七', 'user5@knowledge.com', @dept_finance, 'USER', NOW(), 'admin');
 
 -- ============================================
 -- 2. 文件信息测试数据

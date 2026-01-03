@@ -22,22 +22,55 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   response => {
     const res = response.data
+    // 业务成功，直接返回
     if (res.code === 200) {
       return res
-    } else {
-      ElMessage.error(res.message || '请求失败')
-      return Promise.reject(new Error(res.message || '请求失败'))
     }
+    // 业务错误，不在这里显示消息，让调用方处理
+    // 返回一个包含错误信息的对象，而不是 reject
+    return Promise.reject({
+      code: res.code,
+      message: res.message || '请求失败',
+      data: res.data
+    })
   },
   error => {
-    // 404 错误不显示错误提示（可能是接口未实现，静默处理）
-    if (error.response?.status === 404) {
-      // 返回一个特殊的响应对象，让调用方可以判断
-      return Promise.resolve({ code: 404, data: null, message: '接口不存在' })
+    // 网络错误或HTTP错误
+    if (error.response) {
+      // 有响应但状态码不是2xx
+      const status = error.response.status
+      const message = error.response?.data?.message || `请求失败 (${status})`
+      
+      // 404 错误不显示错误提示（可能是接口未实现，静默处理）
+      if (status === 404) {
+        return Promise.reject({
+          code: 404,
+          message: '接口不存在',
+          data: null
+        })
+      }
+      
+      // 其他HTTP错误，返回错误信息让调用方处理
+      return Promise.reject({
+        code: status,
+        message: message,
+        data: error.response.data
+      })
+    } else if (error.request) {
+      // 请求已发出但没有收到响应（网络错误）
+      return Promise.reject({
+        code: -1,
+        message: '网络错误，请检查网络连接',
+        data: null
+      })
+    } else {
+      // 其他错误
+      return Promise.reject({
+        code: -1,
+        message: error.message || '请求失败',
+        data: null
+      })
     }
-    const message = error.response?.data?.message || error.message || '网络错误'
-    ElMessage.error(message)
-    return Promise.reject(new Error(message))
   }
 )
 

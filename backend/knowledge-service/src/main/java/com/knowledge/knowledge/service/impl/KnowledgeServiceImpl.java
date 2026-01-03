@@ -2,13 +2,16 @@ package com.knowledge.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.knowledge.api.dto.DepartmentDTO;
 import com.knowledge.api.dto.KnowledgeDTO;
 import com.knowledge.api.dto.KnowledgeQueryDTO;
 import com.knowledge.api.dto.KnowledgeVersionDTO;
 import com.knowledge.api.dto.StatisticsDTO;
+import com.knowledge.api.service.DepartmentService;
 import com.knowledge.api.service.FileService;
 import com.knowledge.api.service.KnowledgeService;
 import com.knowledge.api.service.SearchService;
+import com.knowledge.api.service.UserService;
 import com.knowledge.common.util.DiffUtil;
 import com.knowledge.common.constant.Constants;
 import com.knowledge.knowledge.entity.Knowledge;
@@ -52,6 +55,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @DubboReference(check = false, timeout = 10000)
     private SearchService searchService;
+
+    @DubboReference(check = false, timeout = 10000)
+    private UserService userService;
+    
+    @DubboReference(check = false, timeout = 10000)
+    private DepartmentService departmentService;
 
     @Override
     @Transactional
@@ -717,17 +726,118 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public List<KnowledgeDTO> getKnowledgeTree() {
+        // 获取所有部门（使用DepartmentService）
+        List<DepartmentDTO> departmentList = departmentService.getAllDepartments();
+        List<String> departments = departmentList.stream()
+            .map(DepartmentDTO::getName)
+            .collect(Collectors.toList());
+        
         // 获取所有知识（不限制状态，让前端根据权限过滤）
         LambdaQueryWrapper<Knowledge> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByAsc(Knowledge::getSortOrder);
         wrapper.orderByDesc(Knowledge::getCreateTime);
         
         List<Knowledge> knowledges = knowledgeMapper.selectList(wrapper);
-        return knowledges.stream().map(k -> {
+        List<KnowledgeDTO> knowledgeDTOs = knowledges.stream().map(k -> {
             KnowledgeDTO dto = new KnowledgeDTO();
             BeanUtils.copyProperties(k, dto);
             return dto;
         }).collect(Collectors.toList());
+        
+        // 按部门组织知识树：部门作为根节点
+        List<KnowledgeDTO> result = new ArrayList<>();
+        
+        // 为每个部门创建虚拟根节点（使用唯一的负数ID）
+        long deptIdCounter = -1L;
+        for (String dept : departments) {
+            KnowledgeDTO deptNode = new KnowledgeDTO();
+            deptNode.setId(deptIdCounter--); // 使用递减的负数ID，确保每个部门有唯一ID
+            deptNode.setTitle(dept);
+            deptNode.setDepartment(dept);
+            deptNode.setIsDepartmentRoot(true); // 标记为部门根节点
+            deptNode.setParentId(null);
+            
+            // 获取该部门下的所有知识（parentId为null的，即顶级知识）
+            List<KnowledgeDTO> deptKnowledges = knowledgeDTOs.stream()
+                .filter(k -> dept.equals(k.getDepartment()) && k.getParentId() == null)
+                .sorted((a, b) -> {
+                    int sortCompare = Integer.compare(a.getSortOrder() != null ? a.getSortOrder() : 0,
+                                                     b.getSortOrder() != null ? b.getSortOrder() : 0);
+                    if (sortCompare != 0) return sortCompare;
+                    return b.getCreateTime().compareTo(a.getCreateTime());
+                })
+                .collect(Collectors.toList());
+            
+            // 构建该部门下的知识树结构
+            deptKnowledges = buildTreeForDepartment(deptKnowledges, knowledgeDTOs);
+            
+            // 如果部门有知识，或者即使没有知识也显示部门节点
+            result.add(deptNode);
+            result.addAll(deptKnowledges);
+        }
+        
+        // 处理没有部门的知识（department为null或空）
+        List<KnowledgeDTO> noDeptKnowledges = knowledgeDTOs.stream()
+            .filter(k -> (k.getDepartment() == null || k.getDepartment().trim().isEmpty()) && k.getParentId() == null)
+            .sorted((a, b) -> {
+                int sortCompare = Integer.compare(a.getSortOrder() != null ? a.getSortOrder() : 0,
+                                                 b.getSortOrder() != null ? b.getSortOrder() : 0);
+                if (sortCompare != 0) return sortCompare;
+                return b.getCreateTime().compareTo(a.getCreateTime());
+            })
+            .collect(Collectors.toList());
+        
+        if (!noDeptKnowledges.isEmpty()) {
+            // 创建"未分类"部门节点（使用一个很大的负数ID避免与部门ID冲突）
+            KnowledgeDTO unclassifiedNode = new KnowledgeDTO();
+            unclassifiedNode.setId(-999999L);
+            unclassifiedNode.setTitle("未分类");
+            unclassifiedNode.setIsDepartmentRoot(true);
+            unclassifiedNode.setParentId(null);
+            result.add(unclassifiedNode);
+            
+            List<KnowledgeDTO> unclassifiedTree = buildTreeForDepartment(noDeptKnowledges, knowledgeDTOs);
+            result.addAll(unclassifiedTree);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 为部门构建知识树结构
+     */
+    private List<KnowledgeDTO> buildTreeForDepartment(List<KnowledgeDTO> rootKnowledges, List<KnowledgeDTO> allKnowledges) {
+        List<KnowledgeDTO> result = new ArrayList<>();
+        Map<Long, KnowledgeDTO> knowledgeMap = allKnowledges.stream()
+            .collect(Collectors.toMap(KnowledgeDTO::getId, k -> k));
+        
+        for (KnowledgeDTO root : rootKnowledges) {
+            result.add(root);
+            // 递归添加子节点
+            addChildren(root, knowledgeMap, result);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 递归添加子节点
+     */
+    private void addChildren(KnowledgeDTO parent, Map<Long, KnowledgeDTO> knowledgeMap, List<KnowledgeDTO> result) {
+        List<KnowledgeDTO> children = knowledgeMap.values().stream()
+            .filter(k -> parent.getId().equals(k.getParentId()))
+            .sorted((a, b) -> {
+                int sortCompare = Integer.compare(a.getSortOrder() != null ? a.getSortOrder() : 0,
+                                                 b.getSortOrder() != null ? b.getSortOrder() : 0);
+                if (sortCompare != 0) return sortCompare;
+                return b.getCreateTime().compareTo(a.getCreateTime());
+            })
+            .collect(Collectors.toList());
+        
+        for (KnowledgeDTO child : children) {
+            result.add(child);
+            addChildren(child, knowledgeMap, result);
+        }
     }
 
     @Override

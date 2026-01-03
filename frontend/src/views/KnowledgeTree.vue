@@ -114,11 +114,20 @@
             <el-icon><Plus /></el-icon>
             添加同级节点
           </el-button>
-          <el-button size="small" @click="handleEditVisualNode">
+          <el-button 
+            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
+            size="small" 
+            @click="handleEditVisualNode"
+          >
             <el-icon><Edit /></el-icon>
             编辑
           </el-button>
-          <el-button size="small" type="danger" @click="handleDeleteVisualNode">
+          <el-button 
+            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
+            size="small" 
+            type="danger" 
+            @click="handleDeleteVisualNode"
+          >
             <el-icon><Delete /></el-icon>
             删除
           </el-button>
@@ -132,8 +141,201 @@
     </div>
 
 
-    <!-- 列表格式（文件系统树状结构） -->
-    <el-card v-else-if="viewMode === 'list'" class="list-tree-card">
+    <!-- 列表格式（部门分区展示） -->
+    <div v-else-if="viewMode === 'list'" class="list-view-container">
+      <!-- 顶部工具栏 -->
+      <div class="list-toolbar">
+        <div class="toolbar-left">
+          <el-input
+            v-model="listSearchKeyword"
+            placeholder="搜索知识..."
+            style="width: 300px"
+            clearable
+            size="large"
+            @input="handleListTreeSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+        <div class="toolbar-right">
+          <el-button @click="expandAll" size="large">展开全部</el-button>
+          <el-button @click="collapseAll" size="large">折叠全部</el-button>
+          <el-button @click="refreshTree" size="large" :icon="Refresh">刷新</el-button>
+        </div>
+      </div>
+
+      <!-- 部门分区列表 -->
+      <div class="dept-sections-container">
+        <!-- 共享知识区域 -->
+        <div class="dept-section shared-section" v-if="sharedKnowledge.length > 0">
+          <div class="dept-section-header" @click="toggleSection('shared')">
+            <div class="dept-header-left">
+              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections.shared }">
+                <ArrowRight />
+              </el-icon>
+              <el-icon class="dept-icon shared-icon"><Share /></el-icon>
+              <span class="dept-title">共享知识</span>
+              <el-tag size="small" type="primary">{{ sharedKnowledge.length }}</el-tag>
+            </div>
+            <div class="dept-header-actions">
+              <el-button size="small" type="primary" text @click.stop="addToSection('shared')">
+                <el-icon><Plus /></el-icon>
+                添加
+              </el-button>
+            </div>
+          </div>
+          <el-collapse-transition>
+            <div v-show="expandedSections.shared" class="dept-section-content">
+              <el-tree
+                :ref="el => setTreeRef('shared', el)"
+                :data="sharedKnowledge"
+                :props="treeProps"
+                node-key="id"
+                :default-expand-all="false"
+                draggable
+                :allow-drop="allowDrop"
+                :allow-drag="allowDrag"
+                @node-drop="handleNodeDrop"
+                class="dept-tree"
+              >
+                <template #default="{ node, data }">
+                  <div class="tree-node-item" @click="handleCardClick(data, node, $event)">
+                    <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
+                      <Folder v-if="isFolder(data)" />
+                      <Document v-else />
+                    </el-icon>
+                    <span class="node-title">{{ data.title }}</span>
+                    <div class="node-actions">
+                      <el-button v-if="!isFolder(data)" size="small" text @click.stop="viewDetail(data.id)">查看</el-button>
+                      <el-button size="small" text @click.stop="editNode(data)">编辑</el-button>
+                      <el-button size="small" text type="danger" @click.stop="deleteNode(data)">删除</el-button>
+                    </div>
+                  </div>
+                </template>
+              </el-tree>
+            </div>
+          </el-collapse-transition>
+        </div>
+
+        <!-- 各部门区域 -->
+        <div 
+          v-for="dept in departmentSections" 
+          :key="dept.id" 
+          class="dept-section"
+          :class="{ 'is-expanded': expandedSections[dept.id] }"
+        >
+          <div class="dept-section-header" @click="toggleSection(dept.id)">
+            <div class="dept-header-left">
+              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections[dept.id] }">
+                <ArrowRight />
+              </el-icon>
+              <el-icon class="dept-icon"><OfficeBuilding /></el-icon>
+              <span class="dept-title">{{ dept.title }}</span>
+              <el-tag size="small" type="success">{{ dept.children?.length || 0 }}</el-tag>
+            </div>
+            <div class="dept-header-actions">
+              <el-button size="small" type="primary" text @click.stop="addToSection(dept.id)">
+                <el-icon><Plus /></el-icon>
+                添加
+              </el-button>
+              <el-button size="small" type="success" text @click.stop="uploadToSection(dept.id)">
+                <el-icon><Upload /></el-icon>
+                上传
+              </el-button>
+            </div>
+          </div>
+          <el-collapse-transition>
+            <div v-show="expandedSections[dept.id]" class="dept-section-content">
+              <div v-if="!dept.children || dept.children.length === 0" class="empty-section">
+                <el-empty description="暂无知识" :image-size="60">
+                  <el-button type="primary" size="small" @click="addToSection(dept.id)">添加知识</el-button>
+                </el-empty>
+              </div>
+              <el-tree
+                v-else
+                :ref="el => setTreeRef(dept.id, el)"
+                :data="dept.children"
+                :props="treeProps"
+                node-key="id"
+                :default-expand-all="false"
+                draggable
+                :allow-drop="allowDrop"
+                :allow-drag="allowDrag"
+                @node-drop="handleNodeDrop"
+                class="dept-tree"
+              >
+                <template #default="{ node, data }">
+                  <div class="tree-node-item" @click="handleCardClick(data, node, $event)">
+                    <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
+                      <Folder v-if="isFolder(data)" />
+                      <Document v-else />
+                    </el-icon>
+                    <span class="node-title">{{ data.title }}</span>
+                    <el-tag v-if="data.isShared" size="small" type="primary" class="shared-tag">共享</el-tag>
+                    <div class="node-actions">
+                      <el-button v-if="!isFolder(data)" size="small" text @click.stop="viewDetail(data.id)">查看</el-button>
+                      <el-button v-if="isFolder(data)" size="small" text type="success" @click.stop="addChildNode(data)">添加</el-button>
+                      <el-button size="small" text @click.stop="editNode(data)">编辑</el-button>
+                      <el-button size="small" text type="danger" @click.stop="deleteNode(data)">删除</el-button>
+                    </div>
+                  </div>
+                </template>
+              </el-tree>
+            </div>
+          </el-collapse-transition>
+        </div>
+
+        <!-- 未分类知识 -->
+        <div class="dept-section unclassified-section" v-if="unclassifiedKnowledge.length > 0">
+          <div class="dept-section-header" @click="toggleSection('unclassified')">
+            <div class="dept-header-left">
+              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections.unclassified }">
+                <ArrowRight />
+              </el-icon>
+              <el-icon class="dept-icon unclassified-icon"><QuestionFilled /></el-icon>
+              <span class="dept-title">未分类</span>
+              <el-tag size="small" type="warning">{{ unclassifiedKnowledge.length }}</el-tag>
+            </div>
+          </div>
+          <el-collapse-transition>
+            <div v-show="expandedSections.unclassified" class="dept-section-content">
+              <el-tree
+                :ref="el => setTreeRef('unclassified', el)"
+                :data="unclassifiedKnowledge"
+                :props="treeProps"
+                node-key="id"
+                :default-expand-all="false"
+                draggable
+                :allow-drop="allowDrop"
+                :allow-drag="allowDrag"
+                @node-drop="handleNodeDrop"
+                class="dept-tree"
+              >
+                <template #default="{ node, data }">
+                  <div class="tree-node-item" @click="handleCardClick(data, node, $event)">
+                    <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(data), 'file-icon': !isFolder(data) }">
+                      <Folder v-if="isFolder(data)" />
+                      <Document v-else />
+                    </el-icon>
+                    <span class="node-title">{{ data.title }}</span>
+                    <div class="node-actions">
+                      <el-button v-if="!isFolder(data)" size="small" text @click.stop="viewDetail(data.id)">查看</el-button>
+                      <el-button size="small" text @click.stop="editNode(data)">编辑</el-button>
+                      <el-button size="small" text type="danger" @click.stop="deleteNode(data)">删除</el-button>
+                    </div>
+                  </div>
+                </template>
+              </el-tree>
+            </div>
+          </el-collapse-transition>
+        </div>
+      </div>
+    </div>
+
+    <!-- 保留旧列表模式代码用于兼容 -->
+    <el-card v-else-if="viewMode === 'list-old'" class="list-tree-card" style="display:none">
       <div class="tree-toolbar">
         <div class="toolbar-left">
           <el-input
@@ -197,8 +399,8 @@
                 <div class="node-info">
                   <div class="node-title-row">
                     <span class="node-title">{{ data.title }}</span>
-                    <el-tag v-if="isFolder(data)" size="small" type="warning" class="folder-tag">
-                      文件夹
+                    <el-tag v-if="isFolder(data)" size="small" :type="data.isDepartmentRoot ? 'success' : 'warning'" class="folder-tag">
+                      {{ data.isDepartmentRoot ? '部门' : '文件夹' }}
                     </el-tag>
                     <el-tag v-else size="small" type="info" class="file-tag">
                       文件
@@ -236,6 +438,7 @@
                   查看
                 </el-button>
                 <el-button 
+                  v-if="data.id !== 'root' && !data.isRoot && !data.isDepartmentRoot && !String(data.id).startsWith('dept-')"
                   size="small" 
                   text 
                   type="warning" 
@@ -257,6 +460,7 @@
                   添加
                 </el-button>
                 <el-button 
+                  v-if="data.id !== 'root' && !data.isRoot && !data.isDepartmentRoot && !String(data.id).startsWith('dept-')"
                   size="small" 
                   text 
                   type="danger" 
@@ -300,7 +504,13 @@
               <el-button size="small" text type="primary" @click.stop="viewDetail(data.id)">
                 查看
               </el-button>
-              <el-button size="small" text type="warning" @click.stop="editNode(data)">
+              <el-button 
+                v-if="data.id !== 'root' && !data.isRoot"
+                size="small" 
+                text 
+                type="warning" 
+                @click.stop="editNode(data)"
+              >
                 编辑
               </el-button>
               <el-button 
@@ -518,7 +728,7 @@
 import { ref, onMounted, nextTick, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ZoomIn, ZoomOut, Refresh, Search, Close, Document, Folder, FolderOpened, Plus, Delete, Edit, CopyDocument, Files, UploadFilled, Upload, User, Clock, View } from '@element-plus/icons-vue'
+import { ZoomIn, ZoomOut, Refresh, Search, Close, Document, Folder, FolderOpened, Plus, Delete, Edit, CopyDocument, Files, UploadFilled, Upload, User, Clock, View, ArrowRight, Share, OfficeBuilding, QuestionFilled } from '@element-plus/icons-vue'
 import * as d3 from 'd3'
 import CryptoJS from 'crypto-js'
 import api from '../api'
@@ -559,6 +769,72 @@ const nodePathMap = ref({}) // 存储节点路径映射
 const listTreeRef = ref(null)
 const listSearchKeyword = ref('')
 const filteredTreeData = ref([])
+
+// 部门分区相关
+const expandedSections = ref({ shared: true, unclassified: true })
+const deptTreeRefs = ref({})
+
+// 设置树引用
+const setTreeRef = (id, el) => {
+  if (el) {
+    deptTreeRefs.value[id] = el
+  }
+}
+
+// 部门分区数据
+const departmentSections = computed(() => {
+  return treeData.value.filter(item => item.isDepartmentRoot && item.title !== '共享知识' && item.title !== '未分类')
+})
+
+// 共享知识
+const sharedKnowledge = computed(() => {
+  const shared = treeData.value.find(item => item.isDepartmentRoot && item.title === '共享知识')
+  return shared?.children || []
+})
+
+// 未分类知识
+const unclassifiedKnowledge = computed(() => {
+  // 没有部门的知识
+  return treeData.value.filter(item => !item.isDepartmentRoot && !item.department)
+})
+
+// 切换分区展开/折叠
+const toggleSection = (sectionId) => {
+  expandedSections.value[sectionId] = !expandedSections.value[sectionId]
+}
+
+// 添加知识到分区
+const addToSection = (sectionId) => {
+  isNewFolder.value = false
+  if (sectionId === 'shared') {
+    // 共享知识区域
+    parentNodeId.value = null
+    nodeForm.value = { title: '', summary: '', keywords: '', isShared: true }
+  } else if (sectionId === 'unclassified') {
+    parentNodeId.value = null
+    nodeForm.value = { title: '', summary: '', keywords: '' }
+  } else {
+    // 部门分区
+    parentNodeId.value = sectionId
+    nodeForm.value = { title: '', summary: '', keywords: '' }
+  }
+  showAddDialog.value = true
+}
+
+// 上传到分区
+const uploadToSection = (sectionId) => {
+  uploadForm.value.parentId = sectionId === 'shared' ? null : sectionId
+  showUploadDialog.value = true
+}
+
+// 初始化分区展开状态
+const initExpandedSections = () => {
+  departmentSections.value.forEach(dept => {
+    if (expandedSections.value[dept.id] === undefined) {
+      expandedSections.value[dept.id] = true
+    }
+  })
+}
 
 // 右键菜单相关
 const contextMenuVisible = ref(false)
@@ -615,7 +891,18 @@ const loadTree = async () => {
     const res = await api.get('/knowledge/tree')
     if (res.code === 200) {
       const flatData = res.data || []
-      treeData.value = buildTree(flatData)
+      const builtTree = buildTree(flatData)
+      
+      // 如果没有数据，显示提示
+      if (builtTree.length === 0) {
+        ElMessage.info('暂无知识数据，请先添加部门或知识')
+        treeData.value = []
+      } else {
+        treeData.value = builtTree
+      }
+      
+      // 初始化分区展开状态
+      initExpandedSections()
       
       // 根据当前视图模式更新显示
       if (viewMode.value === 'visual') {
@@ -638,28 +925,82 @@ const buildTree = (list) => {
   const map = {}
   const roots = []
   
-  // 创建映射
+  // 分离部门根节点和普通知识节点
+  const departmentRoots = []
+  const knowledgeNodes = []
+  
   list.forEach(item => {
+    if (item.isDepartmentRoot) {
+      // 部门根节点
+      departmentRoots.push({ ...item, children: [], isDepartmentRoot: true })
+    } else {
+      // 普通知识节点
+      knowledgeNodes.push(item)
+    }
+  })
+  
+  // 为部门根节点创建映射（使用负数ID或特殊标识）
+  departmentRoots.forEach(dept => {
+    const deptId = dept.id < 0 ? `dept-${Math.abs(dept.id)}` : `dept-${dept.id}`
+    map[deptId] = { ...dept, id: deptId, children: [] }
+  })
+  
+  // 为知识节点创建映射
+  knowledgeNodes.forEach(item => {
     map[item.id] = { ...item, children: [] }
   })
   
-  // 构建树
-  list.forEach(item => {
+  // 构建树：将知识节点挂载到部门根节点下
+  knowledgeNodes.forEach(item => {
     if (item.parentId) {
+      // 有父节点，查找父节点
       const parent = map[item.parentId]
       if (parent) {
         parent.children.push(map[item.id])
       } else {
-        roots.push(map[item.id])
+        // 父节点不存在，可能是部门根节点
+        // 根据知识的部门找到对应的部门根节点
+        const deptRoot = departmentRoots.find(dept => dept.department === item.department)
+        if (deptRoot) {
+          const deptId = deptRoot.id < 0 ? `dept-${Math.abs(deptRoot.id)}` : `dept-${deptRoot.id}`
+          map[deptId].children.push(map[item.id])
+        } else {
+          // 找不到部门，作为根节点
+          roots.push(map[item.id])
+        }
       }
     } else {
-      roots.push(map[item.id])
+      // 没有父节点，挂载到对应部门下
+      if (item.department) {
+        const deptRoot = departmentRoots.find(dept => dept.department === item.department)
+        if (deptRoot) {
+          const deptId = deptRoot.id < 0 ? `dept-${Math.abs(deptRoot.id)}` : `dept-${deptRoot.id}`
+          map[deptId].children.push(map[item.id])
+        } else {
+          roots.push(map[item.id])
+        }
+      } else {
+        // 没有部门的知识，挂载到"未分类"部门
+        const unclassifiedDept = departmentRoots.find(dept => dept.title === '未分类')
+        if (unclassifiedDept) {
+          const deptId = unclassifiedDept.id < 0 ? `dept-${Math.abs(unclassifiedDept.id)}` : `dept-${unclassifiedDept.id}`
+          map[deptId].children.push(map[item.id])
+        } else {
+          roots.push(map[item.id])
+        }
+      }
     }
   })
   
   // 按sortOrder排序
   const sortChildren = (nodes) => {
-    nodes.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    nodes.sort((a, b) => {
+      // 部门根节点优先
+      if (a.isDepartmentRoot && !b.isDepartmentRoot) return -1
+      if (!a.isDepartmentRoot && b.isDepartmentRoot) return 1
+      // 同类型按sortOrder排序
+      return (a.sortOrder || 0) - (b.sortOrder || 0)
+    })
     nodes.forEach(node => {
       if (node.children && node.children.length > 0) {
         sortChildren(node.children)
@@ -667,36 +1008,90 @@ const buildTree = (list) => {
     })
   }
   
+  // 添加部门根节点到结果
+  departmentRoots.forEach(dept => {
+    const deptId = dept.id < 0 ? `dept-${Math.abs(dept.id)}` : `dept-${dept.id}`
+    roots.push(map[deptId])
+  })
+  
   sortChildren(roots)
   return roots
 }
 
 // 展开全部
 const expandAll = () => {
-  // 根据当前视图模式选择对应的 tree ref
-  const tree = viewMode.value === 'list' ? listTreeRef.value : treeRef.value
-  if (tree) {
-    const nodes = tree.store?.nodesMap
-    if (nodes) {
-      Object.values(nodes).forEach(node => {
-        if (node.childNodes && node.childNodes.length > 0) {
-          node.expanded = true
+  if (viewMode.value === 'list') {
+    // 列表分区模式：展开所有部门分区和所有树节点
+    // 1. 展开所有部门分区
+    Object.keys(expandedSections.value).forEach(key => {
+      expandedSections.value[key] = true
+    })
+    // 初始化所有部门的展开状态
+    departmentSections.value.forEach(dept => {
+      expandedSections.value[dept.id] = true
+    })
+    
+    // 2. 等待 DOM 更新后展开所有部门内的树节点
+    nextTick(() => {
+      Object.values(deptTreeRefs.value).forEach(tree => {
+        if (tree && tree.store?.nodesMap) {
+          Object.values(tree.store.nodesMap).forEach(node => {
+            if (node.childNodes && node.childNodes.length > 0) {
+              node.expanded = true
+            }
+          })
         }
       })
+    })
+  } else {
+    // 其他模式：使用原来的逻辑
+    const tree = viewMode.value === 'list' ? listTreeRef.value : treeRef.value
+    if (tree) {
+      const nodes = tree.store?.nodesMap
+      if (nodes) {
+        Object.values(nodes).forEach(node => {
+          if (node.childNodes && node.childNodes.length > 0) {
+            node.expanded = true
+          }
+        })
+      }
     }
   }
 }
 
 // 折叠全部
 const collapseAll = () => {
-  // 根据当前视图模式选择对应的 tree ref
-  const tree = viewMode.value === 'list' ? listTreeRef.value : treeRef.value
-  if (tree) {
-    const nodes = tree.store?.nodesMap
-    if (nodes) {
-      Object.values(nodes).forEach(node => {
-        node.expanded = false
+  if (viewMode.value === 'list') {
+    // 列表分区模式：折叠所有部门分区和所有树节点
+    // 1. 折叠所有部门分区
+    Object.keys(expandedSections.value).forEach(key => {
+      expandedSections.value[key] = false
+    })
+    // 折叠所有部门的展开状态
+    departmentSections.value.forEach(dept => {
+      expandedSections.value[dept.id] = false
+    })
+    
+    // 2. 等待 DOM 更新后折叠所有部门内的树节点
+    nextTick(() => {
+      Object.values(deptTreeRefs.value).forEach(tree => {
+        if (tree && tree.store?.nodesMap) {
+          Object.values(tree.store.nodesMap).forEach(node => {
+            node.expanded = false
+          })
+        }
       })
+    })
+  } else {
+    // 其他模式：使用原来的逻辑
+    const tree = viewMode.value === 'list' ? listTreeRef.value : treeRef.value
+    if (tree) {
+      const nodes = tree.store?.nodesMap
+      if (nodes) {
+        Object.values(nodes).forEach(node => {
+          node.expanded = false
+        })
+      }
     }
   }
 }
@@ -829,6 +1224,12 @@ const viewDetail = (id) => {
 
 // 编辑节点
 const editNode = (data) => {
+  // 虚拟根节点和部门根节点不能编辑
+  if (data.id === 'root' || data.isRoot || data.isDepartmentRoot || (data.id && String(data.id).startsWith('dept-'))) {
+    ElMessage.warning('根节点不能编辑')
+    return
+  }
+  
   editingNode.value = data
   nodeForm.value = {
     title: data.title || '',
@@ -836,7 +1237,8 @@ const editNode = (data) => {
     summary: data.summary || '',
     keywords: data.keywords || ''
   }
-  parentNodeId.value = data.parentId
+  // 如果 parentId 是 'root'，转换为 null
+  parentNodeId.value = data.parentId === 'root' ? null : data.parentId
   showAddDialog.value = true
 }
 
@@ -849,12 +1251,19 @@ const addChildNode = (data) => {
     summary: '',
     keywords: ''
   }
-  parentNodeId.value = data.id
+  // 如果是虚拟根节点，parentId 应该为 null
+  parentNodeId.value = data.id === 'root' ? null : data.id
   showAddDialog.value = true
 }
 
 // 删除节点
 const deleteNode = async (data) => {
+  // 虚拟根节点不能删除
+  if (data.id === 'root' || data.isRoot) {
+    ElMessage.warning('根节点不能删除')
+    return
+  }
+  
   try {
     await ElMessageBox.confirm(`确定要删除知识《${data.title}》吗？`, '提示', {
       type: 'warning'
@@ -884,9 +1293,11 @@ const saveNode = async () => {
   try {
     if (editingNode.value) {
       // 更新
+      // 如果 parentNodeId 是 'root'，转换为 null
+      const actualParentId = parentNodeId.value === 'root' ? null : parentNodeId.value
       const res = await api.put(`/knowledge/${editingNode.value.id}`, {
         ...nodeForm.value,
-        parentId: parentNodeId.value
+        parentId: actualParentId
       })
       if (res.code === 200) {
         ElMessage.success('更新成功')
@@ -897,9 +1308,11 @@ const saveNode = async () => {
       }
     } else {
       // 创建
+      // 如果 parentNodeId 是 'root'，转换为 null
+      const actualParentId = parentNodeId.value === 'root' ? null : parentNodeId.value
       const res = await api.post('/knowledge', {
         ...nodeForm.value,
-        parentId: parentNodeId.value,
+        parentId: actualParentId,
         status: 'DRAFT'
       })
       if (res.code === 200) {
@@ -936,30 +1349,29 @@ const initVisualTree = (data) => {
   g = svg.append('g')
   
   // 构建树形数据
-  const treeData = buildTree(data)
-  if (treeData.length === 0) {
-    ElMessage.info('暂无知识数据')
+  const builtTree = buildTree(data)
+  
+  // 如果没有数据，显示空状态
+  if (builtTree.length === 0) {
+    root = { nodes: [], links: [], simulation: null }
     return
   }
   
-  // 创建根节点（如果有多个根节点，创建一个虚拟根节点）
-  if (treeData.length > 1) {
-    root = { id: 'root', title: '知识库', children: treeData }
-  } else {
-    root = treeData[0]
-  }
-  
-  // 使用力导向图布局（类似GraphVis效果）
-  // 准备节点和边的数据
+  // 使用力导向图布局 - 每个部门作为独立集群，不需要虚拟根节点
   const nodes = []
   const links = []
   
-  // 遍历树结构，提取节点和边
-  const traverse = (node, parentId = null) => {
+  // 部门颜色映射
+  const deptColors = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#9B59B6', '#1ABC9C', '#E74C3C']
+  let colorIndex = 0
+  
+  // 遍历每个部门树，提取节点和边
+  const traverse = (node, parentId = null, deptColor = '#409EFF') => {
     const nodeId = node.id || `node-${nodes.length}`
     nodes.push({
       id: nodeId,
       title: node.title || '未命名',
+      deptColor: deptColor,
       ...node
     })
     
@@ -971,30 +1383,41 @@ const initVisualTree = (data) => {
     }
     
     if (node.children && node.children.length > 0) {
-      node.children.forEach(child => traverse(child, nodeId))
+      node.children.forEach(child => traverse(child, nodeId, deptColor))
     }
   }
   
-  if (treeData.length > 1) {
-    // 多个根节点，创建虚拟根节点
-    const virtualRoot = { id: 'root', title: '知识库', children: treeData }
-    traverse(virtualRoot)
-  } else {
-    treeData.forEach(node => traverse(node))
-  }
+  // 遍历所有部门（每个部门是独立的根）
+  builtTree.forEach((deptRoot, index) => {
+    const color = deptColors[index % deptColors.length]
+    traverse(deptRoot, null, color)
+  })
   
-  // 创建力导向图模拟
+  // 创建力导向图模拟 - 部门之间有斥力，同部门内有引力
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(150))
-    .force('charge', d3.forceManyBody().strength(-300))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(100).strength(0.8))
+    .force('charge', d3.forceManyBody().strength(-400))
     .force('center', d3.forceCenter(containerWidth / 2, containerHeight / 2))
-    .force('collision', d3.forceCollide().radius(60))
+    .force('collision', d3.forceCollide().radius(50))
+    // 部门集群：同色节点相互吸引
+    .force('cluster', d3.forceX().x(d => {
+      const deptIndex = deptColors.indexOf(d.deptColor)
+      const cols = 3
+      const col = deptIndex % cols
+      return (containerWidth / (cols + 1)) * (col + 1)
+    }).strength(0.1))
+    .force('clusterY', d3.forceY().y(d => {
+      const deptIndex = deptColors.indexOf(d.deptColor)
+      const cols = 3
+      const row = Math.floor(deptIndex / cols)
+      return (containerHeight / 3) * (row + 1)
+    }).strength(0.1))
   
   // 保存simulation引用以便后续使用
   root = { nodes, links, simulation }
   
-  // 收集所有节点用于列表显示
-  const treeRoot = d3.hierarchy(root.nodes.find(n => n.id === 'root') || root.nodes[0] || { id: 'root', title: '知识库', children: [] })
+  // 收集所有节点用于列表显示（使用第一个部门作为虚拟根）
+  const treeRoot = d3.hierarchy(builtTree[0] || { id: 'empty', title: '空', children: [] })
   
   // 设置缩放和平移 - 只允许画布拖动，节点本身不能拖动
   zoom = d3.zoom()
@@ -1065,14 +1488,14 @@ const initVisualTree = (data) => {
 
 // 绘制力导向图
 const drawForceGraph = (nodes, links, simulation) => {
-  // 绘制连线
+  // 绘制连线 - 使用源节点的部门颜色
   const link = g.selectAll('.link')
     .data(links)
     .enter()
     .append('line')
     .attr('class', 'link')
-    .attr('stroke', '#999')
-    .attr('stroke-opacity', 0.6)
+    .attr('stroke', d => d.source.deptColor || '#999')
+    .attr('stroke-opacity', 0.4)
     .attr('stroke-width', 2)
   
   // 绘制节点
@@ -1089,44 +1512,43 @@ const drawForceGraph = (nodes, links, simulation) => {
     )
     .on('click', (event, d) => {
       event.stopPropagation()
-      if (d.id !== 'root') {
-        focusForceNode(d)
-        // 选中节点用于操作
-        selectedVisualNode.value = d
-      }
+      focusForceNode(d)
+      // 选中节点用于操作
+      selectedVisualNode.value = d
     })
     .on('dblclick', (event, d) => {
       event.stopPropagation()
-      if (d.id !== 'root') {
+      // 部门根节点双击不跳转详情
+      if (!d.isDepartmentRoot && !String(d.id).startsWith('dept-')) {
         viewDetail(d.id)
       }
     })
     .on('contextmenu', (event, d) => {
       event.stopPropagation()
       event.preventDefault()
-      if (d.id !== 'root') {
-        showContextMenuOnVisualNode(event, d)
-      }
+      showContextMenuOnVisualNode(event, d)
     })
   
-  // 绘制节点圆圈
+  // 绘制节点圆圈 - 使用部门颜色
   node.append('circle')
-    .attr('r', d => d.id === 'root' ? 25 : 20)
+    .attr('r', d => d.isDepartmentRoot ? 28 : 18)
     .attr('fill', d => {
-      if (d.id === 'root') return '#409EFF'
+      if (d.isDepartmentRoot) return d.deptColor || '#409EFF'
       if (highlightedNode === d.id) return '#f56c6c'
       return '#fff'
     })
     .attr('stroke', d => {
       if (highlightedNode === d.id) return '#f56c6c'
-      return '#409EFF'
+      return d.deptColor || '#409EFF'
     })
-    .attr('stroke-width', d => highlightedNode === d.id ? 3 : 2)
+    .attr('stroke-width', d => highlightedNode === d.id ? 3 : (d.isDepartmentRoot ? 3 : 2))
     .on('mouseenter', function(event, d) {
-      d3.select(this).attr('fill', '#e6f7ff')
+      d3.select(this).attr('fill', d.isDepartmentRoot ? d.deptColor : '#e6f7ff')
+      d3.select(this).attr('opacity', 0.8)
     })
     .on('mouseleave', function(event, d) {
-      d3.select(this).attr('fill', d.id === 'root' ? '#409EFF' : (highlightedNode === d.id ? '#f56c6c' : '#fff'))
+      d3.select(this).attr('fill', d.isDepartmentRoot ? (d.deptColor || '#409EFF') : (highlightedNode === d.id ? '#f56c6c' : '#fff'))
+      d3.select(this).attr('opacity', 1)
     })
   
   // 绘制节点文本
@@ -1286,7 +1708,7 @@ const drawTree = (root) => {
 
 // 聚焦节点
 const focusNode = (d) => {
-  if (!d || !svg) return
+  if (!d || !svg || !zoom) return
   
   const scale = 1.5
   const x = -d.y * scale + (treeContainer.value.clientWidth / 2)
@@ -1315,19 +1737,19 @@ const focusNode = (d) => {
 
 // 缩放控制
 const zoomIn = () => {
-  if (!svg) return
+  if (!svg || !zoom) return
   currentTransform = currentTransform.scale(1.2)
   svg.transition().duration(300).call(zoom.transform, currentTransform)
 }
 
 const zoomOut = () => {
-  if (!svg) return
+  if (!svg || !zoom) return
   currentTransform = currentTransform.scale(1 / 1.2)
   svg.transition().duration(300).call(zoom.transform, currentTransform)
 }
 
 const resetZoom = () => {
-  if (!svg || !treeContainer.value) return
+  if (!svg || !zoom || !treeContainer.value) return
   
   // 如果是力导向图，直接重置到中心
   if (root && root.simulation) {
@@ -1341,6 +1763,12 @@ const resetZoom = () => {
   const containerHeight = treeContainer.value.clientHeight || 800
   
   try {
+    if (!g || !g.node()) {
+      currentTransform = d3.zoomIdentity
+      svg.transition().duration(500).call(zoom.transform, currentTransform)
+      return
+    }
+    
     const bounds = g.node().getBBox()
     const width = bounds.width
     const height = bounds.height
@@ -1363,7 +1791,9 @@ const resetZoom = () => {
   } catch (e) {
     // 如果出错，直接重置
     currentTransform = d3.zoomIdentity
-    svg.transition().duration(500).call(zoom.transform, currentTransform)
+    if (zoom) {
+      svg.transition().duration(500).call(zoom.transform, currentTransform)
+    }
   }
 }
 
@@ -1520,6 +1950,10 @@ const filterTreeNode = (value, data) => {
 
 // 判断是否为文件夹（有子节点或者没有文件ID的节点）
 const isFolder = (data) => {
+  // 部门根节点始终是文件夹
+  if (data.isDepartmentRoot || (data.id && String(data.id).startsWith('dept-'))) {
+    return true
+  }
   // 如果有子节点，肯定是文件夹
   if (data.children && data.children.length > 0) {
     return true
@@ -1614,7 +2048,8 @@ const showContextMenuOnVisualNode = (event, nodeData) => {
 const handleAddChildToVisualNode = () => {
   if (!selectedVisualNode.value) return
   isNewFolder.value = false
-  parentNodeId.value = selectedVisualNode.value.id
+  // 如果是虚拟根节点，parentId 应该为 null
+  parentNodeId.value = selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id
   nodeForm.value = {
     title: '',
     summary: '',
@@ -1626,26 +2061,40 @@ const handleAddChildToVisualNode = () => {
 // 在可视化节点上上传文件到文件夹
 const handleUploadToFolder = () => {
   if (!selectedVisualNode.value || !isFolder(selectedVisualNode.value)) return
-  uploadForm.value.parentId = selectedVisualNode.value.id
+  // 如果是虚拟根节点，parentId 应该为 null
+  uploadForm.value.parentId = selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id
   showUploadDialog.value = true
 }
 
 // 上传文件到文件夹（通用方法）
 const uploadToFolder = (folderData) => {
   if (!folderData || !isFolder(folderData)) return
-  uploadForm.value.parentId = folderData.id
+  // 如果是虚拟根节点，parentId 应该为 null
+  uploadForm.value.parentId = folderData.id === 'root' ? null : folderData.id
   showUploadDialog.value = true
 }
 
 // 编辑可视化节点
 const handleEditVisualNode = () => {
   if (!selectedVisualNode.value) return
+  // 虚拟根节点不能编辑
+  if (selectedVisualNode.value.id === 'root' || selectedVisualNode.value.isRoot) {
+    ElMessage.warning('根节点不能编辑')
+    return
+  }
   editNode(selectedVisualNode.value)
 }
 
 // 删除可视化节点
 const handleDeleteVisualNode = () => {
   if (!selectedVisualNode.value) return
+  // 虚拟根节点和部门根节点不能删除
+  if (selectedVisualNode.value.id === 'root' || selectedVisualNode.value.isRoot || 
+      selectedVisualNode.value.isDepartmentRoot || String(selectedVisualNode.value.id).startsWith('dept-')) {
+    ElMessage.warning('根节点不能删除')
+    selectedVisualNode.value = null
+    return
+  }
   deleteNode(selectedVisualNode.value)
   selectedVisualNode.value = null
 }
@@ -1688,7 +2137,8 @@ const handleAddChildToListNode = (nodeData = null) => {
   const targetNode = nodeData || selectedListNode.value
   if (!targetNode || !isFolder(targetNode)) return
   isNewFolder.value = false
-  parentNodeId.value = targetNode.id
+  // 如果是虚拟根节点，parentId 应该为 null
+  parentNodeId.value = targetNode.id === 'root' ? null : targetNode.id
   nodeForm.value = {
     title: '',
     summary: '',
@@ -1700,7 +2150,8 @@ const handleAddChildToListNode = (nodeData = null) => {
 // 在列表节点上上传文件到文件夹
 const handleUploadToListFolder = () => {
   if (!selectedListNode.value || !isFolder(selectedListNode.value)) return
-  uploadForm.value.parentId = selectedListNode.value.id
+  // 如果是虚拟根节点，parentId 应该为 null
+  uploadForm.value.parentId = selectedListNode.value.id === 'root' ? null : selectedListNode.value.id
   showUploadDialog.value = true
 }
 
@@ -2032,13 +2483,15 @@ const startUpload = async () => {
         }
       }
       
+      // 如果 parentId 是 'root'，转换为 null
+      const actualParentId = uploadForm.value.parentId === 'root' ? null : uploadForm.value.parentId
       const knowledgeRes = await api.post('/knowledge', {
         title: fileNameWithoutExt,
         content: fileContent,
         summary: uploadForm.value.summary || `上传的文件：${file.name}`,
         keywords: uploadForm.value.keywords || '',
         fileId: fileDTO.id,
-        parentId: uploadForm.value.parentId,
+        parentId: actualParentId,
         author: userInfo.realName || userInfo.username || '未知',
         department: userInfo.department || '未知',
         createBy: userInfo.username
@@ -2097,7 +2550,7 @@ const formatTime = (time) => {
 
 // 监听窗口大小变化
 const handleResize = () => {
-  if (viewMode.value === 'visual' && svg && treeContainer.value) {
+  if (viewMode.value === 'visual' && svg && zoom && treeContainer.value) {
     const containerWidth = treeContainer.value.clientWidth
     const containerHeight = treeContainer.value.clientHeight || 800
     svg.attr('width', containerWidth).attr('height', containerHeight)
@@ -2545,6 +2998,191 @@ watch(viewMode, (newMode) => {
 .action-btn:hover {
   background: #f0f9ff;
   transform: translateY(-1px);
+}
+
+/* 新列表视图样式 */
+.list-view-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.list-toolbar {
+  padding: 16px 24px;
+  border-bottom: 1px solid #ebeef5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(to right, #fafbfc, #fff);
+}
+
+.dept-sections-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.dept-section {
+  margin-bottom: 16px;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  transition: all 0.3s;
+}
+
+.dept-section:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.dept-section.is-expanded {
+  border-color: #409EFF;
+}
+
+.dept-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(to right, #f8f9fa, #fff);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.dept-section-header:hover {
+  background: linear-gradient(to right, #ecf5ff, #f5f7fa);
+}
+
+.dept-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.expand-icon {
+  font-size: 14px;
+  color: #909399;
+  transition: transform 0.3s;
+}
+
+.expand-icon.is-expanded {
+  transform: rotate(90deg);
+}
+
+.dept-icon {
+  font-size: 22px;
+  color: #409EFF;
+}
+
+.dept-icon.shared-icon {
+  color: #67C23A;
+}
+
+.dept-icon.unclassified-icon {
+  color: #E6A23C;
+}
+
+.dept-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.dept-header-actions {
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.dept-section-header:hover .dept-header-actions {
+  opacity: 1;
+}
+
+.dept-section-content {
+  padding: 16px 20px;
+  border-top: 1px solid #ebeef5;
+  background: #fafbfc;
+}
+
+.empty-section {
+  padding: 20px;
+  text-align: center;
+}
+
+.shared-section {
+  border-color: #67C23A;
+  background: linear-gradient(to right, #f0f9eb, #fff);
+}
+
+.shared-section .dept-section-header {
+  background: linear-gradient(to right, #f0f9eb, #fff);
+}
+
+.unclassified-section {
+  border-color: #E6A23C;
+  background: linear-gradient(to right, #fdf6ec, #fff);
+}
+
+.unclassified-section .dept-section-header {
+  background: linear-gradient(to right, #fdf6ec, #fff);
+}
+
+/* 部门内树节点样式 */
+.dept-tree :deep(.el-tree-node__content) {
+  height: auto;
+  padding: 8px 0;
+}
+
+.tree-node-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  width: 100%;
+  transition: background 0.2s;
+}
+
+.tree-node-item:hover {
+  background: #ecf5ff;
+}
+
+.tree-node-item .node-icon {
+  font-size: 18px;
+}
+
+.tree-node-item .folder-icon {
+  color: #FF9800;
+}
+
+.tree-node-item .file-icon {
+  color: #409EFF;
+}
+
+.tree-node-item .node-title {
+  flex: 1;
+  font-size: 14px;
+  color: #303133;
+}
+
+.tree-node-item .shared-tag {
+  margin-left: 8px;
+}
+
+.tree-node-item .node-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tree-node-item:hover .node-actions {
+  opacity: 1;
 }
 </style>
 

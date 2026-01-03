@@ -32,5 +32,6 @@ public class KnowledgeDTO implements Serializable {
     private List<Long> relatedKnowledgeIds;
     private List<String> tags;
     private HighlightDTO highlight; // 搜索高亮信息（仅搜索时使用）
+    private Boolean isDepartmentRoot; // 是否为部门根节点
 }
 

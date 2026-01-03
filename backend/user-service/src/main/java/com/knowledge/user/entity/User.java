@@ -13,7 +13,7 @@ public class User extends BaseEntity {
     private String password;
     private String realName;
     private String email;
-    private String department;
+    private Long departmentId;  // 部门ID，系统管理员为null
     private String role;
 }
 

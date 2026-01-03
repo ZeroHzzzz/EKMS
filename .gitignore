@@ -26,6 +26,8 @@ application-dev.yml
 # Logs
 logs/
 *.log
+backend/logs/
+frontend/logs/
 
 # Database
 *.db

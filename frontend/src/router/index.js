@@ -6,7 +6,7 @@ import Audit from '../views/Audit.vue'
 import Statistics from '../views/Statistics.vue'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
-import UserManagement from '../views/UserManagement.vue'
+import OrganizationManagement from '../views/OrganizationManagement.vue'
 import UserCenter from '../views/UserCenter.vue'
 import MyCollections from '../views/MyCollections.vue'
 import KnowledgeTree from '../views/KnowledgeTree.vue'
@@ -53,9 +53,9 @@ const routes = [
     meta: { permission: 'VIEW_STATISTICS' }
   },
   {
-    path: '/user-management',
-    name: 'UserManagement',
-    component: UserManagement,
+    path: '/organization',
+    name: 'OrganizationManagement',
+    component: OrganizationManagement,
     meta: { permission: 'MANAGE_USER' }
   },
   {
