@@ -16,5 +16,6 @@ public interface UserService {
     List<String> getAllDepartments();
     List<UserDTO> getAllUsers();
     void deleteUser(Long userId);
+    void updateUserRole(Long userId, String role);
 }
 

@@ -7,7 +7,7 @@
           <el-radio-button value="visual">图画模式</el-radio-button>
           <el-radio-button value="list">列表格式</el-radio-button>
         </el-radio-group>
-        <el-button type="primary" @click="showAddDialog = true" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
+        <el-button type="primary" @click="showAddDialog = true">
           添加知识节点
         </el-button>
       </div>
@@ -68,7 +68,7 @@
         <span class="selected-node-title">{{ selectedVisualNode.title }}</span>
         <div class="node-toolbar-actions">
           <el-button 
-            v-if="isFolder(selectedVisualNode) && hasPermission(userInfo, 'MANAGE_STRUCTURE')" 
+            v-if="isFolder(selectedVisualNode)" 
             size="small" 
             type="primary" 
             @click="handleAddChildToVisualNode"
@@ -77,7 +77,7 @@
             添加子节点
           </el-button>
           <el-button 
-            v-if="isFolder(selectedVisualNode) && hasPermission(userInfo, 'MANAGE_STRUCTURE')" 
+            v-if="isFolder(selectedVisualNode)" 
             size="small" 
             type="success" 
             @click="handleUploadToFolder"
@@ -88,14 +88,13 @@
           <el-button 
             size="small" 
             type="primary" 
-            v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')"
             @click="handleAddSiblingToVisualNode"
           >
             <el-icon><Plus /></el-icon>
             添加同级节点
           </el-button>
           <el-button 
-            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-') && hasPermission(userInfo, 'MANAGE_STRUCTURE')"
+            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
             size="small" 
             @click="handleEditVisualNode"
           >
@@ -103,7 +102,7 @@
             编辑
           </el-button>
           <el-button 
-            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-') && hasPermission(userInfo, 'MANAGE_STRUCTURE')"
+            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
             size="small" 
             type="danger" 
             @click="handleDeleteVisualNode"
@@ -161,98 +160,270 @@
         </div>
       </div>
 
-      <!-- 资源管理器布局 -->
-      <div class="explorer-layout">
-        <!-- 左侧导航树 -->
-        <div class="explorer-sidebar">
-          <div class="sidebar-header">
-            <span>目录结构</span>
+      <!-- 批量操作工具栏 -->
+      <div v-if="listSelectedItems && listSelectedItems.length > 0" class="list-batch-toolbar">
+        <div class="toolbar-left">
+          <span class="selected-count">已选择 {{ listSelectedItems.length }} 项</span>
+        </div>
+        <div class="toolbar-right">
+          <el-button 
+            v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')"
+            type="danger" 
+            size="small"
+            @click="batchDeleteListItems"
+          >
+            <el-icon><Delete /></el-icon>
+            批量删除
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 部门分区列表 -->
+      <div class="dept-sections-container">
+        <!-- 共享知识区域 -->
+        <div class="dept-section shared-section" v-if="sharedKnowledge.length > 0">
+          <div class="dept-section-header" @click="toggleSection('shared')">
+            <div class="dept-header-left">
+              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections.shared }">
+                <ArrowRight />
+              </el-icon>
+              <el-icon class="dept-icon shared-icon"><Share /></el-icon>
+              <span class="dept-title">共享知识</span>
+              <el-tag size="small" type="primary">{{ sharedKnowledge.length }}</el-tag>
+            </div>
+            <div class="dept-header-actions">
+              <el-button size="small" type="primary" text @click.stop="addNodeToSection('shared')">
+                <el-icon><Folder /></el-icon>
+                添加节点
+              </el-button>
+              <el-button size="small" type="success" text @click.stop="uploadToSection('shared')">
+                <el-icon><Upload /></el-icon>
+                添加知识
+              </el-button>
+            </div>
           </div>
-          <el-scrollbar>
-            <el-tree
-              ref="navTreeRef"
-              :data="navigationTreeData"
-              :props="navTreeProps"
-              node-key="uniqueId"
-              :default-expand-all="true"
-              :expand-on-click-node="false"
-              highlight-current
-              @node-click="handleNavNodeClick"
-              class="nav-tree"
-            >
-              <template #default="{ node, data }">
-                <div class="nav-tree-node">
-                  <el-icon class="nav-icon">
-                    <Folder v-if="!data.isRoot" />
-                    <OfficeBuilding v-else-if="data.type === 'dept'" />
-                    <Share v-else-if="data.type === 'shared'" />
-                    <QuestionFilled v-else-if="data.type === 'unclassified'" />
-                  </el-icon>
-                  <span class="nav-label">{{ node.label }}</span>
-                </div>
-              </template>
-            </el-tree>
-          </el-scrollbar>
+          <el-collapse-transition>
+            <div v-show="expandedSections.shared" class="dept-section-content">
+              <div class="table-wrapper">
+                <el-table
+                :ref="el => setTreeRef('shared', el)"
+                :data="sharedKnowledge"
+                row-key="id"
+                :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
+                style="width: 100%"
+                border
+                @selection-change="(selection) => handleListTableSelectionChange('shared', selection)"
+              >
+                <el-table-column type="selection" width="55" @click.stop />
+                <el-table-column label="名称" min-width="300">
+                  <template #default="{ row }">
+                    <div class="tree-node-item" @click="handleCardClick(row, null, $event, 'shared')">
+                      <span class="drag-handle" @mousedown.stop></span>
+                      <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(row), 'file-icon': !isFolder(row) }">
+                        <Folder v-if="isFolder(row)" />
+                        <Document v-else />
+                      </el-icon>
+                      <span class="node-title" v-if="row.highlight && row.highlight.title && row.highlight.title.length > 0" v-html="row.highlight.title[0]"></span>
+                      <span class="node-title" v-else>{{ row.title }}</span>
+                      <el-tag v-if="row.highlight" size="small" type="success" class="match-tag">
+                        <el-icon><Search /></el-icon>
+                        匹配
+                      </el-tag>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="作者" prop="author" width="120" show-overflow-tooltip />
+                <el-table-column label="创建时间" width="180">
+                  <template #default="{ row }">
+                    {{ formatTime(row.createTime) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="250" fixed="right">
+                  <template #default="{ row }">
+                    <div class="node-actions" style="opacity: 1; justify-content: flex-start;">
+                      <el-button v-if="!isFolder(row)" size="small" text type="primary" @click.stop="viewDetail(row.id)">查看</el-button>
+                      <el-button v-if="isFolder(row)" size="small" text type="success" @click.stop="addChildNode(row)">添加</el-button>
+                      <el-button size="small" text type="warning" @click.stop="editNode(row)">编辑</el-button>
+                      <el-button size="small" text type="danger" @click.stop="deleteNode(row)">删除</el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+                </el-table>
+              </div>
+            </div>
+          </el-collapse-transition>
         </div>
 
-        <!-- 右侧内容区域 -->
-        <div class="explorer-content">
-          <div class="content-header">
-            <div class="breadcrumb-container">
-              <el-breadcrumb separator="/">
-                <el-breadcrumb-item v-for="(item, index) in currentBreadcrumb" :key="index">
-                  {{ item.title }}
-                </el-breadcrumb-item>
-              </el-breadcrumb>
+        <!-- 各部门区域 -->
+        <div 
+          v-for="dept in departmentSections" 
+          :key="dept.id" 
+          class="dept-section"
+          :class="{ 'is-expanded': expandedSections[dept.id] }"
+        >
+          <div class="dept-section-header" @click="toggleSection(dept.id)">
+            <div class="dept-header-left">
+              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections[dept.id] }">
+                <ArrowRight />
+              </el-icon>
+              <el-icon class="dept-icon"><OfficeBuilding /></el-icon>
+              <span class="dept-title">{{ dept.title }}</span>
+              <el-tag size="small" type="success">{{ dept.children?.length || 0 }}</el-tag>
             </div>
-            <div class="content-actions">
-              <el-button type="primary" size="small" @click="addNodeToCurrentList" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
-                <el-icon><Plus /></el-icon> 新建文件夹
+            <div class="dept-header-actions">
+              <el-button size="small" type="primary" text @click.stop="addNodeToSection(dept.id)">
+                <el-icon><Folder /></el-icon>
+                添加节点
               </el-button>
-              <el-button type="success" size="small" @click="uploadToCurrentList" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
-                <el-icon><Upload /></el-icon> 上传知识
+              <el-button size="small" type="success" text @click.stop="uploadToSection(dept.id)">
+                <el-icon><Upload /></el-icon>
+                添加知识
               </el-button>
             </div>
           </div>
+          <el-collapse-transition>
+            <div v-show="expandedSections[dept.id]" class="dept-section-content">
+              <div v-if="!dept.children || dept.children.length === 0" class="empty-section">
+                <el-empty description="暂无知识" :image-size="60">
+                  <div style="display: flex; gap: 8px; justify-content: center;">
+                    <el-button type="primary" size="small" @click="addNodeToSection(dept.id)">
+                      <el-icon><Folder /></el-icon>
+                      添加节点
+                    </el-button>
+                    <el-button type="success" size="small" @click="uploadToSection(dept.id)">
+                      <el-icon><Upload /></el-icon>
+                      添加知识
+                    </el-button>
+                  </div>
+                </el-empty>
+              </div>
+              <div v-else class="table-wrapper">
+                <el-table
+                  :ref="el => setTreeRef(dept.id, el)"
+                  :data="dept.children"
+                  row-key="id"
+                  :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
+                  :indent-size="24"
+                  style="width: 100%"
+                  border
+                  class="knowledge-tree-table"
+                  @selection-change="(selection) => handleListTableSelectionChange(dept.id, selection)"
+                >
+                <el-table-column type="selection" width="55" @click.stop />
+                <el-table-column label="名称" min-width="300">
+                  <template #default="{ row }">
+                    <div class="tree-node-item" @click="handleCardClick(row, null, $event, dept.id)">
+                      <span class="drag-handle" @mousedown.stop></span>
+                      <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(row), 'file-icon': !isFolder(row) }">
+                        <Folder v-if="isFolder(row)" />
+                        <Document v-else />
+                      </el-icon>
+                      <span class="node-title" v-if="row.highlight && row.highlight.title && row.highlight.title.length > 0" v-html="row.highlight.title[0]"></span>
+                      <span class="node-title" v-else>{{ row.title }}</span>
+                      <el-tag v-if="row.highlight" size="small" type="success" class="match-tag">
+                        <el-icon><Search /></el-icon>
+                        匹配
+                      </el-tag>
+                      <el-tag v-if="row.isShared" size="small" type="primary" class="shared-tag">共享</el-tag>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="作者" prop="author" width="120" show-overflow-tooltip />
+                <el-table-column label="创建时间" width="180">
+                  <template #default="{ row }">
+                    {{ formatTime(row.createTime) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="250" fixed="right">
+                  <template #default="{ row }">
+                    <div class="node-actions" style="opacity: 1; justify-content: flex-start;">
+                      <el-button v-if="!isFolder(row)" size="small" text type="primary" @click.stop="viewDetail(row.id)">查看</el-button>
+                      <el-button v-if="isFolder(row)" size="small" text type="success" @click.stop="addChildNode(row)">添加</el-button>
+                      <el-button size="small" text type="warning" @click.stop="editNode(row)">编辑</el-button>
+                      <el-button size="small" text type="danger" @click.stop="deleteNode(row)">删除</el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+                </el-table>
+              </div>
+            </div>
+          </el-collapse-transition>
+        </div>
 
-          <el-table
-            :data="currentTableData"
-            style="width: 100%; height: 100%"
-            height="100%"
-            @row-dblclick="handleRowDoubleClick"
-            highlight-current-row
-          >
-            <el-table-column label="名称" min-width="300">
-              <template #default="{ row }">
-                <div class="explorer-item" style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                  <el-icon class="item-icon" :class="{ 'folder-icon': isFolder(row), 'file-icon': !isFolder(row) }">
-                    <Folder v-if="isFolder(row)" />
-                    <Document v-else />
-                  </el-icon>
-                  <span class="item-title">{{ row.title }}</span>
-                  <el-tag v-if="row.isShared" size="small" type="primary" class="shared-tag">共享</el-tag>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="类型" width="100">
-              <template #default="{ row }">
-                {{ isFolder(row) ? '文件夹' : '文件' }}
-              </template>
-            </el-table-column>
-            <el-table-column label="作者" prop="author" width="120" show-overflow-tooltip />
-            <el-table-column label="创建时间" width="180">
-              <template #default="{ row }">
-                {{ formatTime(row.createTime) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="!isFolder(row)" size="small" text type="primary" @click.stop="viewDetail(row.id)">查看</el-button>
-                <el-button size="small" text type="warning" @click.stop="editNode(row)" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">编辑</el-button>
-                <el-button size="small" text type="danger" @click.stop="deleteNode(row)" v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+        <!-- 未分类知识 -->
+        <div class="dept-section unclassified-section" v-if="unclassifiedKnowledge.length > 0">
+          <div class="dept-section-header" @click="toggleSection('unclassified')">
+            <div class="dept-header-left">
+              <el-icon class="expand-icon" :class="{ 'is-expanded': expandedSections.unclassified }">
+                <ArrowRight />
+              </el-icon>
+              <el-icon class="dept-icon unclassified-icon"><QuestionFilled /></el-icon>
+              <span class="dept-title">未分类</span>
+              <el-tag size="small" type="warning">{{ unclassifiedKnowledge.length }}</el-tag>
+            </div>
+            <div class="dept-header-actions">
+              <el-button size="small" type="primary" text @click.stop="addNodeToSection('unclassified')">
+                <el-icon><Folder /></el-icon>
+                添加节点
+              </el-button>
+              <el-button size="small" type="success" text @click.stop="uploadToSection('unclassified')">
+                <el-icon><Upload /></el-icon>
+                添加知识
+              </el-button>
+            </div>
+          </div>
+          <el-collapse-transition>
+            <div v-show="expandedSections.unclassified" class="dept-section-content">
+              <div class="table-wrapper">
+                <el-table
+                  :ref="el => setTreeRef('unclassified', el)"
+                  :data="unclassifiedKnowledge"
+                  row-key="id"
+                  :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
+                  :indent-size="24"
+                  style="width: 100%"
+                  border
+                  class="knowledge-tree-table"
+                  @selection-change="(selection) => handleListTableSelectionChange('unclassified', selection)"
+                >
+                <el-table-column type="selection" width="55" @click.stop />
+                <el-table-column label="名称" min-width="300">
+                  <template #default="{ row }">
+                    <div class="tree-node-item" @click="handleCardClick(row, null, $event, 'unclassified')">
+                      <span class="drag-handle" @mousedown.stop></span>
+                      <el-icon class="node-icon" :class="{ 'folder-icon': isFolder(row), 'file-icon': !isFolder(row) }">
+                        <Folder v-if="isFolder(row)" />
+                        <Document v-else />
+                      </el-icon>
+                      <span class="node-title" v-if="row.highlight && row.highlight.title && row.highlight.title.length > 0" v-html="row.highlight.title[0]"></span>
+                      <span class="node-title" v-else>{{ row.title }}</span>
+                      <el-tag v-if="row.highlight" size="small" type="success" class="match-tag">
+                        <el-icon><Search /></el-icon>
+                        匹配
+                      </el-tag>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="作者" prop="author" width="120" show-overflow-tooltip />
+                <el-table-column label="创建时间" width="180">
+                  <template #default="{ row }">
+                    {{ formatTime(row.createTime) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="250" fixed="right">
+                  <template #default="{ row }">
+                    <div class="node-actions" style="opacity: 1; justify-content: flex-start;">
+                      <el-button v-if="!isFolder(row)" size="small" text type="primary" @click.stop="viewDetail(row.id)">查看</el-button>
+                      <el-button v-if="isFolder(row)" size="small" text type="success" @click.stop="addChildNode(row)">添加</el-button>
+                      <el-button size="small" text type="warning" @click.stop="editNode(row)">编辑</el-button>
+                      <el-button size="small" text type="danger" @click.stop="deleteNode(row)">删除</el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+                </el-table>
+              </div>
+            </div>
+          </el-collapse-transition>
         </div>
       </div>
     </div>
@@ -666,12 +837,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ZoomIn, ZoomOut, Refresh, Search, Close, Document, Folder, FolderOpened, Plus, Delete, Edit, CopyDocument, Files, UploadFilled, Upload, User, Clock, View, ArrowRight, Share, OfficeBuilding, QuestionFilled } from '@element-plus/icons-vue'
 import * as d3 from 'd3'
 import CryptoJS from 'crypto-js'
+import Sortable from 'sortablejs'
 import api from '../api'
 import { useUserStore } from '../stores/user'
 import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 
 const router = useRouter()
 const userStore = useUserStore()
+const userInfo = computed(() => userStore.userInfo)
 const treeRef = ref(null)
 const treeData = ref([])
 const showAddDialog = ref(false)
@@ -709,11 +882,17 @@ const filteredTreeData = ref([])
 // 部门分区相关
 const expandedSections = ref({ shared: true, unclassified: true })
 const deptTreeRefs = ref({})
+const listSelectedItems = ref([]) // 列表模式所有表格的选中项
+const sortableInstances = ref({}) // 存储 Sortable 实例
 
 // 设置树引用
 const setTreeRef = (id, el) => {
   if (el) {
     deptTreeRefs.value[id] = el
+    // 初始化拖拽功能
+    nextTick(() => {
+      initTableSortable(id, el)
+    })
   }
 }
 
@@ -730,8 +909,11 @@ const sharedKnowledge = computed(() => {
 
 // 未分类知识
 const unclassifiedKnowledge = computed(() => {
-  // 没有部门的知识
-  return treeData.value.filter(item => !item.isDepartmentRoot && !item.department)
+  // 找到"未分类"部门节点，获取其children
+  const unclassifiedDept = treeData.value.find(item => 
+    item.isDepartmentRoot && item.title === '未分类'
+  )
+  return unclassifiedDept?.children || []
 })
 
 // 切换分区展开/折叠
@@ -807,196 +989,8 @@ const addNodeToSection = (sectionId) => {
   }
   showAddDialog.value = true
 }
-// 新增节点到当前列表 (Explorer模式)
-const addNodeToCurrentList = () => {
-  if (!currentNavNode.value) {
-    ElMessage.warning('请先选择一个目录')
-    return
-  }
-  
-  if (currentNavNode.value.type === 'shared') {
-    addNodeToSection('shared')
-  } else if (currentNavNode.value.type === 'unclassified') {
-    addNodeToSection('unclassified')
-  } else if (currentNavNode.value.type === 'dept') {
-    addNodeToSection(currentNavNode.value.id)
-  } else {
-    // 普通文件夹
-    parentNodeId.value = currentNavNode.value.id
-    // 如果是部门根节点的子节点，设置 department
-    if (currentNavNode.value.department) {
-      nodeForm.value = { title: '', summary: '', keywords: '', department: currentNavNode.value.department }
-    } else {
-      nodeForm.value = { title: '', summary: '', keywords: '', department: null }
-    }
-    showAddDialog.value = true
-  }
-}
 
-// 资源管理器相关状态
-const navTreeRef = ref(null)
-const currentNavNode = ref(null) // 当前选中的导航节点
-const currentPath = ref([]) // 当前路径面包屑
-
-// 导航树属性配置
-const navTreeProps = {
-  children: 'children',
-  label: 'title',
-  isLeaf: (data) => !data.children || data.children.length === 0
-}
-
-// 构建统一的导航树数据
-const navigationTreeData = computed(() => {
-  const result = []
-  
-  // 1. 共享知识 (Root)
-  if (sharedKnowledge.value) {
-    result.push({
-      uniqueId: 'root-shared',
-      id: 'shared',
-      title: '共享知识',
-      type: 'shared',
-      isRoot: true,
-      children: filterFolders(sharedKnowledge.value)
-    })
-  }
-  
-  // 2. 部门知识 (Roots)
-  if (departmentSections.value) {
-    departmentSections.value.forEach(dept => {
-      result.push({
-        uniqueId: `root-dept-${dept.id}`,
-        id: dept.id,
-        title: dept.title,
-        type: 'dept',
-        isRoot: true,
-        children: filterFolders(dept.children || [])
-      })
-    })
-  }
-  
-  // 3. 未分类 (Root)
-  if (unclassifiedKnowledge.value) {
-    result.push({
-      uniqueId: 'root-unclassified',
-      id: 'unclassified',
-      title: '未分类',
-      type: 'unclassified',
-      isRoot: true,
-      children: filterFolders(unclassifiedKnowledge.value)
-    })
-  }
-  
-  return result
-})
-
-// 递归过滤只显示文件夹用于导航树
-const filterFolders = (nodes) => {
-  if (!nodes) return []
-  const folders = nodes.filter(node => isFolder(node)) // 只保留文件夹
-  return folders.map(folder => ({
-    ...folder,
-    uniqueId: folder.id, // 使用真实ID
-    children: filterFolders(folder.children)
-  }))
-}
-
-// 当前右侧列表数据
-const currentTableData = computed(() => {
-  if (!currentNavNode.value) return []
-  
-  // 如果是根节点，需要从原始数据源获取完整children（包含文件）
-  if (currentNavNode.value.isRoot) {
-    if (currentNavNode.value.type === 'shared') return sharedKnowledge.value
-    if (currentNavNode.value.type === 'unclassified') return unclassifiedKnowledge.value
-    if (currentNavNode.value.type === 'dept') {
-      const dept = departmentSections.value.find(d => d.id === currentNavNode.value.id)
-      return dept ? dept.children : []
-    }
-  }
-  
-  // 如果是普通文件夹，需要从原始大树中找到该节点（因为navTree只有文件夹）
-  const fullNode = findNodeInFullTree(currentNavNode.value.id)
-  return fullNode ? fullNode.children : []
-})
-
-// 在完整树中查找节点（包含文件）
-const findNodeInFullTree = (id) => {
-  // 遍历所有数据源查找
-  const sources = [
-    ...sharedKnowledge.value,
-    ...unclassifiedKnowledge.value,
-    ...departmentSections.value.flatMap(d => d.children || [])
-  ]
-  
-  const findBtn = (list) => {
-    for (const item of list) {
-      if (item.id === id) return item
-      if (item.children) {
-        const found = findBtn(item.children)
-        if (found) return found
-      }
-    }
-    return null
-  }
-  
-  return findBtn(sources)
-}
-
-// 面包屑导航
-const currentBreadcrumb = computed(() => {
-  if (!currentNavNode.value) return []
-  if (currentNavNode.value.isRoot) return [{ title: currentNavNode.value.title }]
-  
-  // 构建路径：根 -> ... -> 当前
-  const path = []
-  // 递归查找父级... (简化版：直接显示当前节点，或者需要后端支持path)
-  // 这里暂时只显示当前节点名，优化可后续做
-  return [{ title: currentNavNode.value.title }]
-})
-
-// 处理导航节点点击
-const handleNavNodeClick = (data) => {
-  currentNavNode.value = data
-}
-
-// 处理表格行双击（进入文件夹）
-const handleRowDoubleClick = (row) => {
-  if (isFolder(row)) {
-    // 在左侧树中找到该节点并选中
-    // 注意：el-tree的setCurrentKey需要key
-    if (navTreeRef.value) {
-      navTreeRef.value.setCurrentKey(row.id)
-      // 如果节点在树中存在（即它是文件夹），更新currentNavNode
-      // 如果el-tree没有该节点（比如刚创建未刷新），可能需要手动设置
-      const node = navTreeRef.value.getNode(row.id)
-      if (node) {
-        currentNavNode.value = node.data
-        // 展开节点
-        node.expand()
-      }
-    }
-  }
-}
-
-// 上传到当前列表
-const uploadToCurrentList = () => {
-    if (!currentNavNode.value) {
-    ElMessage.warning('请先选择一个目录')
-    return
-  }
-  
-  if (currentNavNode.value.isRoot) {
-    uploadToSection(currentNavNode.value.type === 'dept' ? currentNavNode.value.id : currentNavNode.value.type)
-  } else {
-    // 上传到文件夹
-    uploadForm.value.parentId = currentNavNode.value.id
-    // 继承 department
-    uploadForm.value.department = currentNavNode.value.department || null
-    uploadForm.value.parentPath = currentNavNode.value.title
-    showUploadDialog.value = true
-  }
-}
+// 添加知识到分区（保留用于兼容，现在主要用于上传）
 const addToSection = (sectionId) => {
   isNewFolder.value = false
   // 设计原则：部门根节点是虚拟节点，不存在于数据库中
@@ -1136,6 +1130,14 @@ const loadTree = async () => {
         // 列表模式：计算属性会自动更新，但需要确保 DOM 刷新
         // 强制触发计算属性的重新计算
         initListTree()
+        // 重新初始化所有表格的拖拽功能
+        await nextTick()
+        Object.keys(deptTreeRefs.value).forEach(sectionId => {
+          const table = deptTreeRefs.value[sectionId]
+          if (table) {
+            initTableSortable(sectionId, table)
+          }
+        })
       }
     } else {
       ElMessage.error(res.message || '加载知识树失败')
@@ -1223,7 +1225,7 @@ const buildTree = (list) => {
     }
   })
   
-  // 按sortOrder排序
+  // 按sortOrder排序并设置 hasChildren 属性
   const sortChildren = (nodes) => {
     nodes.sort((a, b) => {
       // 部门根节点优先
@@ -1233,6 +1235,8 @@ const buildTree = (list) => {
       return (a.sortOrder || 0) - (b.sortOrder || 0)
     })
     nodes.forEach(node => {
+      // 设置 hasChildren 属性，用于 el-table 的树形展开
+      node.hasChildren = node.children && node.children.length > 0
       if (node.children && node.children.length > 0) {
         sortChildren(node.children)
       }
@@ -1403,6 +1407,161 @@ const handleNodeDrop = async (draggingNode, dropNode, dropType, ev) => {
   }
 }
 
+// 处理表格行移动
+const handleTableRowMove = async (draggedRow, targetRow, sectionId, isMovingDown) => {
+  // 不能拖到自己或自己的子节点
+  if (String(draggedRow.id) === String(targetRow.id)) return
+  
+  const isDescendant = (parent, child) => {
+    if (String(parent.id) === String(child.id)) return true
+    if (parent.children && parent.children.length > 0) {
+      return parent.children.some(c => isDescendant(c, child))
+    }
+    return false
+  }
+  if (isDescendant(draggedRow, targetRow)) {
+    ElMessage.warning('不能移动到自己的子节点')
+    return
+  }
+  
+  // 获取表格数据用于查找父节点
+  let tableData = []
+  if (sectionId === 'shared') {
+    tableData = sharedKnowledge.value
+  } else if (sectionId === 'unclassified') {
+    tableData = unclassifiedKnowledge.value
+  } else {
+    const dept = departmentSections.value.find(d => d.id === sectionId)
+    tableData = dept?.children || []
+  }
+  
+  // 查找父节点
+  const findParent = (nodes, targetId, parent = null) => {
+    for (const node of nodes) {
+      if (String(node.id) === String(targetId)) {
+        return parent
+      }
+      if (node.children && node.children.length > 0) {
+        const found = findParent(node.children, targetId, node)
+        if (found !== null) return found
+      }
+    }
+    return null
+  }
+  
+  // 判断是移动到文件夹内部还是同级移动
+  let newParentId = null
+  let newSortOrder = 0
+  
+  // 检查目标行是否是文件夹
+  if (isFolder(targetRow)) {
+    // 移动到文件夹内部
+    newParentId = targetRow.id
+    newSortOrder = targetRow.children?.length || 0
+  } else {
+    // 同级移动，使用目标行的父节点
+    const parent = findParent(tableData, targetRow.id)
+    newParentId = parent ? parent.id : null
+    
+    // 计算新的排序顺序（使用目标行的 sortOrder）
+    newSortOrder = (targetRow.sortOrder || 0) + (isMovingDown ? 1 : 0)
+  }
+  
+  // 调用移动 API
+  try {
+    const normalizedParentId = newParentId !== null ? normalizeParentId(newParentId) : null
+    const res = await api.put(`/knowledge/${draggedRow.id}/move`, {
+      parentId: normalizedParentId,
+      sortOrder: newSortOrder
+    })
+    
+    if (res.code === 200) {
+      ElMessage.success('移动成功')
+      await loadTree()
+    } else {
+      ElMessage.error(res.message || '移动失败')
+      await loadTree() // 恢复原状态
+    }
+  } catch (error) {
+    ElMessage.error('移动失败: ' + (error.response?.data?.message || error.message))
+    await loadTree() // 恢复原状态
+  }
+}
+
+// 初始化表格拖拽功能
+const initTableSortable = (sectionId, tableEl) => {
+  // 销毁已存在的实例
+  if (sortableInstances.value[sectionId]) {
+    sortableInstances.value[sectionId].destroy()
+    delete sortableInstances.value[sectionId]
+  }
+  
+  // 等待表格渲染完成
+  nextTick(() => {
+    const tbody = tableEl?.$el?.querySelector('.el-table__body-wrapper tbody')
+    if (!tbody) return
+    
+    sortableInstances.value[sectionId] = Sortable.create(tbody, {
+      handle: '.drag-handle', // 只有点击拖拽手柄才能拖拽
+      animation: 200,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      dragClass: 'sortable-drag',
+      filter: '.node-actions, .node-title', // 过滤掉操作按钮和标题区域
+      onEnd: async (evt) => {
+        const { oldIndex, newIndex, item } = evt
+        if (oldIndex === newIndex) return
+        
+        // 从 DOM 元素获取行 key（Element Plus 在 tr 上设置 data-key 属性）
+        const draggedRowKey = item.getAttribute('data-key')
+        const targetItem = tbody.children[newIndex]
+        const targetRowKey = targetItem?.getAttribute('data-key')
+        
+        if (!draggedRowKey || !targetRowKey) {
+          ElMessage.warning('无法获取行数据，请重试')
+          return
+        }
+        
+        // 获取表格数据
+        let tableData = []
+        if (sectionId === 'shared') {
+          tableData = sharedKnowledge.value
+        } else if (sectionId === 'unclassified') {
+          tableData = unclassifiedKnowledge.value
+        } else {
+          const dept = departmentSections.value.find(d => d.id === sectionId)
+          tableData = dept?.children || []
+        }
+        
+        // 递归查找节点
+        const findNodeById = (nodes, id) => {
+          for (const node of nodes) {
+            if (String(node.id) === String(id)) {
+              return node
+            }
+            if (node.children && node.children.length > 0) {
+              const found = findNodeById(node.children, id)
+              if (found) return found
+            }
+          }
+          return null
+        }
+        
+        // 获取拖拽的行数据和目标行数据
+        const draggedRow = findNodeById(tableData, draggedRowKey)
+        const targetRow = findNodeById(tableData, targetRowKey)
+        
+        if (!draggedRow || !targetRow) {
+          ElMessage.warning('无法找到对应的行数据')
+          return
+        }
+        
+        await handleTableRowMove(draggedRow, targetRow, sectionId, newIndex > oldIndex)
+      }
+    })
+  })
+}
+
 // 格式化时间
 // 点击卡片（自定义模板中的卡片）
 const handleCardClick = (data, node, event, sectionId) => {
@@ -1419,7 +1578,10 @@ const handleCardClick = (data, node, event, sectionId) => {
         // 使用 el-table 的 toggleRowExpansion
         const table = deptTreeRefs.value[sectionId]
         if (table) {
-          table.toggleRowExpansion(data)
+          // 确保有子节点才展开
+          if (data.hasChildren || (data.children && data.children.length > 0)) {
+            table.toggleRowExpansion(data, undefined)
+          }
         }
       } else if (listTreeRef.value && node) {
         // node 是 el-tree 的节点对象，直接切换
@@ -1433,7 +1595,7 @@ const handleCardClick = (data, node, event, sectionId) => {
       }
     } else {
       // 如果是文件，打开详情页
-  viewDetail(data.id)
+      viewDetail(data.id)
     }
   }
 }
@@ -1526,6 +1688,87 @@ const deleteNode = async (data) => {
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败')
+    }
+  }
+}
+
+// 列表模式批量选择变化（处理多个表格的选中项）
+const tableSelections = ref({}) // 存储每个表格的选中项
+const handleListTableSelectionChange = (tableId, selection) => {
+  tableSelections.value[tableId] = selection || []
+  // 合并所有表格的选中项
+  const allSelections = []
+  Object.values(tableSelections.value).forEach(selections => {
+    allSelections.push(...selections)
+  })
+  // 去重（根据id）
+  const uniqueSelections = []
+  const idSet = new Set()
+  allSelections.forEach(item => {
+    if (!idSet.has(item.id)) {
+      idSet.add(item.id)
+      uniqueSelections.push(item)
+    }
+  })
+  listSelectedItems.value = uniqueSelections
+}
+
+// 列表模式批量删除
+const batchDeleteListItems = async () => {
+  if (!listSelectedItems.value || listSelectedItems.value.length === 0) {
+    ElMessage.warning('请先选择要删除的项')
+    return
+  }
+  
+  // 过滤掉根节点
+  const validItems = listSelectedItems.value.filter(item => 
+    item.id !== 'root' && !item.isRoot && !item.isDepartmentRoot && !String(item.id).startsWith('dept-')
+  )
+  
+  if (validItems.length === 0) {
+    ElMessage.warning('选中的项中包含不能删除的根节点')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(`确定要删除选中的 ${validItems.length} 个项吗？`, '批量删除', {
+      type: 'warning'
+    })
+    
+    // 逐个删除
+    let successCount = 0
+    let failCount = 0
+    for (const item of validItems) {
+      try {
+        const res = await api.delete(`/knowledge/${item.id}`)
+        if (res.code === 200) {
+          successCount++
+        } else {
+          failCount++
+        }
+      } catch (error) {
+        failCount++
+      }
+    }
+    
+    if (failCount === 0) {
+      ElMessage.success(`成功删除 ${successCount} 个项`)
+    } else {
+      ElMessage.warning(`删除完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+    }
+    
+    // 清空所有表格的选择
+    listSelectedItems.value = []
+    tableSelections.value = {}
+    Object.values(deptTreeRefs.value).forEach(tableRef => {
+      if (tableRef && tableRef.clearSelection) {
+        tableRef.clearSelection()
+      }
+    })
+    await loadTree()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '批量删除失败')
     }
   }
 }
@@ -3550,12 +3793,57 @@ watch(viewMode, (newMode) => {
   justify-content: space-between;
   align-items: center;
   background: linear-gradient(to right, #fafbfc, #fff);
+  flex-shrink: 0;
+}
+
+.list-toolbar .toolbar-left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.list-toolbar .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.list-batch-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-bottom: 2px solid #409EFF;
+  box-shadow: 0 2px 4px rgba(64, 158, 255, 0.1);
+}
+
+.list-batch-toolbar .toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.list-batch-toolbar .toolbar-right {
+  display: flex;
+  gap: 10px;
+}
+
+.list-batch-toolbar .selected-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: #409EFF;
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
 }
 
 .dept-sections-container {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
+  min-height: 0;
 }
 
 .dept-section {
@@ -3595,14 +3883,56 @@ watch(viewMode, (newMode) => {
   gap: 12px;
 }
 
+/* 部门分区展开图标 */
 .expand-icon {
-  font-size: 14px;
-  color: #909399;
-  transition: transform 0.3s;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #f5f5f5;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
+.expand-icon:hover {
+  background: #e8e8e8;
+}
+
+/* 隐藏默认箭头 */
+.expand-icon svg {
+  display: none;
+}
+
+/* 使用 CSS 绘制 chevron */
+.expand-icon::before {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid #606266;
+  border-bottom: 1.5px solid #606266;
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+  margin-left: -1px;
+}
+
+.expand-icon:hover::before {
+  border-color: #409EFF;
+}
+
+/* 展开状态 */
 .expand-icon.is-expanded {
-  transform: rotate(90deg);
+  background: #e0f0ff;
+}
+
+.expand-icon.is-expanded::before {
+  transform: rotate(45deg);
+  margin-left: 0;
+  margin-top: -1px;
+  border-color: #409EFF;
 }
 
 .dept-icon {
@@ -3636,14 +3966,83 @@ watch(viewMode, (newMode) => {
 }
 
 .dept-section-content {
-  padding: 16px 20px;
+  padding: 0;
   border-top: 1px solid #ebeef5;
   background: #fafbfc;
 }
 
+.table-wrapper {
+  padding: 16px 20px;
+  max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.table-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-wrapper::-webkit-scrollbar-track {
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 4px;
+}
+
+/* 拖拽样式 - 简洁风格 */
+.sortable-ghost {
+  opacity: 0.4;
+  background: #e8f4ff !important;
+}
+
+.sortable-chosen {
+  background: #fff !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+}
+
+.sortable-drag {
+  opacity: 0.95;
+}
+
+/* 拖拽时的行样式 */
+.knowledge-tree-table :deep(.el-table__row.sortable-ghost) {
+  background: #e8f4ff !important;
+}
+
+.knowledge-tree-table :deep(.el-table__row.sortable-chosen) {
+  background: #fff !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.table-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #a4a9ae;
+}
+
+.table-wrapper :deep(.el-table) {
+  background: #fff;
+}
+
+.table-wrapper :deep(.el-table__header th) {
+  background: #fafbfc;
+  font-weight: 500;
+  color: #606266;
+  padding: 12px 0;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.table-wrapper :deep(.el-table__header-wrapper) {
+  background: #fff;
+}
+
 .empty-section {
-  padding: 20px;
+  padding: 40px 20px;
   text-align: center;
+  background: #fff;
 }
 
 .shared-section {
@@ -3670,118 +4069,211 @@ watch(viewMode, (newMode) => {
   padding: 8px 0;
 }
 
-/* 列表表格树形结构样式 - 增强层级区分 */
+/* 列表表格树形结构样式 - 简洁现代风格 */
 .knowledge-tree-table {
-  --el-table-indent-size: 35px;
+  --el-table-indent-size: 24px;
 }
 
-/* 增加树形表格的缩进大小，让层级更明显 */
+/* 树形表格的缩进 */
 .knowledge-tree-table :deep(.el-table__indent) {
-  padding-left: 35px !important;
-  position: relative;
+  padding-left: 24px !important;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
-/* 为缩进区域添加视觉指示器（竖线） */
-.knowledge-tree-table :deep(.el-table__indent)::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(to bottom, 
-    transparent 0%, 
-    transparent 8%,
-    #409EFF 8%, 
-    #409EFF 92%,
-    transparent 92%,
-    transparent 100%);
-  opacity: 0.6;
-}
-
-/* 为不同层级添加不同的左边距，增强视觉区分 */
+/* 表格行样式 */
 .knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row {
   background-color: #fff;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s ease;
 }
 
 .knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row:hover {
-  background-color: #ecf5ff !important;
+  background-color: #f5f7fa !important;
 }
 
-/* 为树形节点项添加左边框，增强层级区分 - 使用更兼容的方式 */
-.knowledge-tree-table :deep(.el-table__body-wrapper) td:first-child {
-  position: relative;
+/* 单元格样式 */
+.knowledge-tree-table :deep(.el-table__body-wrapper) td {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-/* 为有缩进的单元格添加左边框 */
-.knowledge-tree-table :deep(.el-table__body-wrapper) .tree-node-item {
-  position: relative;
-  padding-left: 12px;
+.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row:hover td {
+  border-bottom-color: #e0e0e0;
 }
 
-/* 当父级有缩进时，为节点项添加视觉指示 */
-.knowledge-tree-table :deep(.el-table__body-wrapper) td:first-child .tree-node-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 60%;
-  background: #409EFF;
-  border-radius: 2px;
-  opacity: 0.3;
-  display: none;
+/* 修复表格单元格布局 - 确保展开图标和内容在同一行 */
+.knowledge-tree-table :deep(td .cell) {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
 }
 
-/* 通过父元素的缩进类来判断层级 */
-.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__row[class*="el-table__row"] td:first-child .tree-node-item {
-  margin-left: 0;
-}
-
-/* 增强表格行的视觉区分 */
-.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__body tr {
-  border-bottom: 1px solid #ebeef5;
-}
-
-.knowledge-tree-table :deep(.el-table__body-wrapper) .el-table__body tr:hover {
-  background-color: #ecf5ff !important;
-}
-
-.tree-node-item {
-  display: flex;
+/* 树节点内容容器 */
+.knowledge-tree-table :deep(td .cell .tree-node-item) {
+  display: inline-flex !important;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 展开图标样式 - 现代风格 */
+.knowledge-tree-table :deep(.el-table__expand-icon) {
+  width: 22px;
+  height: 22px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
-  width: 100%;
-  transition: background 0.2s;
-  position: relative;
+  background: #f5f5f5;
+  transition: all 0.2s ease;
+  margin-right: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.knowledge-tree-table :deep(.el-table__expand-icon:hover) {
+  background: #e8e8e8;
+}
+
+/* 隐藏默认箭头图标 */
+.knowledge-tree-table :deep(.el-table__expand-icon > .el-icon),
+.knowledge-tree-table :deep(.el-table__expand-icon svg) {
+  display: none !important;
+}
+
+/* 自定义展开图标 - 使用 CSS 绘制 chevron */
+.knowledge-tree-table :deep(.el-table__expand-icon)::before {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid #606266;
+  border-bottom: 1.5px solid #606266;
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+  margin-left: -1px;
+}
+
+.knowledge-tree-table :deep(.el-table__expand-icon:hover)::before {
+  border-color: #409EFF;
+}
+
+/* 展开状态 - 箭头向下 */
+.knowledge-tree-table :deep(.el-table__expand-icon--expanded) {
+  background: #e0f0ff;
+}
+
+.knowledge-tree-table :deep(.el-table__expand-icon--expanded)::before {
+  transform: rotate(45deg);
+  margin-left: 0;
+  margin-top: -1px;
+  border-color: #409EFF;
+}
+
+/* 没有子节点时的占位符 */
+.knowledge-tree-table :deep(.el-table__placeholder) {
+  width: 30px;
+  display: inline-block;
+}
+
+/* 文件节点样式 - 简洁风格 */
+.tree-node-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+  user-select: none;
+  flex: 1;
+  min-width: 0;
 }
 
 .tree-node-item:hover {
-  background: #ecf5ff;
+  background-color: #f0f7ff;
 }
 
+/* 拖拽手柄 - 六点图标 */
+.tree-node-item .drag-handle {
+  width: 16px;
+  height: 20px;
+  cursor: grab;
+  opacity: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+  position: relative;
+}
+
+/* 六点拖拽手柄 */
+.tree-node-item .drag-handle::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  background: #bbb;
+  border-radius: 50%;
+  box-shadow: 
+    6px 0 0 #bbb,
+    0 6px 0 #bbb,
+    6px 6px 0 #bbb,
+    0 12px 0 #bbb,
+    6px 12px 0 #bbb;
+}
+
+.tree-node-item:hover .drag-handle {
+  opacity: 1;
+}
+
+.tree-node-item .drag-handle:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.tree-node-item .drag-handle:hover::before {
+  background: #666;
+  box-shadow: 
+    6px 0 0 #666,
+    0 6px 0 #666,
+    6px 6px 0 #666,
+    0 12px 0 #666,
+    6px 12px 0 #666;
+}
+
+.tree-node-item .drag-handle:active {
+  cursor: grabbing;
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+/* 文件/文件夹图标 */
 .tree-node-item .node-icon {
   font-size: 18px;
   flex-shrink: 0;
 }
 
 .tree-node-item .folder-icon {
-  color: #FF9800;
+  color: #f5a623;
 }
 
 .tree-node-item .file-icon {
   color: #409EFF;
 }
 
+/* 文件名称 */
 .tree-node-item .node-title {
   flex: 1;
   font-size: 14px;
   color: #303133;
-  font-weight: 500;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-node-item:hover .node-title {
+  color: #409EFF;
 }
 
 .tree-node-item .shared-tag {
@@ -3973,81 +4465,6 @@ watch(viewMode, (newMode) => {
 
 .close-toolbar:hover {
   color: #303133;
-}
-
-/* 资源管理器布局样式 */
-.explorer-layout {
-  display: flex;
-  height: calc(100vh - 150px);
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  background: #fff;
-}
-
-.explorer-sidebar {
-  width: 280px;
-  border-right: 1px solid #dcdfe6;
-  display: flex;
-  flex-direction: column;
-  background: #f5f7fa;
-}
-
-.sidebar-header {
-  padding: 12px 16px;
-  font-weight: 600;
-  color: #606266;
-  border-bottom: 1px solid #ebeef5;
-  background: #fff;
-}
-
-.nav-tree {
-  background: transparent;
-  padding: 10px 0;
-}
-
-.nav-tree-node {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.nav-icon {
-  font-size: 16px;
-  color: #909399;
-}
-
-.explorer-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: #fff;
-  overflow: hidden;
-}
-
-.content-header {
-  padding: 12px 20px;
-  border-bottom: 1px solid #ebeef5;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.content-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.item-icon.folder-icon {
-  color: #E6A23C;
-  font-size: 18px;
-}
-
-.item-icon.file-icon {
-  color: #409EFF;
-  font-size: 18px;
 }
 </style>
 

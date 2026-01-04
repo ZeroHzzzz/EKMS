@@ -1,15 +1,7 @@
 <template>
   <div class="knowledge-list">
     <div class="page-header">
-      <h2>知识管理</h2>
-      <el-button 
-        v-if="hasPermission(userInfo, 'UPLOAD')" 
-        type="primary" 
-        :icon="Upload"
-        @click="showUploadDialog = true"
-      >
-        上传文档
-      </el-button>
+      <h2>知识审核</h2>
     </div>
 
     <div class="search-bar">
@@ -38,7 +30,7 @@
 
     <div class="filter-bar">
       <div class="filter-left">
-      <!-- 知识管理页面显示所有状态的知识 -->
+      <!-- 知识审核页面默认显示待审核状态 -->
       <el-select 
         v-model="filters.status" 
         placeholder="状态筛选" 
@@ -86,25 +78,27 @@
     </div>
 
     <el-card class="table-card">
-    <div class="table-toolbar" v-if="knowledgeList && knowledgeList.length > 0">
+    <div class="table-toolbar">
       <div class="toolbar-left">
         <el-checkbox v-model="selectAll" @change="handleSelectAll">全选</el-checkbox>
         <span class="selected-count">已选择 {{ selectedItems && selectedItems.length ? selectedItems.length : 0 }} 项</span>
       </div>
       <div class="toolbar-right">
         <el-button 
-          v-if="selectedItems && selectedItems.length > 0 && hasPermission(userInfo, 'DOWNLOAD')" 
-          type="primary" 
-          @click="batchDownload"
+          :disabled="!selectedItems || selectedItems.length === 0 || !hasPendingItems"
+          type="success" 
+          @click="batchApprove"
         >
-          批量下载
+          <el-icon><Check /></el-icon>
+          批量通过
         </el-button>
         <el-button 
-          v-if="selectedItems && selectedItems.length > 0 && hasPermission(userInfo, 'EDIT')" 
-          type="warning" 
-          @click="showBatchUpdateDialog = true"
+          :disabled="!selectedItems || selectedItems.length === 0 || !hasPendingItems"
+          type="danger" 
+          @click="showBatchRejectDialog"
         >
-          批量更新
+          <el-icon><Close /></el-icon>
+          批量拒绝
         </el-button>
       </div>
     </div>
@@ -183,129 +177,50 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="120">
+      <el-table-column label="状态" width="100" align="center">
         <template #default="scope">
-          <el-tag :type="getStatusType(scope.row.status)">
+          <el-tag :type="getStatusType(scope.row.status)" size="small">
             {{ getStatusText(scope.row.status) }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="审核信息" width="200" v-if="hasPermission(userInfo, 'AUDIT')">
+      <!-- 审核列 -->
+      <el-table-column label="审核" width="130" align="center">
         <template #default="scope">
-          <div v-if="scope.row.status === 'PENDING' && scope.row.auditInfo">
-            <div class="audit-info">
-              <div>提交人：{{ scope.row.auditInfo.submitUser?.realName || scope.row.auditInfo.submitUser?.username || '-' }}</div>
-              <div class="meta-text">提交时间：{{ formatTime(scope.row.auditInfo.submitTime) }}</div>
-            </div>
-          </div>
-          <span v-else-if="scope.row.status === 'PENDING'">加载中...</span>
-        </template>
-      </el-table-column>
-      <!-- 审核操作列：单独一列，大按钮 -->
-      <el-table-column label="审核操作" width="180" fixed="right" v-if="hasPermission(userInfo, 'AUDIT')">
-        <template #default="scope">
-          <div class="audit-action-buttons">
-            <!-- 待审核状态：显示通过和驳回按钮 -->
+          <div class="audit-cell">
+            <!-- 待审核状态 -->
             <template v-if="scope.row.status === 'PENDING'">
-              <el-button 
-                type="success" 
-                size="large"
-                :icon="Check"
-                circle
-                @click.stop="handleAuditApprove(scope.row)"
-                class="audit-btn approve-btn"
-              />
-              <el-button 
-                type="danger" 
-                size="large"
-                :icon="Close"
-                circle
-                @click.stop="handleAuditReject(scope.row)"
-                class="audit-btn reject-btn"
-              />
+              <el-tooltip content="通过" placement="top">
+                <el-button type="success" size="small" circle :icon="Check" @click.stop="handleAuditApprove(scope.row)" />
+              </el-tooltip>
+              <el-tooltip content="驳回" placement="top">
+                <el-button type="danger" size="small" circle :icon="Close" @click.stop="handleAuditReject(scope.row)" />
+              </el-tooltip>
             </template>
-            <!-- 已发布状态：显示灰色√（不可点击）和红色×（可驳回） -->
+            <!-- 已发布状态 -->
             <template v-else-if="scope.row.status === 'APPROVED'">
-              <el-button 
-                disabled
-                size="large"
-                :icon="Check"
-                circle
-                class="audit-btn approved-btn-disabled"
-              />
-              <el-button 
-                type="danger" 
-                size="large"
-                :icon="Close"
-                circle
-                @click.stop="handleAuditReject(scope.row)"
-                class="audit-btn reject-btn"
-              />
+              <el-button disabled size="small" circle :icon="Check" class="audit-btn-disabled" />
+              <el-tooltip content="撤回发布" placement="top">
+                <el-button type="danger" size="small" circle :icon="Close" @click.stop="handleAuditReject(scope.row)" />
+              </el-tooltip>
             </template>
-            <!-- 已驳回状态：显示通过（重新发布）和灰色驳回按钮（不可点击） -->
+            <!-- 已驳回状态 -->
             <template v-else-if="scope.row.status === 'REJECTED'">
-              <el-button 
-                type="success" 
-                size="large"
-                :icon="Check"
-                circle
-                @click.stop="handleRePublish(scope.row)"
-                class="audit-btn approve-btn"
-              />
-              <el-button 
-                disabled
-                size="large"
-                :icon="Close"
-                circle
-                class="audit-btn rejected-btn-disabled"
-              />
+              <el-tooltip content="重新发布" placement="top">
+                <el-button type="success" size="small" circle :icon="Check" @click.stop="handleRePublish(scope.row)" />
+              </el-tooltip>
+              <el-button disabled size="small" circle :icon="Close" class="audit-btn-disabled" />
             </template>
-            <!-- 其他状态：不显示审核按钮 -->
-            <span v-else class="no-audit-action">-</span>
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <!-- 操作列 -->
+      <el-table-column label="操作" width="150" align="center">
         <template #default="scope">
-          <div class="action-buttons">
-            <!-- 基本操作：收藏、编辑 -->
-            <el-button 
-              size="small" 
-              type="primary" 
-              plain
-              @click.stop="collect(scope.row)"
-            >
-              收藏
-            </el-button>
-            <el-button 
-              v-if="canEdit(scope.row)" 
-              size="small" 
-              type="warning" 
-              plain
-              @click.stop="editKnowledge(scope.row)"
-            >
-              编辑
-            </el-button>
-            <!-- 提交审核按钮（已驳回状态） -->
-            <el-button 
-              v-if="canSubmitAudit(scope.row)" 
-              size="small" 
-              type="primary" 
-              plain
-              @click.stop="submitAudit(scope.row)"
-            >
-              提交审核
-            </el-button>
-            <!-- 删除操作 -->
-            <el-button 
-              v-if="canDelete(scope.row)" 
-              size="small" 
-              type="danger" 
-              plain
-              @click.stop="deleteKnowledge(scope.row)"
-            >
-              删除
-            </el-button>
+          <div class="ops-cell">
+            <el-button size="small" link type="primary" @click.stop="collect(scope.row)">收藏</el-button>
+            <el-button v-if="canEdit(scope.row)" size="small" link type="warning" @click.stop="editKnowledge(scope.row)">编辑</el-button>
+            <el-button v-if="canDelete(scope.row)" size="small" link type="danger" @click.stop="deleteKnowledge(scope.row)">删除</el-button>
           </div>
         </template>
       </el-table-column>
@@ -510,6 +425,35 @@
         <el-button type="danger" @click="doReject" :loading="auditing" :disabled="!rejectComment || rejectComment.trim().length === 0">驳回</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量拒绝对话框 -->
+    <el-dialog v-model="showBatchRejectDialogVisible" title="批量拒绝" width="500px">
+      <div class="batch-reject-content">
+        <p style="margin-bottom: 16px; color: #606266;">
+          即将拒绝 <span style="color: #f56c6c; font-weight: 600;">{{ selectedItems.filter(item => item.status === 'PENDING').length }}</span> 个待审核的知识
+        </p>
+        <el-form-item label="拒绝原因" required>
+          <el-input 
+            v-model="batchRejectComment" 
+            type="textarea" 
+            :rows="4" 
+            placeholder="请填写拒绝原因（必填），将应用于所有选中的知识"
+          />
+        </el-form-item>
+      </div>
+      <template #footer>
+        <el-button @click="showBatchRejectDialogVisible = false">取消</el-button>
+        <el-button 
+          type="danger" 
+          @click="doBatchReject" 
+          :loading="batchAuditing" 
+          :disabled="!batchRejectComment || batchRejectComment.trim().length === 0"
+        >
+          <el-icon><Close /></el-icon>
+          确认拒绝
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -529,7 +473,7 @@ const userInfo = computed(() => userStore.userInfo)
 
 const searchKeyword = ref('')
 const filters = ref({
-  status: null, // 知识管理页面可以筛选所有状态
+  status: 'PENDING', // 知识审核页面默认显示待审核状态
   author: '',
   dateRange: null
 })
@@ -543,6 +487,16 @@ const total = ref(0)
 const selectedItems = ref([])
 const selectAll = ref(false)
 const tableRef = ref(null)
+
+// 批量审核相关
+const showBatchRejectDialogVisible = ref(false)
+const batchRejectComment = ref('')
+const batchAuditing = ref(false)
+
+// 计算是否有待审核的选中项
+const hasPendingItems = computed(() => {
+  return selectedItems.value.some(item => item.status === 'PENDING')
+})
 
 // 搜索历史
 const searchHistory = ref([])
@@ -627,14 +581,16 @@ const loadData = async () => {
       // 使用搜索接口
       res = await api.post('/knowledge/search', searchParams)
       // 过滤掉文件夹（只显示有fileId的文件）
-      const results = (res.data.results || []).filter(item => item.fileId != null)
+      const results = (res.data.results || [])
+
       knowledgeList.value = results
       total.value = results.length
     } else {
       // 使用列表接口
       res = await api.get('/knowledge/list', { params: searchParams })
       // 过滤掉文件夹（只显示有fileId的文件）
-      const results = (res.data || []).filter(item => item.fileId != null)
+      const results = (res.data || [])
+
       knowledgeList.value = results
       total.value = results.length
     }
@@ -1175,6 +1131,178 @@ const deleteKnowledge = async (row) => {
     if (error !== 'cancel') {
       ElMessage.error(error.message || '删除失败')
     }
+  }
+}
+
+// 批量删除
+const batchDelete = async () => {
+  if (!selectedItems.value || selectedItems.value.length === 0) {
+    ElMessage.warning('请先选择要删除的知识')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(`确定要删除选中的 ${selectedItems.value.length} 个知识吗？`, '批量删除', {
+      type: 'warning'
+    })
+    
+    // 逐个删除
+    let successCount = 0
+    let failCount = 0
+    for (const item of selectedItems.value) {
+      try {
+        const res = await api.delete(`/knowledge/${item.id}`)
+        if (res.code === 200) {
+          successCount++
+        } else {
+          failCount++
+        }
+      } catch (error) {
+        failCount++
+      }
+    }
+    
+    if (failCount === 0) {
+      ElMessage.success(`成功删除 ${successCount} 个知识`)
+    } else {
+      ElMessage.warning(`删除完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+    }
+    
+    // 清空选择
+    selectedItems.value = []
+    if (tableRef.value) {
+      tableRef.value.clearSelection()
+    }
+    loadData()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '批量删除失败')
+    }
+  }
+}
+
+// 批量通过审核
+const batchApprove = async () => {
+  const pendingItems = selectedItems.value.filter(item => item.status === 'PENDING')
+  if (pendingItems.length === 0) {
+    ElMessage.warning('没有待审核的知识')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(`确定要通过选中的 ${pendingItems.length} 个知识的审核吗？`, '批量通过', {
+      type: 'success',
+      confirmButtonText: '确认通过',
+      cancelButtonText: '取消'
+    })
+    
+    batchAuditing.value = true
+    let successCount = 0
+    let failCount = 0
+    
+    for (const item of pendingItems) {
+      try {
+        // 调用审核通过接口
+        const res = await api.put(`/knowledge/${item.id}/status`, null, {
+          params: { status: 'APPROVED' }
+        })
+        if (res.code === 200) {
+          successCount++
+        } else {
+          failCount++
+        }
+      } catch (error) {
+        failCount++
+      }
+    }
+    
+    if (failCount === 0) {
+      ElMessage.success(`成功通过 ${successCount} 个知识的审核`)
+    } else {
+      ElMessage.warning(`审核完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+    }
+    
+    // 清空选择并刷新
+    selectedItems.value = []
+    if (tableRef.value) {
+      tableRef.value.clearSelection()
+    }
+    loadData()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '批量审核失败')
+    }
+  } finally {
+    batchAuditing.value = false
+  }
+}
+
+// 显示批量拒绝对话框
+const showBatchRejectDialog = () => {
+  const pendingItems = selectedItems.value.filter(item => item.status === 'PENDING')
+  if (pendingItems.length === 0) {
+    ElMessage.warning('没有待审核的知识')
+    return
+  }
+  batchRejectComment.value = ''
+  showBatchRejectDialogVisible.value = true
+}
+
+// 执行批量拒绝
+const doBatchReject = async () => {
+  if (!batchRejectComment.value || batchRejectComment.value.trim().length === 0) {
+    ElMessage.warning('请填写拒绝原因')
+    return
+  }
+  
+  const pendingItems = selectedItems.value.filter(item => item.status === 'PENDING')
+  if (pendingItems.length === 0) {
+    ElMessage.warning('没有待审核的知识')
+    return
+  }
+  
+  batchAuditing.value = true
+  let successCount = 0
+  let failCount = 0
+  
+  try {
+    for (const item of pendingItems) {
+      try {
+        // 调用审核拒绝接口
+        const res = await api.put(`/knowledge/${item.id}/status`, null, {
+          params: { 
+            status: 'REJECTED',
+            comment: batchRejectComment.value
+          }
+        })
+        if (res.code === 200) {
+          successCount++
+        } else {
+          failCount++
+        }
+      } catch (error) {
+        failCount++
+      }
+    }
+    
+    if (failCount === 0) {
+      ElMessage.success(`成功拒绝 ${successCount} 个知识`)
+    } else {
+      ElMessage.warning(`拒绝完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+    }
+    
+    // 关闭对话框并刷新
+    showBatchRejectDialogVisible.value = false
+    batchRejectComment.value = ''
+    selectedItems.value = []
+    if (tableRef.value) {
+      tableRef.value.clearSelection()
+    }
+    loadData()
+  } catch (error) {
+    ElMessage.error(error.message || '批量拒绝失败')
+  } finally {
+    batchAuditing.value = false
   }
 }
 
@@ -1940,7 +2068,38 @@ onMounted(() => {
   margin: 0;
 }
 
-/* 审核操作按钮样式 */
+/* 审核单元格样式 */
+.audit-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.audit-cell .el-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.audit-cell .audit-btn-disabled {
+  background: #e4e7ed !important;
+  border-color: #e4e7ed !important;
+  color: #c0c4cc !important;
+  cursor: not-allowed;
+}
+
+/* 操作单元格样式 */
+.ops-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* 审核操作按钮样式（兼容旧代码） */
 .audit-action-buttons {
   display: flex;
   align-items: center;

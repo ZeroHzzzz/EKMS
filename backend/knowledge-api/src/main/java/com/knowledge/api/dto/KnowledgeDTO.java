@@ -38,6 +38,11 @@ public class KnowledgeDTO implements Serializable {
     private String currentBranch; // 当前分支（用于版本控制）
     
     /**
+     * Parsing full text content for search
+     */
+    private String contentText;
+    
+    /**
      * 自定义 setter 方法，处理 parentId 的容错
      * 如果传入的是负数，转换为 null（部门根节点不存在于数据库）
      * 注意：字符串格式的部门ID（如 "dept-1"）会由 ParentIdDeserializer 处理

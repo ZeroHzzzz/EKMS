@@ -63,6 +63,19 @@ public class UserController {
         }
     }
 
+    @PutMapping("/{id}/role")
+    public Result<Void> updateUserRole(@PathVariable Long id, @RequestBody UpdateRoleRequest request) {
+        log.info("更新用户角色 - 用户ID: {}, 新角色: {}", id, request.getRole());
+        try {
+            userService.updateUserRole(id, request.getRole());
+            log.info("用户角色更新成功 - 用户ID: {}", id);
+            return Result.success(null);
+        } catch (Exception e) {
+            log.error("更新用户角色失败 - 用户ID: {}, 错误: {}", id, e.getMessage(), e);
+            return Result.error(e.getMessage());
+        }
+    }
+
     @PutMapping("/{id}")
     public Result<UserDTO> updateUser(@PathVariable Long id, @RequestBody UpdateUserRequest request) {
         log.info("更新用户信息 - 用户ID: {}", id);
@@ -159,6 +172,11 @@ public class UserController {
     static class UpdatePasswordRequest {
         private String oldPassword;
         private String newPassword;
+    }
+
+    @Data
+    static class UpdateRoleRequest {
+        private String role;
     }
 }
 

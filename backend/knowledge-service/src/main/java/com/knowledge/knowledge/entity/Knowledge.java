@@ -27,5 +27,10 @@ public class Knowledge extends BaseEntity {
     // Git风格版本管理字段
     private String currentBranch;      // 当前分支
     private String currentCommitHash;  // 当前Commit Hash
+    
+    /**
+     * Parsing full text content for search
+     */
+    private String contentText;
 }
 

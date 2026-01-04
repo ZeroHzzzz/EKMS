@@ -7,6 +7,7 @@ import com.knowledge.api.dto.KnowledgeDTO;
 import com.knowledge.api.dto.KnowledgeQueryDTO;
 import com.knowledge.api.dto.KnowledgeVersionDTO;
 import com.knowledge.api.dto.StatisticsDTO;
+import com.knowledge.api.dto.UserDTO;
 import com.knowledge.api.service.DepartmentService;
 import com.knowledge.api.service.FileService;
 import com.knowledge.api.service.KnowledgeService;
@@ -68,11 +69,23 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         Knowledge knowledge = new Knowledge();
         BeanUtils.copyProperties(knowledgeDTO, knowledge);
         // 如果创建时指定了状态，使用指定状态；否则默认为待审核
-        if (knowledgeDTO.getStatus() == null || knowledgeDTO.getStatus().isEmpty()) {
-            knowledge.setStatus(Constants.FILE_STATUS_PENDING);
-        } else {
-            knowledge.setStatus(knowledgeDTO.getStatus());
+        // 设置状态：普通用户默认为待审核，管理员可指定状态（默认已发布）
+        String status = Constants.FILE_STATUS_PENDING;
+        try {
+            if (knowledgeDTO.getCreateBy() != null) {
+                UserDTO user = userService.getUserByUsername(knowledgeDTO.getCreateBy());
+                if (user != null && Constants.ROLE_ADMIN.equals(user.getRole())) {
+                    if (knowledgeDTO.getStatus() != null && !knowledgeDTO.getStatus().isEmpty()) {
+                        status = knowledgeDTO.getStatus();
+                    } else {
+                        status = Constants.FILE_STATUS_APPROVED;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("检查用户角色失败，使用默认状态PENDING: {}", e.getMessage());
         }
+        knowledge.setStatus(status);
         knowledge.setClickCount(0L);
         knowledge.setCollectCount(0L);
         knowledge.setVersion(1L);
@@ -111,6 +124,15 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         initialVersion.setCreateTime(LocalDateTime.now());
         knowledgeVersionMapper.insert(initialVersion);
         
+        // 提取并保存文档全文内容
+        if (knowledge.getFileId() != null) {
+            String fullText = extractTextFromFile(knowledge.getFileId());
+            if (fullText != null) {
+                knowledge.setContentText(fullText);
+                knowledgeMapper.updateById(knowledge);
+            }
+        }
+        
         KnowledgeDTO result = new KnowledgeDTO();
         BeanUtils.copyProperties(knowledge, result);
         return result;
@@ -127,8 +149,18 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         // 保存当前版本到版本历史表
         saveVersionHistory(knowledge, knowledgeDTO.getChangeDescription(), knowledgeDTO.getUpdateBy());
         
-        // 更新知识内容
-        BeanUtils.copyProperties(knowledgeDTO, knowledge, "id", "createTime", "createBy");
+
+        // 更新知识内容 (忽略contentText，避免被null覆盖)
+        BeanUtils.copyProperties(knowledgeDTO, knowledge, "id", "createTime", "createBy", "contentText");
+        
+        // 如果文件ID变更或contentText为空，重新提取内容
+        if (knowledge.getFileId() != null && 
+            (knowledge.getContentText() == null || !knowledge.getFileId().equals(knowledgeMapper.selectById(knowledgeDTO.getId()).getFileId()))) {
+             String fullText = extractTextFromFile(knowledge.getFileId());
+             if (fullText != null) {
+                 knowledge.setContentText(fullText);
+             }
+        }
         
         // 处理版本号，如果为null则初始化为1
         Long currentVersion = knowledge.getVersion();
@@ -397,6 +429,36 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         
         return true;
+    }
+    
+    /**
+     * 从文件中提取文本内容
+     */
+    private String extractTextFromFile(Long fileId) {
+        try {
+            String filePath = fileService.getFilePath(fileId);
+            if (filePath == null) {
+                log.warn("文件路径不存在: fileId={}", fileId);
+                return null;
+            }
+            
+            java.io.File file = new java.io.File(filePath);
+            if (!file.exists()) {
+                log.warn("物理文件不存在: path={}", filePath);
+                return null;
+            }
+            
+            org.apache.tika.Tika tika = new org.apache.tika.Tika();
+            // 设置最大字符串长度，防止内存溢出 (-1为不限制，但建议设置合理的限制)
+            tika.setMaxStringLength(10 * 1024 * 1024); // 10MB
+            
+            String text = tika.parseToString(file);
+            log.info("提取文本成功: fileId={}, length={}", fileId, text.length());
+            return text;
+        } catch (Exception e) {
+            log.error("提取文件文本失败: fileId={}", fileId, e);
+            return null;
+        }
     }
 
     @Override

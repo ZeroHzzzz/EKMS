@@ -89,6 +89,7 @@ public class SearchServiceImpl implements SearchService {
                     // 使用 should 查询并设置权重，而不是 must + multiMatchQuery
                     boolQuery.should(QueryBuilders.matchQuery("title", keyword).boost(3.0f));
                     boolQuery.should(QueryBuilders.matchQuery("content", keyword).boost(1.0f));
+                    boolQuery.should(QueryBuilders.matchQuery("contentText", keyword).boost(0.8f)); // 全文内容搜索
                     boolQuery.should(QueryBuilders.matchQuery("keywords", keyword).boost(2.0f));
                     boolQuery.should(QueryBuilders.matchQuery("fileName", keyword).boost(2.5f));
                     boolQuery.minimumShouldMatch(1);
@@ -150,6 +151,7 @@ public class SearchServiceImpl implements SearchService {
                 // 配置高亮字段
                 highlightBuilder.field(new HighlightBuilder.Field("title").fragmentSize(150).numOfFragments(1));
                 highlightBuilder.field(new HighlightBuilder.Field("content").fragmentSize(200).numOfFragments(3));
+                highlightBuilder.field(new HighlightBuilder.Field("contentText").fragmentSize(200).numOfFragments(3));
                 highlightBuilder.field(new HighlightBuilder.Field("keywords").fragmentSize(100).numOfFragments(1));
                 highlightBuilder.field(new HighlightBuilder.Field("fileName").fragmentSize(100).numOfFragments(1));
                 highlightBuilder.preTags("<mark>");  // 高亮开始标签
@@ -194,6 +196,14 @@ public class SearchServiceImpl implements SearchService {
                             contentFragments.add(fragment.string());
                         }
                         highlight.setContent(contentFragments);
+                    }
+                    // 如果content没有高亮，尝试使用contentText的高亮
+                    if ((highlight.getContent() == null || highlight.getContent().isEmpty()) && highlightFields.containsKey("contentText")) {
+                        List<String> contentTextFragments = new ArrayList<>();
+                        for (org.elasticsearch.common.text.Text fragment : highlightFields.get("contentText").getFragments()) {
+                            contentTextFragments.add(fragment.string());
+                        }
+                        highlight.setContent(contentTextFragments);
                     }
                     if (highlightFields.containsKey("keywords")) {
                         List<String> keywordsFragments = new ArrayList<>();
@@ -291,10 +301,12 @@ public class SearchServiceImpl implements SearchService {
             
             String title = knowledgeDTO.getTitle() != null ? knowledgeDTO.getTitle() : "";
             String content = knowledgeDTO.getContent() != null ? knowledgeDTO.getContent() : "";
+            String contentText = knowledgeDTO.getContentText() != null ? knowledgeDTO.getContentText() : "";
             
             // 主字段存储原始值
             jsonMap.put("title", title);
             jsonMap.put("content", content);
+            jsonMap.put("contentText", contentText);
             jsonMap.put("keywords", knowledgeDTO.getKeywords() != null ? knowledgeDTO.getKeywords() : "");
             jsonMap.put("category", knowledgeDTO.getCategory() != null ? knowledgeDTO.getCategory() : "");
             jsonMap.put("fileId", knowledgeDTO.getFileId() != null ? knowledgeDTO.getFileId() : null);

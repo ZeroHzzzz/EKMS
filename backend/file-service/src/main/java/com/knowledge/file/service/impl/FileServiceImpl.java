@@ -504,6 +504,15 @@ public class FileServiceImpl implements FileService {
         return null;
     }
 
+    @Override
+    public String getFilePath(Long fileId) {
+        FileInfo fileInfo = fileInfoMapper.selectById(fileId);
+        if (fileInfo != null) {
+            return fileInfo.getFilePath();
+        }
+        return null;
+    }
+
     private String detectFileType(String fileName) {
         String extension = fileName.substring(fileName.lastIndexOf(".") + 1).toUpperCase();
         switch (extension) {

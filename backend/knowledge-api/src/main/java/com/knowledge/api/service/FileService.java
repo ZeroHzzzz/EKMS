@@ -15,5 +15,6 @@ public interface FileService {
     List<FileDTO> batchDownload(List<Long> fileIds);
     boolean deleteFile(Long fileId);
     String getFilePreviewUrl(Long fileId);
+    String getFilePath(Long fileId);
 }
 

@@ -332,5 +332,31 @@ public class UserServiceImpl implements UserService {
         userMapper.deleteById(userId);
         log.info("用户删除成功 - 用户ID: {}", userId);
     }
+
+    @Override
+    @Transactional
+    public void updateUserRole(Long userId, String role) {
+        log.info("更新用户角色 - 用户ID: {}, 新角色: {}", userId, role);
+        
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(404, "用户不存在");
+        }
+        
+        // 验证角色
+        if (!UserValidationUtil.isValidRole(role)) {
+            throw new BusinessException(400, "无效的用户角色");
+        }
+        
+        // 如果角色从非管理员变为管理员，清空部门ID
+        if (Constants.ROLE_ADMIN.equals(role)) {
+            user.setDepartmentId(null);
+        }
+        
+        user.setRole(role);
+        userMapper.updateById(user);
+        
+        log.info("用户角色更新成功 - 用户ID: {}, 新角色: {}", userId, role);
+    }
 }
 
