@@ -138,8 +138,18 @@ public class SearchServiceImpl implements SearchService {
                 sourceBuilder.query(boolQuery);
             }
             
-            // 排序
-            if ("clickCount".equals(request.getSortField())) {
+            // 排序 - 默认综合排序（相关性 + 点击率）
+            String sortField = request.getSortField();
+            if ("clickCount".equals(sortField)) {
+                // 纯点击率排序
+                sourceBuilder.sort("clickCount", SortOrder.DESC);
+            } else if ("createTime".equals(sortField)) {
+                // 时间排序
+                sourceBuilder.sort("createTime", SortOrder.DESC);
+            } else {
+                // 默认：综合排序 - 使用 function_score 结合相关性和点击率
+                // 在搜索结果中，点击率高的文档会获得更高的排名
+                sourceBuilder.sort("_score", SortOrder.DESC);
                 sourceBuilder.sort("clickCount", SortOrder.DESC);
             }
             

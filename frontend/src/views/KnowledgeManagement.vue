@@ -1013,19 +1013,40 @@ const handleRePublish = async (row) => {
 }
 
 const doApprove = async () => {
-  if (!currentKnowledge.value || !currentAudit.value) {
-    ElMessage.warning('审核信息不完整，请刷新后重试')
+  if (!currentKnowledge.value) {
+    ElMessage.warning('请选择要审核的知识')
     return
   }
   
   auditing.value = true
   try {
-    const res = await api.post(`/knowledge/audit/${currentAudit.value.id}/approve`, null, {
-      params: {
-        auditorId: userInfo.value.id,
-        comment: approveComment.value || '审核通过'
+    let res
+    
+    // 如果有审核记录，使用审核接口
+    if (currentAudit.value && currentAudit.value.id) {
+      res = await api.post(`/knowledge/audit/${currentAudit.value.id}/approve`, null, {
+        params: {
+          auditorId: userInfo.value.id,
+          comment: approveComment.value || '审核通过'
+        }
+      })
+    } else {
+      // 没有审核记录时，先创建审核记录，再审核通过
+      // 1. 提交审核创建记录
+      const submitRes = await api.post(`/knowledge/${currentKnowledge.value.id}/submit-audit?userId=${userInfo.value.id}`)
+      if (submitRes.code === 200 && submitRes.data && submitRes.data.id) {
+        // 2. 审核通过
+        res = await api.post(`/knowledge/audit/${submitRes.data.id}/approve`, null, {
+          params: {
+            auditorId: userInfo.value.id,
+            comment: approveComment.value || '审核通过'
+          }
+        })
+      } else {
+        // 如果提交审核也失败，尝试直接发布
+        res = await api.post(`/knowledge/${currentKnowledge.value.id}/publish`)
       }
-    })
+    }
     
     if (res.code === 200) {
       ElMessage.success('审核通过')

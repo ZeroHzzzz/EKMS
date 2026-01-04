@@ -15,9 +15,14 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Slf4j
 @RestController
@@ -203,6 +208,174 @@ public class FileController {
                     .body(resource);
         } catch (Exception e) {
             log.error("下载文件失败", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 批量下载文件（打包为ZIP）
+     * @param request 包含 fileIds 列表
+     * @return ZIP 文件流
+     */
+    @PostMapping("/batch-download")
+    public ResponseEntity<Resource> batchDownloadZip(@RequestBody Map<String, List<Long>> request) {
+        List<Long> fileIds = request.get("fileIds");
+        if (fileIds == null || fileIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        File tempZipFile = null;
+        try {
+            // 创建临时 ZIP 文件
+            tempZipFile = File.createTempFile("batch_download_", ".zip");
+            
+            try (ZipOutputStream zipOut = new ZipOutputStream(new FileOutputStream(tempZipFile))) {
+                int count = 0;
+                for (Long fileId : fileIds) {
+                    try {
+                        FileDTO fileDTO = fileService.getFileById(fileId);
+                        if (fileDTO == null || fileDTO.getFilePath() == null) {
+                            log.warn("文件不存在: fileId={}", fileId);
+                            continue;
+                        }
+                        
+                        File file = new File(fileDTO.getFilePath());
+                        if (!file.exists()) {
+                            log.warn("文件不存在: {}", fileDTO.getFilePath());
+                            continue;
+                        }
+                        
+                        // 添加文件到 ZIP
+                        String entryName = fileDTO.getFileName();
+                        // 处理重名文件
+                        ZipEntry zipEntry = new ZipEntry(entryName);
+                        zipOut.putNextEntry(zipEntry);
+                        
+                        try (FileInputStream fis = new FileInputStream(file)) {
+                            byte[] buffer = new byte[8192];
+                            int length;
+                            while ((length = fis.read(buffer)) > 0) {
+                                zipOut.write(buffer, 0, length);
+                            }
+                        }
+                        zipOut.closeEntry();
+                        count++;
+                    } catch (Exception e) {
+                        log.error("添加文件到ZIP失败: fileId={}", fileId, e);
+                    }
+                }
+                log.info("批量下载: 共打包 {} 个文件", count);
+            }
+            
+            Resource resource = new FileSystemResource(tempZipFile);
+            String zipFileName = "知识库文档_" + java.time.LocalDate.now() + ".zip";
+            
+            // 设置文件删除钩子（响应完成后删除临时文件）
+            final File finalTempFile = tempZipFile;
+            
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("application/zip"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, 
+                            "attachment; filename=\"" + java.net.URLEncoder.encode(zipFileName, "UTF-8") + "\"")
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(tempZipFile.length()))
+                    .body(resource);
+                    
+        } catch (Exception e) {
+            log.error("批量下载失败", e);
+            if (tempZipFile != null && tempZipFile.exists()) {
+                tempZipFile.delete();
+            }
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 批量下载文件（保留文件夹结构，打包为ZIP）
+     * @param request 包含 items 列表，每个 item 有 fileId 和 path
+     * @return ZIP 文件流
+     */
+    @PostMapping("/batch-download-with-structure")
+    public ResponseEntity<Resource> batchDownloadWithStructure(@RequestBody Map<String, Object> request) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) request.get("items");
+        if (items == null || items.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        File tempZipFile = null;
+        try {
+            tempZipFile = File.createTempFile("batch_download_structure_", ".zip");
+            
+            try (ZipOutputStream zipOut = new ZipOutputStream(new FileOutputStream(tempZipFile))) {
+                int count = 0;
+                java.util.Set<String> usedPaths = new java.util.HashSet<>();
+                
+                for (Map<String, Object> item : items) {
+                    try {
+                        Long fileId = Long.valueOf(item.get("fileId").toString());
+                        String path = (String) item.get("path"); // 文件在结构中的路径，如 "技术文档/Java/xxx.pdf"
+                        
+                        FileDTO fileDTO = fileService.getFileById(fileId);
+                        if (fileDTO == null || fileDTO.getFilePath() == null) {
+                            continue;
+                        }
+                        
+                        File file = new File(fileDTO.getFilePath());
+                        if (!file.exists()) {
+                            continue;
+                        }
+                        
+                        // 使用提供的路径或文件名
+                        String entryName = (path != null && !path.isEmpty()) ? path : fileDTO.getFileName();
+                        
+                        // 处理重名
+                        String originalName = entryName;
+                        int dupCount = 1;
+                        while (usedPaths.contains(entryName)) {
+                            int lastDot = originalName.lastIndexOf('.');
+                            if (lastDot > 0) {
+                                entryName = originalName.substring(0, lastDot) + "_" + dupCount + originalName.substring(lastDot);
+                            } else {
+                                entryName = originalName + "_" + dupCount;
+                            }
+                            dupCount++;
+                        }
+                        usedPaths.add(entryName);
+                        
+                        ZipEntry zipEntry = new ZipEntry(entryName);
+                        zipOut.putNextEntry(zipEntry);
+                        
+                        try (FileInputStream fis = new FileInputStream(file)) {
+                            byte[] buffer = new byte[8192];
+                            int length;
+                            while ((length = fis.read(buffer)) > 0) {
+                                zipOut.write(buffer, 0, length);
+                            }
+                        }
+                        zipOut.closeEntry();
+                        count++;
+                    } catch (Exception e) {
+                        log.error("添加文件到ZIP失败", e);
+                    }
+                }
+                log.info("批量下载（带结构）: 共打包 {} 个文件", count);
+            }
+            
+            Resource resource = new FileSystemResource(tempZipFile);
+            String zipFileName = "知识库文档_" + java.time.LocalDate.now() + ".zip";
+            
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("application/zip"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, 
+                            "attachment; filename=\"" + java.net.URLEncoder.encode(zipFileName, "UTF-8") + "\"")
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(tempZipFile.length()))
+                    .body(resource);
+                    
+        } catch (Exception e) {
+            log.error("批量下载失败", e);
+            if (tempZipFile != null && tempZipFile.exists()) {
+                tempZipFile.delete();
+            }
             return ResponseEntity.internalServerError().build();
         }
     }
