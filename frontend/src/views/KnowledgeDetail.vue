@@ -186,11 +186,17 @@
             <!-- AI 助手 Tab -->
             <el-tab-pane label="AI助手" name="ai">
               <div class="ai-chat-panel">
+                <!-- 文档上下文提示 -->
+                <div class="doc-context-hint">
+                  <el-icon><Document /></el-icon>
+                  <span>基于当前文档内容回答</span>
+                </div>
+
                 <!-- 欢迎信息 -->
-                <div v-if="aiMessages.length === 0" class="ai-welcome">
+                <div v-if="aiMessages.length === 0 && !aiLoading" class="ai-welcome">
                   <el-icon class="welcome-icon"><ChatDotRound /></el-icon>
-                  <h3>AI 智能问答</h3>
-                  <p>可以向我询问关于这篇文档的任何问题</p>
+                  <h3>文档智能问答</h3>
+                  <p>直接向我询问关于这篇文档的任何问题</p>
                   <div class="quick-questions">
                     <el-button 
                       v-for="q in quickQuestions" 
@@ -220,13 +226,14 @@
                     </div>
                   </div>
                   
-                  <!-- 加载中 -->
+                  <!-- 流式输出中 -->
                   <div v-if="aiLoading" class="ai-message assistant">
                     <div class="message-avatar">
                       <el-icon><ChatDotRound /></el-icon>
                     </div>
                     <div class="message-content">
-                      <div class="typing-indicator">
+                      <div v-if="aiStreamingContent" class="message-text streaming" v-html="formatMessageContent(aiStreamingContent)"></div>
+                      <div v-else class="typing-indicator">
                         <span></span><span></span><span></span>
                       </div>
                     </div>
@@ -246,12 +253,19 @@
                   <div class="ai-input-actions">
                     <span class="hint">Ctrl+Enter 发送</span>
                     <el-button 
+                      v-if="!aiLoading"
                       type="primary" 
                       @click="sendAiMessage" 
-                      :loading="aiLoading"
                       :disabled="!aiInput.trim()"
                     >
                       发送
+                    </el-button>
+                    <el-button 
+                      v-else
+                      type="danger" 
+                      @click="stopAiGeneration"
+                    >
+                      停止
                     </el-button>
                   </div>
                 </div>
@@ -445,7 +459,7 @@
 import { ref, onMounted, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { askAboutDocument } from '../api/ai'
+import { sendMessageStream } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
@@ -484,6 +498,8 @@ const aiMessages = ref([])
 const aiInput = ref('')
 const aiLoading = ref(false)
 const aiMessagesRef = ref(null)
+const aiStreamingContent = ref('')
+const aiAbortController = ref(null)
 const quickQuestions = [
   '主要内容是什么？',
   '总结关键要点',
@@ -625,19 +641,63 @@ const sendAiMessage = async () => {
   aiMessages.value.push({ role: 'user', content: userMessage })
   
   aiLoading.value = true
+  aiStreamingContent.value = ''
+  aiAbortController.value = new AbortController()
   scrollToBottom()
   
   try {
-    const documentContent = knowledge.value.content || knowledge.value.summary || knowledge.value.title || ''
+    // 获取文档内容 - 优先使用 contentText（提取的文本），其次是 content、summary
+    const documentContent = knowledge.value.contentText || knowledge.value.content || knowledge.value.summary || ''
+    
+    const systemPrompt = `你是一个专业的文档问答助手。你的任务是基于提供的文档内容回答用户问题。
+
+文档标题：${knowledge.value.title}
+${knowledge.value.keywords ? `关键词：${knowledge.value.keywords}` : ''}
+
+文档内容：
+${documentContent.substring(0, 8000)}${documentContent.length > 8000 ? '\n...(内容已截断)' : ''}
+
+规则：
+1. 只基于提供的文档内容回答问题，不要编造信息
+2. 如果文档中没有相关信息，请明确告知用户
+3. 回答要简洁、准确、专业
+4. 可以使用 Markdown 格式使回答更清晰`
+    
     const history = aiMessages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
-    const response = await askAboutDocument(documentContent, userMessage, history)
-    aiMessages.value.push({ role: 'assistant', content: response })
+    
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...history.slice(-6),
+      { role: 'user', content: userMessage }
+    ]
+    
+    await sendMessageStream(messages, (chunk) => {
+      aiStreamingContent.value += chunk
+      scrollToBottom()
+    }, { signal: aiAbortController.value.signal })
+    
+    aiMessages.value.push({ role: 'assistant', content: aiStreamingContent.value })
   } catch (error) {
-    console.error('AI请求失败:', error)
-    aiMessages.value.push({ role: 'assistant', content: '抱歉，AI服务暂时不可用，请稍后重试。' })
+    if (error.name === 'AbortError') {
+      // 用户主动停止
+      if (aiStreamingContent.value) {
+        aiMessages.value.push({ role: 'assistant', content: aiStreamingContent.value + '\n\n*[已停止生成]*' })
+      }
+    } else {
+      console.error('AI请求失败:', error)
+      aiMessages.value.push({ role: 'assistant', content: '抱歉，AI服务暂时不可用，请稍后重试。' })
+    }
   } finally {
     aiLoading.value = false
+    aiStreamingContent.value = ''
+    aiAbortController.value = null
     scrollToBottom()
+  }
+}
+
+const stopAiGeneration = () => {
+  if (aiAbortController.value) {
+    aiAbortController.value.abort()
   }
 }
 
@@ -1057,11 +1117,33 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 350px;
+  max-height: calc(100vh - 280px);
+}
+
+.doc-context-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #ecf5ff 0%, #f0f7ff 100%);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  color: #409eff;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.doc-context-hint .el-icon {
+  font-size: 14px;
 }
 
 .ai-welcome {
   text-align: center;
-  padding: 30px 16px;
+  padding: 20px 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .welcome-icon {
@@ -1094,6 +1176,20 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   padding-bottom: 12px;
+  min-height: 0;
+}
+
+.ai-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ai-messages::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.ai-messages::-webkit-scrollbar-thumb:hover {
+  background: #b0b5bd;
 }
 
 .ai-message {
@@ -1151,6 +1247,16 @@ onMounted(() => {
   border-bottom-right-radius: 4px;
 }
 
+.message-text.streaming {
+  border-left: 2px solid #409eff;
+  animation: streamingPulse 1s ease-in-out infinite;
+}
+
+@keyframes streamingPulse {
+  0%, 100% { border-left-color: #409eff; }
+  50% { border-left-color: #66b1ff; }
+}
+
 .typing-indicator {
   display: flex;
   gap: 4px;
@@ -1176,6 +1282,9 @@ onMounted(() => {
 .ai-input-area {
   border-top: 1px solid #ebeef5;
   padding-top: 12px;
+  flex-shrink: 0;
+  background: white;
+  margin-top: auto;
 }
 
 .ai-input-actions {

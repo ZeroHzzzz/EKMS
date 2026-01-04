@@ -54,7 +54,8 @@ export async function sendMessageStream(messages, onChunk, options = {}) {
   const { 
     model = 'deepseek-chat',
     temperature = 0.7,
-    max_tokens = 2048
+    max_tokens = 2048,
+    signal = null
   } = options
 
   try {
@@ -70,7 +71,8 @@ export async function sendMessageStream(messages, onChunk, options = {}) {
         temperature,
         max_tokens,
         stream: true
-      })
+      }),
+      signal
     })
 
     if (!response.ok) {
@@ -81,32 +83,48 @@ export async function sendMessageStream(messages, onChunk, options = {}) {
     const decoder = new TextDecoder()
     let buffer = ''
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+    try {
+      while (true) {
+        if (signal?.aborted) {
+          reader.cancel()
+          break
+        }
+        
+        const { done, value } = await reader.read()
+        if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') return
-          
-          try {
-            const parsed = JSON.parse(data)
-            const content = parsed.choices[0]?.delta?.content
-            if (content) {
-              onChunk(content)
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') return
+            
+            try {
+              const parsed = JSON.parse(data)
+              const content = parsed.choices[0]?.delta?.content
+              if (content) {
+                onChunk(content)
+              }
+            } catch (e) {
+              // 忽略解析错误
             }
-          } catch (e) {
-            // 忽略解析错误
           }
         }
       }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Stream aborted by user')
+        return
+      }
+      throw error
     }
   } catch (error) {
+    if (error.name === 'AbortError') {
+      return
+    }
     console.error('DeepSeek Stream API 调用失败:', error)
     throw error
   }
