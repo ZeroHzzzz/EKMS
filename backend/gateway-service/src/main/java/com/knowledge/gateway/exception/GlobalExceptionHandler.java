@@ -3,8 +3,14 @@ package com.knowledge.gateway.exception;
 import com.knowledge.common.exception.BusinessException;
 import com.knowledge.common.result.Result;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+
+import javax.validation.ConstraintViolationException;
 
 /**
  * 全局异常处理器
@@ -21,6 +27,67 @@ public class GlobalExceptionHandler {
     public Result<?> handleBusinessException(BusinessException e) {
         log.warn("业务异常: {}", e.getMessage());
         return Result.error(e.getCode(), e.getMessage());
+    }
+
+    /**
+     * 处理路径参数类型转换异常
+     * 例如：/knowledge/hot-search 被匹配到 /knowledge/{id}，但 "hot-search" 无法转为 Long
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<?> handleTypeMismatchException(MethodArgumentTypeMismatchException e) {
+        String paramName = e.getName();
+        String value = e.getValue() != null ? e.getValue().toString() : "null";
+        Class<?> requiredType = e.getRequiredType();
+        String typeName = requiredType != null ? requiredType.getSimpleName() : "未知类型";
+        
+        log.warn("参数类型转换失败: 参数名={}, 值={}, 期望类型={}", paramName, value, typeName);
+        
+        // 对于ID参数，返回更友好的提示
+        if ("id".equals(paramName) && (requiredType == Long.class || requiredType == Integer.class)) {
+            return Result.error(404, "资源不存在或路径错误");
+        }
+        
+        return Result.error(400, String.format("参数 '%s' 格式错误，期望类型: %s", paramName, typeName));
+    }
+
+    /**
+     * 处理缺少请求参数异常
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public Result<?> handleMissingParameterException(MissingServletRequestParameterException e) {
+        log.warn("缺少请求参数: {}", e.getParameterName());
+        return Result.error(400, String.format("缺少必要参数: %s", e.getParameterName()));
+    }
+
+    /**
+     * 处理请求体解析异常
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public Result<?> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        log.warn("请求体解析失败: {}", e.getMessage());
+        return Result.error(400, "请求数据格式错误");
+    }
+
+    /**
+     * 处理参数校验异常
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public Result<?> handleConstraintViolationException(ConstraintViolationException e) {
+        log.warn("参数校验失败: {}", e.getMessage());
+        String message = e.getConstraintViolations().stream()
+                .map(v -> v.getMessage())
+                .findFirst()
+                .orElse("参数校验失败");
+        return Result.error(400, message);
+    }
+
+    /**
+     * 处理404异常
+     */
+    @ExceptionHandler(NoHandlerFoundException.class)
+    public Result<?> handleNoHandlerFoundException(NoHandlerFoundException e) {
+        log.warn("接口不存在: {} {}", e.getHttpMethod(), e.getRequestURL());
+        return Result.error(404, "接口不存在: " + e.getRequestURL());
     }
 
     /**

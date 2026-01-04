@@ -203,7 +203,7 @@ onMounted(() => {
   align-items: center;
   min-height: 100vh;
   padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #f5f7fa;
 }
 
 .register-card {
@@ -217,4 +217,3 @@ h2 {
   color: #333;
 }
 </style>
-

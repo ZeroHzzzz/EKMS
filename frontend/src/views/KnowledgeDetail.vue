@@ -4,6 +4,7 @@
       <!-- 头部信息 -->
       <div class="detail-header">
         <div class="header-left">
+          <el-button class="back-btn" @click="goBack" :icon="ArrowLeft" circle />
           <h1 v-if="!isEditMode" class="title">{{ knowledge.title }}</h1>
           <el-input v-else v-model="editForm.title" placeholder="请输入标题" class="title-input" />
         </div>
@@ -119,7 +120,7 @@
           </div>
         </div>
 
-        <!-- 右侧：属性/关联/评论 -->
+        <!-- 右侧：属性/关联/评论/AI -->
         <div class="right-panel">
           <el-tabs v-model="activeRightTab" class="right-tabs">
             <el-tab-pane label="属性" name="properties">
@@ -182,6 +183,81 @@
               </div>
             </el-tab-pane>
 
+            <!-- AI 助手 Tab -->
+            <el-tab-pane label="AI助手" name="ai">
+              <div class="ai-chat-panel">
+                <!-- 欢迎信息 -->
+                <div v-if="aiMessages.length === 0" class="ai-welcome">
+                  <el-icon class="welcome-icon"><ChatDotRound /></el-icon>
+                  <h3>AI 智能问答</h3>
+                  <p>可以向我询问关于这篇文档的任何问题</p>
+                  <div class="quick-questions">
+                    <el-button 
+                      v-for="q in quickQuestions" 
+                      :key="q" 
+                      size="small"
+                      @click="askQuickQuestion(q)"
+                    >
+                      {{ q }}
+                    </el-button>
+                  </div>
+                </div>
+
+                <!-- 对话列表 -->
+                <div v-else class="ai-messages" ref="aiMessagesRef">
+                  <div 
+                    v-for="(msg, idx) in aiMessages" 
+                    :key="idx" 
+                    class="ai-message"
+                    :class="msg.role"
+                  >
+                    <div class="message-avatar">
+                      <el-icon v-if="msg.role === 'assistant'"><ChatDotRound /></el-icon>
+                      <span v-else>{{ (userStore.userInfo?.realName || 'U').charAt(0) }}</span>
+                    </div>
+                    <div class="message-content">
+                      <div class="message-text" v-html="formatMessageContent(msg.content)"></div>
+                    </div>
+                  </div>
+                  
+                  <!-- 加载中 -->
+                  <div v-if="aiLoading" class="ai-message assistant">
+                    <div class="message-avatar">
+                      <el-icon><ChatDotRound /></el-icon>
+                    </div>
+                    <div class="message-content">
+                      <div class="typing-indicator">
+                        <span></span><span></span><span></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 输入区 -->
+                <div class="ai-input-area">
+                  <el-input
+                    v-model="aiInput"
+                    type="textarea"
+                    :rows="2"
+                    placeholder="输入您的问题..."
+                    @keyup.enter.ctrl="sendAiMessage"
+                    :disabled="aiLoading"
+                  />
+                  <div class="ai-input-actions">
+                    <span class="hint">Ctrl+Enter 发送</span>
+                    <el-button 
+                      type="primary" 
+                      @click="sendAiMessage" 
+                      :loading="aiLoading"
+                      :disabled="!aiInput.trim()"
+                    >
+                      发送
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+
             <el-tab-pane label="关联" name="relations">
                <div class="relations-panel">
                  <div class="relation-actions" v-if="canEdit(knowledge)">
@@ -218,7 +294,7 @@
                       v-for="item in suggestedRelations" 
                       :key="item.id" 
                       class="relation-list-item"
-                       @click="$router.push(`/knowledge/detail/${item.id}`)"
+                       @click="$router.push(`/knowledge/${item.id}`)"
                     >
                       <div class="rel-icon">
                         <el-icon><Document /></el-icon>
@@ -369,10 +445,11 @@
 import { ref, onMounted, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import { askAboutDocument } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Star, StarFilled, Edit, Document, Link, Delete } from '@element-plus/icons-vue'
+import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const route = useRoute()
@@ -392,7 +469,7 @@ const newCommentContent = ref('')
 const commentsLoading = ref(false)
 const commentSubmitting = ref(false)
 const knowledgeRelations = ref([])
-const suggestedRelations = ref([]) // New state
+const suggestedRelations = ref([])
 const showAddRelationDialog = ref(false)
 const addRelationForm = ref({ relatedKnowledgeId: null, relationType: 'RELATED' })
 const relationSearchResults = ref([])
@@ -402,11 +479,21 @@ const showVersionViewDialog = ref(false)
 const selectedVersion = ref(null)
 const relationGraphRef = ref(null)
 
+// AI Chat State
+const aiMessages = ref([])
+const aiInput = ref('')
+const aiLoading = ref(false)
+const aiMessagesRef = ref(null)
+const quickQuestions = [
+  '主要内容是什么？',
+  '总结关键要点',
+  '有哪些重要概念？'
+]
+
 // Computed
 const isEditMode = computed(() => route.query.edit === 'true')
 const previewUrl = computed(() => {
   if (!fileInfo.value) return ''
-  // ... existing previewUrl logic
   return `/api/file/preview/${fileInfo.value.id}`
 })
 
@@ -417,10 +504,8 @@ const loadDetail = async () => {
     const res = await api.get(`/knowledge/${route.params.id}`)
     knowledge.value = res.data || {}
     
-    // 初始化编辑表单
     editForm.value = { ...knowledge.value }
     
-    // 加载文件信息
     if (knowledge.value.fileId) {
       try {
         const fileRes = await api.get(`/file/${knowledge.value.fileId}`)
@@ -428,7 +513,6 @@ const loadDetail = async () => {
       } catch (e) { console.warn('文件信息加载失败', e) }
     }
     
-    // 并行加载其他信息
     await Promise.all([
       loadComments(),
       loadKnowledgeRelations(),
@@ -465,12 +549,9 @@ const loadComments = async () => {
 
 const loadKnowledgeRelations = async () => {
    try {
-     // Load manual relations
      const res1 = await api.get(`/knowledge/${route.params.id}/relations`)
      knowledgeRelations.value = res1.code === 200 ? (res1.data || []) : []
      
-     // Load auto-suggested relations
-     // Note: Backend endpoint is /knowledge/{id}/related
      const res2 = await api.get(`/knowledge/${route.params.id}/related?limit=5`)
      suggestedRelations.value = res2.code === 200 ? (res2.data || []) : []
 
@@ -508,19 +589,11 @@ const openInNewWindow = () => {
 
 const getKkFileViewUrl = () => {
   if (!fileInfo.value) return ''
-  // 核心逻辑：使用 host.docker.internal 替换 localhost，确保容器可以访问后端
-  // 假设后端运行在 8080 端口（根据 Spring Boot 默认）
-  // 原始下载URL应为后端直接地址
   const backendBase = 'http://host.docker.internal:8080' 
   const fileDownloadUrl = `${backendBase}/api/file/download/${fileInfo.value.id}`
-  
-  // kkFileView 需要通过 fullfilename 参数识别文件类型（当URL中不包含后缀时）
-  // 注意：btoa 不能直接处理中文等 Unicode 字符，必须先对参数值进行 URL 编码
   const fullFileName = fileInfo.value.fileName || ''
   const finalDownloadUrl = `${fileDownloadUrl}?fullfilename=${encodeURIComponent(fullFileName)}`
-  
-  const kkBase = 'http://localhost:8012' // 浏览器访问 kkFileView 的地址
-  // check if kkBase needs to show base64 encoded url
+  const kkBase = 'http://localhost:8012'
   return `${kkBase}/onlinePreview?url=${encodeURIComponent(btoa(finalDownloadUrl))}`
 }
 
@@ -542,6 +615,49 @@ const isAudioFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['MP
 const isOfficeFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['DOC','DOCX','XLS','XLSX','PPT','PPTX','CSV','OFD'])
 const isTextFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['TXT','MD','JSON','XML','LOG', 'JAVA', 'JS', 'VUE', 'HTML', 'CSS', 'SQL', 'PROPERTIES', 'YML', 'YAML', 'INI', 'CONF', 'SH', 'BAT'])
 
+// AI Chat Methods
+const sendAiMessage = async () => {
+  if (!aiInput.value.trim() || aiLoading.value) return
+  
+  const userMessage = aiInput.value.trim()
+  aiInput.value = ''
+  
+  aiMessages.value.push({ role: 'user', content: userMessage })
+  
+  aiLoading.value = true
+  scrollToBottom()
+  
+  try {
+    const documentContent = knowledge.value.content || knowledge.value.summary || knowledge.value.title || ''
+    const history = aiMessages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
+    const response = await askAboutDocument(documentContent, userMessage, history)
+    aiMessages.value.push({ role: 'assistant', content: response })
+  } catch (error) {
+    console.error('AI请求失败:', error)
+    aiMessages.value.push({ role: 'assistant', content: '抱歉，AI服务暂时不可用，请稍后重试。' })
+  } finally {
+    aiLoading.value = false
+    scrollToBottom()
+  }
+}
+
+const askQuickQuestion = (question) => {
+  aiInput.value = question
+  sendAiMessage()
+}
+
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (aiMessagesRef.value) {
+      aiMessagesRef.value.scrollTop = aiMessagesRef.value.scrollHeight
+    }
+  })
+}
+
+const formatMessageContent = (content) => {
+  return content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n/g, '<br>')
+}
+
 // Relations Graph
 const initRelationGraph = () => {
   if (!relationGraphRef.value || !knowledge.value) return
@@ -562,7 +678,7 @@ const initRelationGraph = () => {
         name: rel.relatedKnowledge.title,
         symbolSize: 20,
         itemStyle: { color: '#67C23A' },
-        categoryId: rel.relatedKnowledge.id // for click
+        categoryId: rel.relatedKnowledge.id
       })
       links.push({
         source: String(knowledge.value.id),
@@ -591,7 +707,6 @@ const initRelationGraph = () => {
      if(params.data.categoryId) viewDetail(params.data.categoryId)
   })
   
-  // Resize handler
   window.addEventListener('resize', () => myChart.resize())
 }
 
@@ -618,6 +733,28 @@ const submitComment = async () => {
   finally { commentSubmitting.value = false }
 }
 
+const deleteComment = async (commentId) => {
+  try {
+    await ElMessageBox.confirm('确定删除这条评论吗？', '提示', { type: 'warning' })
+    await api.delete(`/knowledge/comments/${commentId}`)
+    ElMessage.success('删除成功')
+    loadComments()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
+const deleteRelation = async (relationId) => {
+  try {
+    await ElMessageBox.confirm('确定删除这个关联吗？', '提示', { type: 'warning' })
+    await api.delete(`/knowledge/relations/${relationId}`)
+    ElMessage.success('删除成功')
+    loadKnowledgeRelations()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
 // Helpers
 const remoteMethod = async (query) => {
   if(!query) return
@@ -639,7 +776,17 @@ const addKnowledgeRelation = async () => {
     } catch(e) { ElMessage.error('失败') }
 }
 
-// Other utils (formatTime, canEdit etc - kept simplified for brevity but functional)
+const saveEdit = async () => {
+  try {
+    await api.put(`/knowledge/${route.params.id}`, editForm.value)
+    ElMessage.success('保存成功')
+    router.replace({ query: {} })
+    loadDetail()
+  } catch (e) {
+    ElMessage.error('保存失败')
+  }
+}
+
 const formatTime = (t) => t ? new Date(t).toLocaleString() : '-'
 const formatTimeFriendly = (t) => {
    if(!t) return ''
@@ -660,6 +807,7 @@ const canEdit = (k) => hasRole(userStore.userInfo, ROLE_ADMIN) || (hasRole(userS
 const canDeleteComment = (c) => hasRole(userStore.userInfo, ROLE_ADMIN) || c.userId === userStore.userInfo.id
 const enterEditMode = () => router.push({ query: { ...route.query, edit: 'true' } })
 const cancelEdit = () => router.back()
+const goBack = () => router.back()
 const viewDetail = (id) => router.push(`/knowledge/${id}`)
 const stringToColor = (str) => {
    let hash = 0;
@@ -668,42 +816,23 @@ const stringToColor = (str) => {
    return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-// Missing helper functions
 const getStatusType = (status) => {
-  const map = {
-    'DRAFT': 'info',
-    'PENDING': 'warning',
-    'APPROVED': 'success',
-    'REJECTED': 'danger'
-  }
+  const map = { 'DRAFT': 'info', 'PENDING': 'warning', 'APPROVED': 'success', 'REJECTED': 'danger' }
   return map[status] || ''
 }
 
 const getStatusText = (status) => {
-  const map = {
-    'DRAFT': '草稿',
-    'PENDING': '待审核',
-    'APPROVED': '已发布',
-    'REJECTED': '已驳回'
-  }
+  const map = { 'DRAFT': '草稿', 'PENDING': '待审核', 'APPROVED': '已发布', 'REJECTED': '已驳回' }
   return map[status] || status
 }
 
 const getRelationTypeTag = (type) => {
-  const map = {
-    'RELATED': 'primary',
-    'CITED': 'success',
-    'SIMILAR': 'info'
-  }
+  const map = { 'RELATED': 'primary', 'CITED': 'success', 'SIMILAR': 'info' }
   return map[type] || 'default'
 }
 
 const getRelationTypeText = (type) => {
-  const map = {
-    'RELATED': '相关',
-    'CITED': '引用',
-    'SIMILAR': '相似'
-  }
+  const map = { 'RELATED': '相关', 'CITED': '引用', 'SIMILAR': '相似' }
   return map[type] || type
 }
 
@@ -722,17 +851,13 @@ const viewVersion = (version) => {
 }
 
 const compareVersion = (version) => {
-  // Logic to handle compare - for now just show message or basic dialog
-  // Since we simplified the compare logic in this rewrite, we can just alert or open simple dialog
   ElMessage.info('版本对比功能即将上线')
 }
 
 const replyToComment = (comment) => {
     newCommentContent.value = `回复 @${comment.userRealName || comment.userName}: `
-    // You might want to track parentId properly if backend supports it
 }
 
-// Watchers
 watch(() => route.params.id, loadDetail)
 
 onMounted(() => {
@@ -742,7 +867,7 @@ onMounted(() => {
 
 <style scoped>
 .knowledge-detail-container {
-  height: calc(100vh - 84px); /* assuming navbar height */
+  height: calc(100vh - 84px);
   overflow: hidden;
   background-color: #f7f8fa;
   display: flex;
@@ -773,6 +898,9 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex: 1;
+}
+.back-btn {
+  flex-shrink: 0;
 }
 .title {
   margin: 0;
@@ -834,7 +962,7 @@ onMounted(() => {
 }
 .preview-stage {
   flex: 1;
-  background: #525659; /* dark bg for files */
+  background: #525659;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -921,6 +1049,145 @@ onMounted(() => {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+/* AI Chat */
+.ai-chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 350px;
+}
+
+.ai-welcome {
+  text-align: center;
+  padding: 30px 16px;
+}
+
+.welcome-icon {
+  font-size: 40px;
+  color: #409eff;
+  margin-bottom: 12px;
+}
+
+.ai-welcome h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0 0 8px 0;
+}
+
+.ai-welcome p {
+  font-size: 13px;
+  color: #909399;
+  margin: 0 0 16px 0;
+}
+
+.quick-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.ai-message {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ai-message.user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ai-message.assistant .message-avatar {
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+.ai-message.user .message-avatar {
+  background: #f5f7fa;
+  color: #606266;
+}
+
+.message-content {
+  max-width: 80%;
+}
+
+.message-text {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-message.assistant .message-text {
+  background: #f5f7fa;
+  color: #303133;
+  border-bottom-left-radius: 4px;
+}
+
+.ai-message.user .message-text {
+  background: #409eff;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.typing-indicator span {
+  width: 6px;
+  height: 6px;
+  background: #c0c4cc;
+  border-radius: 50%;
+  animation: bounce 1.4s ease-in-out infinite;
+}
+
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
+
+.ai-input-area {
+  border-top: 1px solid #ebeef5;
+  padding-top: 12px;
+}
+
+.ai-input-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.ai-input-actions .hint {
+  font-size: 12px;
+  color: #c0c4cc;
 }
 
 /* Relations */

@@ -102,7 +102,7 @@
             编辑
           </el-button>
           <el-button 
-            v-if="selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
+            v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE') && selectedVisualNode.id !== 'root' && !selectedVisualNode.isRoot && !selectedVisualNode.isDepartmentRoot && !String(selectedVisualNode.id).startsWith('dept-')"
             size="small" 
             type="danger" 
             @click="handleDeleteVisualNode"
@@ -147,6 +147,14 @@
             </el-button>
           </el-button-group>
           <el-button @click="refreshTree" :icon="Refresh">刷新</el-button>
+          <el-button 
+            v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE') && listSelectedItems && listSelectedItems.length > 0"
+            type="danger"
+            @click="batchDeleteListItems"
+          >
+            <el-icon><Delete /></el-icon>
+            批量删除 ({{ listSelectedItems.length }})
+          </el-button>
           <el-dropdown trigger="click" v-if="activeDeptId">
             <el-button type="primary">
               <el-icon><Plus /></el-icon>
@@ -447,7 +455,7 @@
                   添加
                 </el-button>
                 <el-button 
-                  v-if="data.id !== 'root' && !data.isRoot && !data.isDepartmentRoot && !String(data.id).startsWith('dept-')"
+                  v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE') && data.id !== 'root' && !data.isRoot && !data.isDepartmentRoot && !String(data.id).startsWith('dept-')"
                   size="small" 
                   text 
                   type="danger" 
@@ -519,7 +527,13 @@
                 <el-icon><Upload /></el-icon>
                 上传文件
               </el-button>
-              <el-button size="small" text type="danger" @click.stop="deleteNode(data)">
+              <el-button 
+                v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')"
+                size="small" 
+                text 
+                type="danger" 
+                @click.stop="deleteNode(data)"
+              >
                 删除
               </el-button>
             </div>
@@ -586,11 +600,13 @@
           <el-icon><CopyDocument /></el-icon>
           <span>移动到</span>
         </div>
-        <div class="context-menu-divider"></div>
-        <div class="context-menu-item" @click="handleContextMenuClick('delete')">
-          <el-icon><Delete /></el-icon>
-          <span>删除</span>
-        </div>
+        <template v-if="hasPermission(userInfo, 'MANAGE_STRUCTURE')">
+          <div class="context-menu-divider"></div>
+          <div class="context-menu-item" @click="handleContextMenuClick('delete')">
+            <el-icon><Delete /></el-icon>
+            <span>删除</span>
+          </div>
+        </template>
       </template>
     </div>
 
@@ -4464,8 +4480,8 @@ watch(viewMode, (newMode) => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid #ebeef5;
-  background: #fafbfc;
+  border-bottom: 1px solid #e4e7ed;
+  background: #fff;
   flex-shrink: 0;
 }
 
@@ -4525,8 +4541,8 @@ watch(viewMode, (newMode) => {
 /* 左侧部门列表 */
 .dept-list-panel {
   width: 220px;
-  border-right: 1px solid #ebeef5;
-  background: #fafbfc;
+  border-right: 1px solid #e4e7ed;
+  background: #fff;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -4537,12 +4553,13 @@ watch(viewMode, (newMode) => {
   font-size: 14px;
   font-weight: 600;
   color: #303133;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid #e4e7ed;
 }
 
 .search-match-panel {
   padding: 12px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid #e4e7ed;
+  background: #fff;
 }
 
 .match-panel-header {
@@ -4560,14 +4577,21 @@ watch(viewMode, (newMode) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 隐藏滚动条但保持滚动功能 */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.match-panel-body::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 
 .match-panel-item {
   display: flex;
   gap: 8px;
   padding: 8px;
-  background: #fff;
-  border: 1px solid #ebeef5;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
@@ -4617,6 +4641,13 @@ watch(viewMode, (newMode) => {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  /* 隐藏滚动条但保持滚动功能 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.dept-list::-webkit-scrollbar {
+  display: none;
 }
 
 .dept-list-item {
@@ -4630,7 +4661,7 @@ watch(viewMode, (newMode) => {
 }
 
 .dept-list-item:hover {
-  background: #e6f0fa;
+  background: #f5f7fa;
 }
 
 .dept-list-item.is-active {
@@ -4689,7 +4720,7 @@ watch(viewMode, (newMode) => {
   display: flex;
   align-items: center;
   padding: 14px 20px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid #e4e7ed;
   background: #fff;
   flex-shrink: 0;
 }

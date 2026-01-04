@@ -704,11 +704,19 @@ const uploadFile = async (file) => {
     parentId: uploadForm.value.parentId,  // 存放位置
     fileId: fileDTO.id,
     author: userInfo.realName || userInfo.username || '未知',
-    createBy: userInfo.username
+    createBy: userInfo.username,
+    status: 'PENDING'  // 设置状态为待审核
   })
   
   if (knowledgeRes.code !== 200) {
     throw new Error(knowledgeRes.message || '创建知识条目失败')
+  }
+  
+  // 创建知识后，自动提交审核（创建审核记录）
+  try {
+    await api.post(`/knowledge/${knowledgeRes.data.id}/submit-audit?userId=${userInfo.id}`)
+  } catch (error) {
+    console.warn('提交审核失败，但知识已创建', error)
   }
 }
 
