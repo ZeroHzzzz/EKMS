@@ -1,7 +1,7 @@
 <template>
   <div class="knowledge-list">
     <div class="page-header">
-      <h2>知识审核</h2>
+      <h2>知识管理</h2>
     </div>
 
     <div class="search-bar">
@@ -34,9 +34,9 @@
       <el-select 
         v-model="filters.status" 
         placeholder="状态筛选" 
-        clearable 
         style="width: 150px"
       >
+        <el-option label="全部状态" value="" />
         <el-option label="待审核" value="PENDING" />
         <el-option label="已发布" value="APPROVED" />
         <el-option label="已驳回" value="REJECTED" />

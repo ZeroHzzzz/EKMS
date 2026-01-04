@@ -91,8 +91,13 @@
           <el-form :model="uploadForm" :rules="formRules" ref="formRef" label-position="top" class="upload-form">
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="部门">
-                  <el-select v-model="uploadForm.department" placeholder="选择部门" style="width: 100%">
+                <el-form-item label="部门" prop="department">
+                  <el-select 
+                    v-model="uploadForm.department" 
+                    placeholder="选择部门" 
+                    style="width: 100%"
+                    @change="handleDepartmentChange"
+                  >
                     <el-option 
                       v-for="dept in departments" 
                       :key="dept.id" 
@@ -103,16 +108,20 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="分类" prop="category">
-                  <el-select v-model="uploadForm.category" placeholder="选择分类" style="width: 100%">
-                    <el-option label="技术文档" value="技术文档" />
-                    <el-option label="业务文档" value="业务文档" />
-                    <el-option label="培训资料" value="培训资料" />
-                    <el-option label="规章制度" value="规章制度" />
-                    <el-option label="项目文档" value="项目文档" />
-                    <el-option label="会议纪要" value="会议纪要" />
-                    <el-option label="其他" value="其他" />
-                  </el-select>
+                <el-form-item label="存放位置">
+                  <el-input 
+                    v-model="uploadForm.parentPath" 
+                    placeholder="选择存放的知识结构（可选）" 
+                    readonly
+                    @click="openFolderDialog"
+                    style="cursor: pointer;"
+                    :disabled="!uploadForm.department"
+                  >
+                    <template #suffix>
+                      <el-icon><FolderOpened /></el-icon>
+                    </template>
+                  </el-input>
+                  <div v-if="!uploadForm.department" class="form-tip">请先选择部门</div>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -151,6 +160,96 @@
       </div>
     </div>
 
+    <!-- 文件夹选择对话框 -->
+    <el-dialog v-model="showFolderDialog" :title="`选择存放位置 - ${uploadForm.department}`" width="500px">
+      <div class="folder-dialog-header">
+        <el-button type="primary" size="small" @click="showNewFolderInput">
+          <el-icon><Plus /></el-icon>
+          新建文件夹
+        </el-button>
+      </div>
+      
+      <!-- 新建文件夹输入 -->
+      <div v-if="newFolderVisible" class="new-folder-input">
+        <div class="new-folder-form">
+          <div class="new-folder-hint">
+            <el-icon><FolderAdd /></el-icon>
+            <span v-if="contextMenuTargetFolder">
+              在「{{ contextMenuTargetFolder.title }}」下创建子文件夹
+            </span>
+            <span v-else-if="selectedFolderId">
+              在「{{ selectedFolderPath }}」下创建子文件夹
+            </span>
+            <span v-else>在根目录创建文件夹</span>
+          </div>
+          <div class="new-folder-row">
+            <el-input
+              v-model="newFolderName"
+              placeholder="输入文件夹名称"
+              size="small"
+              @keyup.enter="createNewFolder"
+            >
+              <template #prefix>
+                <el-icon><Folder /></el-icon>
+              </template>
+            </el-input>
+            <el-button type="primary" size="small" @click="createNewFolder" :loading="creatingFolder">
+              创建
+            </el-button>
+            <el-button size="small" @click="cancelNewFolder">取消</el-button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="folder-tree-container">
+        <el-tree
+          ref="folderTreeRef"
+          :data="folderTree"
+          :props="{ label: 'title', children: 'children' }"
+          node-key="id"
+          highlight-current
+          default-expand-all
+          :expand-on-click-node="false"
+          @node-click="handleFolderSelect"
+          @node-contextmenu="handleFolderContextMenu"
+        >
+          <template #default="{ node, data }">
+            <div class="tree-node">
+              <el-icon><Folder /></el-icon>
+              <span>{{ data.title }}</span>
+            </div>
+          </template>
+          <template #empty>
+            <div class="empty-tip">
+              <el-icon><FolderOpened /></el-icon>
+              <p>{{ uploadForm.department }} 部门下暂无文件夹</p>
+              <p class="sub">点击上方"新建文件夹"创建</p>
+            </div>
+          </template>
+        </el-tree>
+      </div>
+      <div v-if="selectedFolderPath" class="selected-path">
+        <el-icon><FolderOpened /></el-icon>
+        <span>已选择：{{ selectedFolderPath }}</span>
+      </div>
+      <template #footer>
+        <el-button @click="clearFolderSelection">清除选择</el-button>
+        <el-button type="primary" @click="confirmFolderSelection">确定</el-button>
+      </template>
+    </el-dialog>
+    
+    <!-- 右键菜单 -->
+    <div 
+      v-if="contextMenuVisible" 
+      class="context-menu"
+      :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+    >
+      <div class="context-menu-item" @click="createSubFolder">
+        <el-icon><FolderAdd /></el-icon>
+        <span>新建子文件夹</span>
+      </div>
+    </div>
+
     <!-- 上传成功弹窗 -->
     <el-dialog 
       v-model="showSuccessDialog" 
@@ -182,13 +281,14 @@ import { useUserStore } from '../stores/user'
 import api from '../api'
 import CryptoJS from 'crypto-js'
 import { 
-  Upload, UploadFilled, Folder, Close, EditPen, Check,
-  InfoFilled, CircleCheckFilled
+  Upload, UploadFilled, Folder, FolderOpened, Close, EditPen, Check,
+  InfoFilled, CircleCheckFilled, Plus, FolderAdd
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref(null)
+const folderTreeRef = ref(null)
 
 // 文件列表
 const fileList = ref([])
@@ -202,17 +302,34 @@ const showSuccessDialog = ref(false)
 // 部门列表
 const departments = ref([])
 
+// 文件夹选择
+const showFolderDialog = ref(false)
+const allFolders = ref([])  // 所有文件夹原始数据
+const folderTree = ref([])  // 过滤后的树形数据
+const selectedFolderId = ref(null)
+const selectedFolderPath = ref('')
+
+// 新建文件夹相关
+const newFolderVisible = ref(false)
+const newFolderName = ref('')
+const creatingFolder = ref(false)
+const contextMenuVisible = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+const contextMenuTargetFolder = ref(null)
+
 // 上传表单
 const uploadForm = ref({
   department: '',
-  category: '',
+  parentId: null,
+  parentPath: '',
   summary: '',
   keywords: ''
 })
 
 // 表单验证规则
 const formRules = {
-  category: [{ required: true, message: '请选择分类', trigger: 'change' }]
+  department: [{ required: true, message: '请选择部门', trigger: 'change' }]
 }
 
 // 接受的文件类型
@@ -221,16 +338,17 @@ const acceptedTypes = '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.jpg,.jpeg,.pn
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
 
 onMounted(async () => {
-  await loadDepartments()
+  await Promise.all([loadDepartments(), loadFolderTree()])
   const userInfo = userStore.userInfo
   if (userInfo?.department) {
     uploadForm.value.department = userInfo.department
   }
 })
 
+// 加载部门列表 - 修正 API 路径
 const loadDepartments = async () => {
   try {
-    const res = await api.get('/department/list')
+    const res = await api.get('/department')  // 修正：不是 /department/list
     if (res.code === 200) {
       departments.value = res.data || []
     }
@@ -238,6 +356,197 @@ const loadDepartments = async () => {
     console.error('加载部门列表失败', error)
   }
 }
+
+// 加载知识结构树（只加载文件夹）
+const loadFolderTree = async () => {
+  try {
+    const res = await api.get('/knowledge/list', { 
+      params: { 
+        includeFolders: 'true',
+        pageSize: 10000 
+      } 
+    })
+    if (res.code === 200) {
+      const allItems = res.data || []
+      // 只保留文件夹（没有 fileId 的项目，且 id > 0）
+      allFolders.value = allItems.filter(item => !item.fileId && item.id > 0)
+    }
+  } catch (error) {
+    console.error('加载知识结构失败', error)
+  }
+}
+
+// 打开文件夹选择对话框（根据部门过滤）
+const openFolderDialog = () => {
+  if (!uploadForm.value.department) {
+    ElMessage.warning('请先选择部门')
+    return
+  }
+  
+  // 根据所选部门过滤文件夹
+  const filteredFolders = allFolders.value.filter(
+    folder => folder.department === uploadForm.value.department
+  )
+  folderTree.value = buildTree(filteredFolders)
+  showFolderDialog.value = true
+}
+
+// 部门变化时清空存放位置
+const handleDepartmentChange = () => {
+  uploadForm.value.parentId = null
+  uploadForm.value.parentPath = ''
+  selectedFolderId.value = null
+  selectedFolderPath.value = ''
+}
+
+// 构建树形结构
+const buildTree = (list) => {
+  const map = {}
+  const roots = []
+  
+  list.forEach(item => {
+    map[item.id] = { 
+      id: item.id,
+      title: item.title,
+      parentId: item.parentId,
+      children: [] 
+    }
+  })
+  
+  list.forEach(item => {
+    if (item.parentId && map[item.parentId]) {
+      map[item.parentId].children.push(map[item.id])
+    } else {
+      roots.push(map[item.id])
+    }
+  })
+  
+  return roots
+}
+
+// 选择文件夹
+const handleFolderSelect = (data) => {
+  selectedFolderId.value = data.id
+  selectedFolderPath.value = getNodePath(data.id, folderTree.value) || data.title
+}
+
+// 获取节点路径
+const getNodePath = (nodeId, nodes, path = []) => {
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return [...path, node.title].join(' / ')
+    }
+    if (node.children && node.children.length > 0) {
+      const found = getNodePath(nodeId, node.children, [...path, node.title])
+      if (found) return found
+    }
+  }
+  return null
+}
+
+// 确认文件夹选择
+const confirmFolderSelection = () => {
+  uploadForm.value.parentId = selectedFolderId.value
+  uploadForm.value.parentPath = selectedFolderPath.value
+  showFolderDialog.value = false
+}
+
+// 清除文件夹选择
+const clearFolderSelection = () => {
+  selectedFolderId.value = null
+  selectedFolderPath.value = ''
+  uploadForm.value.parentId = null
+  uploadForm.value.parentPath = ''
+  if (folderTreeRef.value) {
+    folderTreeRef.value.setCurrentKey(null)
+  }
+  showFolderDialog.value = false
+}
+
+// 显示新建文件夹输入框
+const showNewFolderInput = () => {
+  newFolderVisible.value = true
+  newFolderName.value = ''
+  contextMenuTargetFolder.value = null  // 在根目录创建
+}
+
+// 取消新建文件夹
+const cancelNewFolder = () => {
+  newFolderVisible.value = false
+  newFolderName.value = ''
+  contextMenuTargetFolder.value = null
+}
+
+// 创建新文件夹
+const createNewFolder = async () => {
+  if (!newFolderName.value.trim()) {
+    ElMessage.warning('请输入文件夹名称')
+    return
+  }
+  
+  creatingFolder.value = true
+  try {
+    const userInfo = userStore.userInfo
+    const res = await api.post('/knowledge', {
+      title: newFolderName.value.trim(),
+      content: '',
+      summary: '',
+      keywords: '',
+      department: uploadForm.value.department,
+      parentId: contextMenuTargetFolder.value?.id || selectedFolderId.value || null,
+      fileId: null,  // 没有 fileId 表示是文件夹
+      author: userInfo?.realName || userInfo?.username || '未知',
+      createBy: userInfo?.username
+    })
+    
+    if (res.code === 200) {
+      ElMessage.success('文件夹创建成功')
+      cancelNewFolder()
+      hideContextMenu()
+      // 重新加载文件夹列表并刷新树
+      await loadFolderTree()
+      // 重新构建当前部门的树
+      const filteredFolders = allFolders.value.filter(
+        folder => folder.department === uploadForm.value.department
+      )
+      folderTree.value = buildTree(filteredFolders)
+    } else {
+      ElMessage.error(res.message || '创建失败')
+    }
+  } catch (error) {
+    ElMessage.error('创建文件夹失败：' + (error.message || '未知错误'))
+  } finally {
+    creatingFolder.value = false
+  }
+}
+
+// 右键菜单 - 在选中的文件夹下创建子文件夹
+const handleFolderContextMenu = (event, data, node) => {
+  event.preventDefault()
+  contextMenuVisible.value = true
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuTargetFolder.value = data
+}
+
+// 创建子文件夹
+const createSubFolder = () => {
+  if (!contextMenuTargetFolder.value) return
+  newFolderVisible.value = true
+  newFolderName.value = ''
+  hideContextMenu()
+}
+
+// 隐藏右键菜单
+const hideContextMenu = () => {
+  contextMenuVisible.value = false
+  contextMenuTargetFolder.value = null
+}
+
+// 点击页面其他地方隐藏右键菜单
+document.addEventListener('click', () => {
+  hideContextMenu()
+})
 
 const handleFileChange = (file, files) => {
   fileList.value = files
@@ -259,9 +568,11 @@ const clearAllFiles = () => {
 const resetForm = () => {
   formRef.value?.resetFields()
   clearAllFiles()
+  clearFolderSelection()
   uploadForm.value = {
     department: userStore.userInfo?.department || '',
-    category: '',
+    parentId: null,
+    parentPath: '',
     summary: '',
     keywords: ''
   }
@@ -388,9 +699,9 @@ const uploadFile = async (file) => {
     title: fileNameWithoutExt,
     content: fileContent,
     summary: uploadForm.value.summary || `上传的文件：${file.name}`,
-    category: uploadForm.value.category,
     keywords: uploadForm.value.keywords || '',
-    department: uploadForm.value.department || userInfo.department || '未知',
+    department: uploadForm.value.department,
+    parentId: uploadForm.value.parentId,  // 存放位置
     fileId: fileDTO.id,
     author: userInfo.realName || userInfo.username || '未知',
     createBy: userInfo.username
@@ -661,6 +972,12 @@ const getFileTypeColor = (filename) => {
   padding-bottom: 6px;
 }
 
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
 /* 底部操作栏 */
 .action-bar {
   display: flex;
@@ -680,6 +997,132 @@ const getFileTypeColor = (filename) => {
 
 .tips .el-icon {
   color: #409eff;
+}
+
+/* 文件夹选择对话框 */
+.folder-dialog-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.new-folder-input {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.new-folder-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.new-folder-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #409eff;
+}
+
+.new-folder-hint .el-icon {
+  font-size: 16px;
+}
+
+.new-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.new-folder-row .el-input {
+  flex: 1;
+}
+
+.folder-tree-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+/* 右键菜单 */
+.context-menu {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  padding: 4px 0;
+  z-index: 9999;
+  min-width: 140px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #606266;
+  transition: all 0.2s;
+}
+
+.context-menu-item:hover {
+  background: #f5f7fa;
+  color: #409eff;
+}
+
+.context-menu-item .el-icon {
+  font-size: 16px;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tree-node .el-icon {
+  color: #409eff;
+}
+
+.selected-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f0f7ff;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #409eff;
+}
+
+.empty-tip {
+  text-align: center;
+  padding: 40px 20px;
+  color: #909399;
+}
+
+.empty-tip .el-icon {
+  font-size: 48px;
+  color: #dcdfe6;
+  margin-bottom: 12px;
+}
+
+.empty-tip p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.empty-tip .sub {
+  font-size: 12px;
+  margin-top: 8px;
 }
 
 /* 成功弹窗 */
@@ -729,20 +1172,24 @@ const getFileTypeColor = (filename) => {
 }
 
 /* 滚动条 */
-.file-list::-webkit-scrollbar {
+.file-list::-webkit-scrollbar,
+.folder-tree-container::-webkit-scrollbar {
   width: 6px;
 }
 
-.file-list::-webkit-scrollbar-track {
+.file-list::-webkit-scrollbar-track,
+.folder-tree-container::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.file-list::-webkit-scrollbar-thumb {
+.file-list::-webkit-scrollbar-thumb,
+.folder-tree-container::-webkit-scrollbar-thumb {
   background: #dcdfe6;
   border-radius: 3px;
 }
 
-.file-list::-webkit-scrollbar-thumb:hover {
+.file-list::-webkit-scrollbar-thumb:hover,
+.folder-tree-container::-webkit-scrollbar-thumb:hover {
   background: #c0c4cc;
 }
 </style>
