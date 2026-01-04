@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS `knowledge` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `title` VARCHAR(255) NOT NULL COMMENT '标题',
     `content` TEXT COMMENT '内容',
+    `content_text` LONGTEXT COMMENT '文档全文内容（用于全文搜索，从docx/doc/pdf等文件提取）',
     `summary` VARCHAR(500) COMMENT '摘要',
     `category` VARCHAR(100) COMMENT '分类',
     `keywords` VARCHAR(500) COMMENT '关键词',
@@ -91,7 +92,8 @@ CREATE TABLE IF NOT EXISTS `knowledge` (
     INDEX `idx_click_count` (`click_count`),
     INDEX `idx_file_id` (`file_id`),
     INDEX `idx_parent_id` (`parent_id`),
-    INDEX `idx_parent_sort` (`parent_id`, `sort_order`)
+    INDEX `idx_parent_sort` (`parent_id`, `sort_order`),
+    FULLTEXT INDEX `ft_content_text` (`content_text`) WITH PARSER ngram COMMENT '全文索引（MySQL ngram分词）'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识表';
 
 -- 审核表

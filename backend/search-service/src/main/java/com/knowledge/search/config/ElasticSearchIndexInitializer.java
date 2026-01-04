@@ -82,6 +82,11 @@ public class ElasticSearchIndexInitializer implements ApplicationListener<Applic
                 "      \"analyzer\": \"standard\",\n" +
                 "      \"search_analyzer\": \"standard\"\n" +
                 "    },\n" +
+                "    \"contentText\": {\n" +
+                "      \"type\": \"text\",\n" +
+                "      \"analyzer\": \"standard\",\n" +
+                "      \"search_analyzer\": \"standard\"\n" +
+                "    },\n" +
                 "    \"contentPinyin\": {\n" +
                 "      \"type\": \"text\",\n" +
                 "      \"analyzer\": \"standard\"\n" +
@@ -97,8 +102,20 @@ public class ElasticSearchIndexInitializer implements ApplicationListener<Applic
                 "    \"category\": {\n" +
                 "      \"type\": \"keyword\"\n" +
                 "    },\n" +
+                "    \"status\": {\n" +
+                "      \"type\": \"keyword\"\n" +
+                "    },\n" +
+                "    \"author\": {\n" +
+                "      \"type\": \"keyword\"\n" +
+                "    },\n" +
+                "    \"department\": {\n" +
+                "      \"type\": \"keyword\"\n" +
+                "    },\n" +
                 "    \"fileId\": {\n" +
                 "      \"type\": \"long\"\n" +
+                "    },\n" +
+                "    \"fileType\": {\n" +
+                "      \"type\": \"keyword\"\n" +
                 "    },\n" +
                 "    \"fileName\": {\n" +
                 "      \"type\": \"text\",\n" +

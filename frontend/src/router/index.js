@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import KnowledgeList from '../views/KnowledgeList.vue'
 import KnowledgeDetail from '../views/KnowledgeDetail.vue'
 import Upload from '../views/Upload.vue'
+import FileUpload from '../views/FileUpload.vue'
 import Statistics from '../views/Statistics.vue'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
@@ -38,6 +39,12 @@ const routes = [
     path: '/upload',
     name: 'Upload',
     component: Upload,
+    meta: { permission: 'UPLOAD' }
+  },
+  {
+    path: '/file-upload',
+    name: 'FileUpload',
+    component: FileUpload,
     meta: { permission: 'UPLOAD' }
   },
   {

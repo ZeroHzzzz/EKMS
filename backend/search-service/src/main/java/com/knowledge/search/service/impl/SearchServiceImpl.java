@@ -54,6 +54,8 @@ public class SearchServiceImpl implements SearchService {
     @Override
     public SearchResultDTO search(SearchRequestDTO request) {
         long startTime = System.currentTimeMillis();
+        log.info("收到搜索请求: keyword={}, status={}, pageNum={}, pageSize={}", 
+            request.getKeyword(), request.getStatus(), request.getPageNum(), request.getPageSize());
         
         try {
             SearchRequest searchRequest = new SearchRequest(INDEX_NAME);
@@ -103,7 +105,8 @@ public class SearchServiceImpl implements SearchService {
             
             // 状态筛选
             if (request.getStatus() != null && !request.getStatus().isEmpty()) {
-                boolQuery.must(QueryBuilders.termQuery("status", request.getStatus()));
+                // 使用 matchQuery 以兼容 text 和 keyword 类型，避免大小写问题
+                boolQuery.filter(QueryBuilders.matchQuery("status", request.getStatus()));
             }
             
             // 作者筛选
@@ -161,7 +164,11 @@ public class SearchServiceImpl implements SearchService {
             
             searchRequest.source(sourceBuilder);
             
+            log.info("执行 ES 查询: {}", sourceBuilder.toString());
+            
             SearchResponse response = elasticsearchClient.search(searchRequest, RequestOptions.DEFAULT);
+            
+            log.info("ES 返回结果数: {}", response.getHits().getTotalHits().value);
             
             List<KnowledgeDTO> results = new ArrayList<>();
             for (SearchHit hit : response.getHits().getHits()) {
@@ -173,6 +180,18 @@ public class SearchServiceImpl implements SearchService {
                 dto.setCategory((String) source.get("category"));
                 dto.setKeywords((String) source.get("keywords"));
                 dto.setClickCount(Long.valueOf(source.get("clickCount").toString()));
+                // 设置 status
+                if (source.get("status") != null) {
+                    dto.setStatus((String) source.get("status"));
+                }
+                // 设置 author
+                if (source.get("author") != null) {
+                    dto.setAuthor((String) source.get("author"));
+                }
+                // 设置 department
+                if (source.get("department") != null) {
+                    dto.setDepartment((String) source.get("department"));
+                }
                 // 设置fileId（搜索结果中只包含文件，所以fileId一定存在）
                 if (source.get("fileId") != null) {
                     dto.setFileId(Long.valueOf(source.get("fileId").toString()));
@@ -309,6 +328,9 @@ public class SearchServiceImpl implements SearchService {
             jsonMap.put("contentText", contentText);
             jsonMap.put("keywords", knowledgeDTO.getKeywords() != null ? knowledgeDTO.getKeywords() : "");
             jsonMap.put("category", knowledgeDTO.getCategory() != null ? knowledgeDTO.getCategory() : "");
+            jsonMap.put("status", knowledgeDTO.getStatus() != null ? knowledgeDTO.getStatus() : "");
+            jsonMap.put("author", knowledgeDTO.getAuthor() != null ? knowledgeDTO.getAuthor() : "");
+            jsonMap.put("department", knowledgeDTO.getDepartment() != null ? knowledgeDTO.getDepartment() : "");
             jsonMap.put("fileId", knowledgeDTO.getFileId() != null ? knowledgeDTO.getFileId() : null);
             jsonMap.put("clickCount", knowledgeDTO.getClickCount() != null ? knowledgeDTO.getClickCount() : 0L);
             
@@ -393,7 +415,8 @@ public class SearchServiceImpl implements SearchService {
     /**
      * 删除整个索引（用于重建索引）
      */
-    public void deleteIndex() {
+    @Override
+    public void deleteAllIndex() {
         try {
             GetIndexRequest getIndexRequest = new GetIndexRequest(INDEX_NAME);
             boolean exists = elasticsearchClient.indices().exists(getIndexRequest, RequestOptions.DEFAULT);
@@ -408,6 +431,44 @@ public class SearchServiceImpl implements SearchService {
             log.error("删除索引失败: {}", INDEX_NAME, e);
             throw new RuntimeException("删除索引失败: " + e.getMessage(), e);
         }
+    }
+    
+    /**
+     * 重建所有知识索引
+     * @param knowledgeList 所有知识列表（需要包含contentText）
+     * @return 成功索引的数量
+     */
+    @Override
+    public int rebuildAllIndex(java.util.List<KnowledgeDTO> knowledgeList) {
+        if (knowledgeList == null || knowledgeList.isEmpty()) {
+            log.warn("知识列表为空，跳过重建索引");
+            return 0;
+        }
+        
+        int successCount = 0;
+        int failCount = 0;
+        
+        log.info("开始重建索引，共 {} 条知识", knowledgeList.size());
+        
+        for (KnowledgeDTO knowledge : knowledgeList) {
+            try {
+                // 只索引有fileId的知识（文件），跳过文件夹
+                if (knowledge.getFileId() != null) {
+                    indexKnowledge(knowledge);
+                    successCount++;
+                    
+                    if (successCount % 100 == 0) {
+                        log.info("索引进度: {}/{}", successCount, knowledgeList.size());
+                    }
+                }
+            } catch (Exception e) {
+                failCount++;
+                log.error("索引知识失败: id={}, title={}", knowledge.getId(), knowledge.getTitle(), e);
+            }
+        }
+        
+        log.info("重建索引完成: 成功={}, 失败={}, 总计={}", successCount, failCount, knowledgeList.size());
+        return successCount;
     }
 
     @Override

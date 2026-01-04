@@ -357,43 +357,74 @@ public class KnowledgeController {
 
     /**
      * 初始化所有知识的搜索索引（用于首次同步或重建索引）
+     * 注意：此接口会提取所有文档的全文内容，可能耗时较长
      */
     @PostMapping("/search/reindex")
     public Result<String> reindexAll() {
         try {
-            // 先删除旧索引（如果存在）
+            log.info("开始重建索引...");
+            
+            // 1. 删除旧索引
             try {
-                // 通过反射调用 SearchServiceImpl 的 deleteIndex 方法
-                // 或者直接使用 Elasticsearch 客户端删除索引
-                // 这里我们使用一个变通方法：先删除所有文档，然后重新索引
-                // 更好的方法是添加一个删除整个索引的接口
-                log.info("开始重建索引，先删除旧索引...");
+                searchService.deleteAllIndex();
+                log.info("旧索引删除成功");
             } catch (Exception e) {
                 log.warn("删除旧索引失败（可能索引不存在）: " + e.getMessage());
             }
             
-            // 获取所有知识
+            // 2. 获取所有知识（包含 contentText 全文内容）
             KnowledgeQueryDTO queryDTO = new KnowledgeQueryDTO();
             queryDTO.setPageNum(1);
             queryDTO.setPageSize(10000); // 获取所有数据
             List<KnowledgeDTO> allKnowledge = knowledgeService.listKnowledge(queryDTO);
             
-            int successCount = 0;
-            int failCount = 0;
+            log.info("共获取到 {} 条知识，开始重建索引", allKnowledge.size());
             
-            for (KnowledgeDTO knowledge : allKnowledge) {
-                try {
-                    searchService.indexKnowledge(knowledge);
-                    successCount++;
-                } catch (Exception e) {
-                    failCount++;
-                    log.error("索引知识失败: id=" + knowledge.getId() + ", error=" + e.getMessage());
-                }
+            // 3. 重建索引（调用服务方法批量处理）
+            int successCount = searchService.rebuildAllIndex(allKnowledge);
+            
+            String message = String.format("索引重建完成：成功索引 %d 条文档（仅统计有文件关联的知识）。" +
+                    "如果搜索仍无结果，请重启 search-service 以重新创建索引映射。", successCount);
+            log.info(message);
+            
+            return Result.success(message);
+        } catch (Exception e) {
+            log.error("重建索引失败", e);
+            return Result.error("重建索引失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 提取并更新指定知识的文档全文内容
+     * 用于手动触发单个文档的内容提取
+     */
+    @PostMapping("/{id}/extract-content")
+    public Result<String> extractContent(@PathVariable Long id) {
+        try {
+            KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
+            if (knowledge == null) {
+                return Result.error("知识不存在");
             }
             
-            return Result.success(String.format("索引重建完成：成功 %d 条，失败 %d 条。注意：如果搜索仍无结果，请重启 search-service 以重新创建索引映射。", successCount, failCount));
+            if (knowledge.getFileId() == null) {
+                return Result.error("该知识没有关联文件，无需提取内容");
+            }
+            
+            // 触发更新（会重新提取文件内容）
+            KnowledgeDTO updateDTO = new KnowledgeDTO();
+            updateDTO.setId(id);
+            updateDTO.setChangeDescription("重新提取文档全文内容");
+            KnowledgeDTO result = knowledgeService.updateKnowledge(updateDTO);
+            
+            // 更新索引
+            if (result != null) {
+                searchService.updateIndex(result);
+            }
+            
+            return Result.success("文档内容提取完成，已更新搜索索引");
         } catch (Exception e) {
-            return Result.error("重建索引失败: " + e.getMessage());
+            log.error("提取文档内容失败: id={}", id, e);
+            return Result.error("提取文档内容失败: " + e.getMessage());
         }
     }
 }

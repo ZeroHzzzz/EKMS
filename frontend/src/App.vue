@@ -39,6 +39,10 @@
             <el-icon><Document /></el-icon>
             <span>知识库</span>
           </el-menu-item>
+          <el-menu-item v-if="hasPermission(userInfo, 'UPLOAD')" index="/file-upload">
+            <el-icon><Upload /></el-icon>
+            <span>文件上传</span>
+          </el-menu-item>
           <el-menu-item v-if="hasPermission(userInfo, 'EDIT') || hasPermission(userInfo, 'AUDIT')" index="/knowledge-management">
             <el-icon><Edit /></el-icon>
             <span>知识管理</span>
