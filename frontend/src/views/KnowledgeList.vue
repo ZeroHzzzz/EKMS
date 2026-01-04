@@ -158,11 +158,42 @@
 
         <!-- 聊天界面（发送消息后显示） -->
         <div v-else class="ai-chat-mode">
-          <!-- 新对话按钮 - 右上角 -->
-          <button class="new-chat-btn" @click="clearAiChat">
-            <el-icon><Plus /></el-icon>
-            新对话
-          </button>
+          <!-- 顶部操作栏 -->
+          <div class="ai-chat-header">
+            <button class="new-chat-btn" @click="clearAiChat">
+              <el-icon><Plus /></el-icon>
+              新对话
+            </button>
+            <!-- 已选文档指示器 -->
+            <div 
+              v-if="aiSelectedDocuments.length > 0" 
+              class="selected-docs-indicator"
+              @click="showAiSelectedDocs = !showAiSelectedDocs"
+            >
+              <el-icon><Document /></el-icon>
+              <span>{{ aiSelectedDocuments.length }} 个文档</span>
+              <el-icon class="arrow-icon" :class="{ expanded: showAiSelectedDocs }"><ArrowRight /></el-icon>
+            </div>
+          </div>
+
+          <!-- 已选文档面板 -->
+          <transition name="slide-down">
+            <div v-if="showAiSelectedDocs && aiSelectedDocuments.length > 0" class="selected-docs-panel">
+              <div class="panel-title">已选择的参考文档</div>
+              <div class="panel-docs-list">
+                <div v-for="doc in aiSelectedDocuments" :key="doc.id" class="panel-doc-item">
+                  <el-icon><Document /></el-icon>
+                  <span class="doc-name">{{ doc.title }}</span>
+                  <el-icon class="remove-btn" @click="removeAiSelectedDoc(doc.id)"><Close /></el-icon>
+                </div>
+              </div>
+              <div class="panel-actions">
+                <el-button size="small" type="danger" text @click="clearAiSelectedDocs">
+                  清空所有
+                </el-button>
+              </div>
+            </div>
+          </transition>
 
           <!-- 聊天消息区域 -->
           <div class="chat-messages-area" ref="aiChatRef">
@@ -176,24 +207,116 @@
                 <el-icon v-if="msg.role === 'assistant'"><ChatDotRound /></el-icon>
                 <el-icon v-else><User /></el-icon>
               </div>
-              <div class="msg-bubble">{{ msg.content }}</div>
+              
+              <!-- 普通文本消息 -->
+              <div v-if="msg.type !== 'doc-selection'" class="msg-bubble">
+                <div v-html="renderAiMarkdown(msg.content)"></div>
+                <!-- 引用的文档 -->
+                <div v-if="msg.documents && msg.documents.length > 0" class="msg-ref-docs">
+                  <div class="ref-docs-title">
+                    <el-icon><Document /></el-icon>
+                    <span>参考文档</span>
+                  </div>
+                  <div class="ref-docs-list">
+                    <div 
+                      v-for="doc in msg.documents" 
+                      :key="doc.id" 
+                      class="ref-doc-item"
+                      @click="viewDetail(doc.id)"
+                    >
+                      {{ doc.title }}
+                      <el-icon><ArrowRight /></el-icon>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 文档选择消息 -->
+              <div v-else class="msg-bubble doc-selection-bubble">
+                <div class="doc-selection-header">
+                  <el-icon><Search /></el-icon>
+                  <span>{{ msg.content }}</span>
+                </div>
+                <div class="doc-selection-list">
+                  <div 
+                    v-for="doc in msg.documents" 
+                    :key="doc.id" 
+                    class="doc-selection-item"
+                    :class="{ selected: isAiDocSelected(doc.id), disabled: msg.confirmed }"
+                    @click="!msg.confirmed && toggleAiDocSelection(doc)"
+                  >
+                    <div class="doc-checkbox">
+                      <el-icon v-if="isAiDocSelected(doc.id)" class="check-icon"><Select /></el-icon>
+                      <span v-else class="checkbox-empty"></span>
+                    </div>
+                    <div class="doc-info">
+                      <div class="doc-title">{{ doc.title }}</div>
+                      <div class="doc-meta">
+                        <span v-if="doc.author">{{ doc.author }}</span>
+                        <span v-if="doc.keywords" class="doc-keywords">{{ doc.keywords }}</span>
+                      </div>
+                    </div>
+                    <el-button 
+                      size="small" 
+                      link 
+                      type="primary"
+                      @click.stop="previewAiDocument(doc)"
+                    >
+                      预览
+                    </el-button>
+                  </div>
+                </div>
+                <div v-if="!msg.confirmed" class="doc-selection-actions">
+                  <el-button size="small" @click="skipAiDocSelection(idx)">
+                    跳过，直接回答
+                  </el-button>
+                  <el-button 
+                    type="primary" 
+                    size="small" 
+                    :disabled="aiPendingDocSelections.length === 0"
+                    @click="confirmAiDocSelection(idx)"
+                  >
+                    确认选择 ({{ aiPendingDocSelections.length }})
+                  </el-button>
+                </div>
+                <div v-else class="doc-selection-confirmed">
+                  <el-icon><Select /></el-icon>
+                  <span v-if="msg.selectedCount > 0">已选择 {{ msg.selectedCount }} 个文档作为参考</span>
+                  <span v-else>已跳过文档选择</span>
+                </div>
+              </div>
             </div>
             
-            <!-- AI正在输入 -->
+            <!-- AI正在处理 -->
             <div v-if="aiSearchLoading" class="chat-msg assistant">
               <div class="msg-icon">
                 <el-icon><ChatDotRound /></el-icon>
               </div>
               <div class="msg-bubble typing-bubble">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
+                <div v-if="aiLoadingPhase === 'searching'" class="loading-status">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="loading-text">正在搜索相关文档...</span>
+                </div>
+                <div v-else-if="aiLoadingPhase === 'analyzing'" class="loading-status">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="loading-text">正在分析文档内容...</span>
+                </div>
+                <div v-else-if="aiStreamingContent" class="streaming-content" v-html="renderAiMarkdown(aiStreamingContent)"></div>
+                <div v-else class="loading-dots">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                </div>
               </div>
             </div>
             
             <!-- AI 建议的搜索词 -->
-            <div v-if="aiSuggestions.keywords && aiSuggestions.keywords.length > 0" class="chat-suggest">
-              <span>💡 推荐：</span>
+            <div v-if="aiSuggestions.keywords && aiSuggestions.keywords.length > 0 && !aiWaitingForSelection" class="chat-suggest">
+              <span>💡 去搜索：</span>
               <button 
                 v-for="kw in aiSuggestions.keywords" 
                 :key="kw" 
@@ -207,6 +330,11 @@
 
           <!-- 底部输入框 -->
           <div class="chat-input-bottom">
+            <!-- 文档上下文提示 -->
+            <div v-if="aiSelectedDocuments.length > 0" class="context-hint">
+              <el-icon><Document /></el-icon>
+              <span>基于 {{ aiSelectedDocuments.length }} 个文档回答</span>
+            </div>
             <div class="search-box ai-input-box">
               <div class="search-icon">
                 <el-icon><EditPen /></el-icon>
@@ -219,7 +347,18 @@
                 @keyup.enter="sendAiSearchQuery"
                 :disabled="aiSearchLoading"
               />
+              <!-- 停止生成按钮 -->
               <button 
+                v-if="aiIsGenerating"
+                class="stop-btn" 
+                @click="stopAiGeneration"
+              >
+                <el-icon><VideoPause /></el-icon>
+                <span>停止</span>
+              </button>
+              <!-- 发送按钮 -->
+              <button 
+                v-else
                 class="search-btn" 
                 @click="sendAiSearchQuery" 
                 :disabled="aiSearchLoading || !aiSearchInput.trim()"
@@ -231,6 +370,38 @@
           </div>
         </div>
       </div>
+
+      <!-- 文档预览对话框 -->
+      <el-dialog 
+        v-model="aiDocPreviewVisible" 
+        :title="aiPreviewDoc?.title || '文档预览'"
+        width="600px"
+        class="ai-doc-preview-dialog"
+      >
+        <div class="doc-preview-content">
+          <div v-if="aiPreviewLoading" class="preview-loading">
+            <el-icon class="loading-spin"><Loading /></el-icon>
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="aiPreviewDoc" class="preview-body">
+            <div class="preview-meta">
+              <span v-if="aiPreviewDoc.author"><el-icon><User /></el-icon> {{ aiPreviewDoc.author }}</span>
+              <span v-if="aiPreviewDoc.keywords"><el-icon><PriceTag /></el-icon> {{ aiPreviewDoc.keywords }}</span>
+            </div>
+            <div class="preview-text">
+              {{ aiPreviewDoc.content?.substring(0, 1500) || aiPreviewDoc.summary || '暂无内容预览' }}
+              <span v-if="aiPreviewDoc.content?.length > 1500" class="more-text">...</span>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <el-button @click="aiDocPreviewVisible = false">关闭</el-button>
+          <el-button type="primary" @click="addPreviewDocToAiSelection" :disabled="isAiDocSelected(aiPreviewDoc?.id)">
+            <el-icon><Select /></el-icon>
+            {{ isAiDocSelected(aiPreviewDoc?.id) ? '已选择' : '选择此文档' }}
+          </el-button>
+        </template>
+      </el-dialog>
 
       <!-- 底部Tab切换 - 走马灯样式 -->
       <div class="bottom-tabs">
@@ -550,11 +721,21 @@ import { hasPermission } from '../utils/permission'
 import { 
   Search, Document, User, Clock, Folder, Download, View, TrendCharts,
   ArrowRight, ArrowLeft, Upload, Sort, Calendar, RefreshRight, Back,
-  Picture, VideoCamera, DataAnalysis, ChatDotRound, Close, Promotion, EditPen, Plus
+  Picture, VideoCamera, DataAnalysis, ChatDotRound, Close, Promotion, EditPen, Plus,
+  Select, Loading, PriceTag, VideoPause
 } from '@element-plus/icons-vue'
 import api from '../api'
 import { askGeneral, enhanceSearchQuery } from '../api/ai'
+import { 
+  searchKnowledge, 
+  getKnowledgeDetail, 
+  analyzeIntent,
+  callDeepSeekStream,
+  askAboutMultipleDocumentsStream
+} from '../api/aiAssistant'
 import { ElMessage } from 'element-plus'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -613,6 +794,20 @@ const aiSearchLoading = ref(false)
 const aiChatMessages = ref([])
 const aiSuggestions = ref({ keywords: [], suggestions: [], intent: '' })
 const aiChatRef = ref(null)
+
+// AI 文档选择和问答增强
+const aiFoundDocuments = ref([])           // AI搜索到的文档列表
+const aiSelectedDocuments = ref([])         // 用户选择的参考文档
+const aiPendingDocSelections = ref([])      // 待确认的文档选择
+const aiWaitingForSelection = ref(false)    // 是否等待用户选择文档
+const aiStreamingContent = ref('')          // 流式输出内容
+const aiLoadingPhase = ref('')              // 加载阶段: 'searching' | 'analyzing' | ''
+const showAiSelectedDocs = ref(false)       // 是否显示已选文档面板
+const aiDocPreviewVisible = ref(false)      // 文档预览对话框
+const aiPreviewDoc = ref(null)              // 预览中的文档
+const aiPreviewLoading = ref(false)         // 预览加载中
+const aiAbortController = ref(null)         // 用于停止生成的控制器
+const aiIsGenerating = ref(false)           // 是否正在生成回答
 
 // Pagination
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
@@ -823,6 +1018,32 @@ const viewDetail = (id) => {
   router.push(`/knowledge/${id}`)
 }
 
+// 停止AI生成
+const stopAiGeneration = () => {
+  if (aiAbortController.value) {
+    aiAbortController.value.abort()
+    aiAbortController.value = null
+  }
+  
+  // 如果有流式内容，保存为消息
+  if (aiStreamingContent.value) {
+    aiChatMessages.value.push({
+      role: 'assistant',
+      type: 'text',
+      content: aiStreamingContent.value + '\n\n*[已停止生成]*',
+      documents: aiSelectedDocuments.value.length > 0 
+        ? aiSelectedDocuments.value.map(d => ({ id: d.id, title: d.title })) 
+        : undefined
+    })
+  }
+  
+  aiSearchLoading.value = false
+  aiIsGenerating.value = false
+  aiLoadingPhase.value = ''
+  aiStreamingContent.value = ''
+  scrollAiChat()
+}
+
 // AI 搜索助手方法
 const sendAiSearchQuery = async () => {
   if (!aiSearchInput.value.trim() || aiSearchLoading.value) return
@@ -830,39 +1051,430 @@ const sendAiSearchQuery = async () => {
   const userQuery = aiSearchInput.value.trim()
   aiSearchInput.value = ''
   
+  // 如果之前在等待选择文档，先取消等待状态
+  if (aiWaitingForSelection.value) {
+    aiWaitingForSelection.value = false
+  }
+  
   aiChatMessages.value.push({
     role: 'user',
     content: userQuery
   })
   
   aiSearchLoading.value = true
+  aiLoadingPhase.value = 'searching'
+  aiStreamingContent.value = ''
+  aiAbortController.value = new AbortController()
   scrollAiChat()
   
   try {
-    // 获取AI优化的搜索建议
-    const suggestions = await enhanceSearchQuery(userQuery)
-    aiSuggestions.value = suggestions
+    // 1. 分析用户意图
+    const intent = await analyzeIntent(userQuery)
     
-    // 生成AI回复
-    const response = await askGeneral(
-      `用户想搜索：${userQuery}。请简短地帮助用户明确搜索意图，并推荐几个搜索关键词。回答要简洁，不超过50字。`,
-      []
-    )
-    
-    aiChatMessages.value.push({
-      role: 'assistant',
-      content: response
-    })
+    // 2. 如果是帮助类问题
+    if (intent.intent === 'HELP') {
+      aiChatMessages.value.push({
+        role: 'assistant',
+        type: 'text',
+        content: getAiHelpMessage()
+      })
+      return
+    }
+
+    // 3. 如果是闲聊
+    if (intent.intent === 'CHAT') {
+      await generateAiChatResponse(userQuery)
+      return
+    }
+
+    // 4. 如果已有选中的文档，直接基于文档回答
+    if (aiSelectedDocuments.value.length > 0) {
+      await generateAiAnswerWithDocs(userQuery)
+      return
+    }
+
+    // 5. 需要搜索文档
+    if (intent.needSearch && intent.keywords?.length > 0) {
+      let allDocs = []
+      for (const keyword of intent.keywords.slice(0, 2)) {
+        const results = await searchKnowledge(keyword, 5)
+        allDocs = [...allDocs, ...results]
+      }
+
+      // 去重
+      const seen = new Set()
+      const uniqueDocs = allDocs.filter(doc => {
+        if (seen.has(doc.id)) return false
+        seen.add(doc.id)
+        return true
+      }).slice(0, 6)
+
+      if (uniqueDocs.length > 0) {
+        aiFoundDocuments.value = uniqueDocs
+        aiPendingDocSelections.value = []
+        
+        // 添加文档选择消息
+        aiChatMessages.value.push({
+          role: 'assistant',
+          type: 'doc-selection',
+          content: `找到 ${uniqueDocs.length} 个相关文档，请选择要参考的文档：`,
+          documents: uniqueDocs,
+          confirmed: false,
+          selectedCount: 0
+        })
+        
+        aiWaitingForSelection.value = true
+        aiSuggestions.value = { keywords: intent.keywords, suggestions: [], intent: intent.intent }
+      } else {
+        // 没有找到文档
+        aiChatMessages.value.push({
+          role: 'assistant',
+          type: 'text',
+          content: '抱歉，没有找到相关文档。我将根据我的知识来回答您的问题。'
+        })
+        await generateAiAnswerWithoutDocs(userQuery)
+      }
+    } else {
+      // 不需要搜索，直接回答
+      if (aiSelectedDocuments.value.length > 0) {
+        await generateAiAnswerWithDocs(userQuery)
+      } else {
+        await generateAiAnswerWithoutDocs(userQuery)
+      }
+    }
   } catch (error) {
     console.error('AI搜索失败:', error)
     aiChatMessages.value.push({
       role: 'assistant',
+      type: 'text',
       content: '抱歉，AI服务暂时不可用。您可以直接输入关键词进行搜索。'
     })
   } finally {
     aiSearchLoading.value = false
+    aiLoadingPhase.value = ''
+    aiStreamingContent.value = ''
     scrollAiChat()
   }
+}
+
+// 切换文档选择
+const toggleAiDocSelection = (doc) => {
+  const index = aiPendingDocSelections.value.findIndex(d => d.id === doc.id)
+  if (index >= 0) {
+    aiPendingDocSelections.value.splice(index, 1)
+  } else {
+    aiPendingDocSelections.value.push(doc)
+  }
+}
+
+// 判断文档是否被选中
+const isAiDocSelected = (docId) => {
+  return aiPendingDocSelections.value.some(d => d.id === docId) ||
+         aiSelectedDocuments.value.some(d => d.id === docId)
+}
+
+// 确认文档选择
+const confirmAiDocSelection = async (msgIndex) => {
+  if (aiPendingDocSelections.value.length === 0) {
+    ElMessage.warning('请至少选择一个文档')
+    return
+  }
+  
+  // 更新消息状态
+  aiChatMessages.value[msgIndex].confirmed = true
+  aiChatMessages.value[msgIndex].selectedCount = aiPendingDocSelections.value.length
+  
+  // 显示加载状态
+  aiSearchLoading.value = true
+  aiLoadingPhase.value = 'analyzing'
+  
+  // 加载文档内容
+  for (const doc of aiPendingDocSelections.value) {
+    if (!aiSelectedDocuments.value.some(d => d.id === doc.id)) {
+      try {
+        const detail = await getKnowledgeDetail(doc.id)
+        if (detail) {
+          aiSelectedDocuments.value.push({
+            ...doc,
+            content: detail.contentText || detail.content,
+            summary: detail.summary
+          })
+        } else {
+          aiSelectedDocuments.value.push(doc)
+        }
+      } catch (e) {
+        aiSelectedDocuments.value.push(doc)
+      }
+    }
+  }
+  
+  aiPendingDocSelections.value = []
+  aiWaitingForSelection.value = false
+  aiSearchLoading.value = false
+  aiLoadingPhase.value = ''
+  
+  // 添加提示消息，等待用户输入
+  aiChatMessages.value.push({
+    role: 'assistant',
+    type: 'text',
+    content: `已加载 ${aiSelectedDocuments.value.length} 个文档作为参考。请输入您的问题，我将基于这些文档为您解答。`
+  })
+  
+  scrollAiChat()
+}
+
+// 跳过文档选择
+const skipAiDocSelection = async (msgIndex) => {
+  aiChatMessages.value[msgIndex].confirmed = true
+  aiChatMessages.value[msgIndex].selectedCount = 0
+  
+  aiPendingDocSelections.value = []
+  aiWaitingForSelection.value = false
+  
+  // 添加提示消息，等待用户输入
+  aiChatMessages.value.push({
+    role: 'assistant',
+    type: 'text',
+    content: '好的，已跳过文档选择。请继续输入您的问题。'
+  })
+  
+  scrollAiChat()
+}
+
+// 预览文档
+const previewAiDocument = async (doc) => {
+  aiDocPreviewVisible.value = true
+  aiPreviewLoading.value = true
+  aiPreviewDoc.value = doc
+  
+  try {
+    const detail = await getKnowledgeDetail(doc.id)
+    if (detail) {
+      aiPreviewDoc.value = {
+        ...doc,
+        content: detail.contentText || detail.content,
+        summary: detail.summary,
+        author: detail.author,
+        keywords: detail.keywords
+      }
+    }
+  } catch (error) {
+    console.error('获取文档详情失败:', error)
+  } finally {
+    aiPreviewLoading.value = false
+  }
+}
+
+// 从预览中添加文档
+const addPreviewDocToAiSelection = () => {
+  if (aiPreviewDoc.value && !isAiDocSelected(aiPreviewDoc.value.id)) {
+    aiPendingDocSelections.value.push(aiPreviewDoc.value)
+  }
+  aiDocPreviewVisible.value = false
+}
+
+// 基于选中文档生成回答
+const generateAiAnswerWithDocs = async (question) => {
+  aiSearchLoading.value = true
+  aiIsGenerating.value = true
+  aiLoadingPhase.value = 'analyzing'
+  aiStreamingContent.value = ''
+  
+  // 创建新的 AbortController
+  aiAbortController.value = new AbortController()
+
+  try {
+    // 构建文档上下文
+    let contextPrompt = '\n\n以下是用户选择的参考文档：\n\n'
+    aiSelectedDocuments.value.forEach((doc, index) => {
+      const contentPreview = doc.content?.substring(0, 3000) || doc.summary || '无内容'
+      contextPrompt += `【文档${index + 1}】${doc.title}\n`
+      contextPrompt += `内容：${contentPreview}\n`
+      if (doc.keywords) {
+        contextPrompt += `关键词：${doc.keywords}\n`
+      }
+      contextPrompt += '\n---\n\n'
+    })
+
+    const systemPrompt = `你是企业知识库的AI助手。请基于用户选择的参考文档回答问题。
+
+规则：
+1. 优先使用提供的文档内容来回答问题
+2. 引用信息时请说明来源（如"根据《XX》文档..."）
+3. 如果文档中没有相关信息，请诚实告知
+4. 回答要简洁、准确、有条理
+5. 使用markdown格式使回答更清晰
+${contextPrompt}`
+
+    aiLoadingPhase.value = ''
+    
+    const messageHistory = aiChatMessages.value
+      .filter(m => m.type !== 'doc-selection')
+      .slice(-6)
+      .map(m => ({ role: m.role, content: m.content }))
+
+    await callDeepSeekStream([
+      { role: 'system', content: systemPrompt },
+      ...messageHistory,
+      { role: 'user', content: question }
+    ], (chunk) => {
+      aiStreamingContent.value += chunk
+      scrollAiChat()
+    }, { signal: aiAbortController.value.signal })
+
+    // 只有没被中断才添加消息
+    if (!aiAbortController.value?.signal.aborted && aiStreamingContent.value) {
+      aiChatMessages.value.push({
+        role: 'assistant',
+        type: 'text',
+        content: aiStreamingContent.value,
+        documents: aiSelectedDocuments.value.map(d => ({ id: d.id, title: d.title }))
+      })
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error('生成回答失败:', error)
+    }
+  } finally {
+    aiSearchLoading.value = false
+    aiIsGenerating.value = false
+    aiLoadingPhase.value = ''
+    aiStreamingContent.value = ''
+    aiAbortController.value = null
+    scrollAiChat()
+  }
+}
+
+// 不使用文档生成回答
+const generateAiAnswerWithoutDocs = async (question) => {
+  aiSearchLoading.value = true
+  aiIsGenerating.value = true
+  aiLoadingPhase.value = ''
+  aiStreamingContent.value = ''
+  
+  // 创建新的 AbortController
+  aiAbortController.value = new AbortController()
+
+  try {
+    const systemPrompt = `你是企业知识库的AI助手。请回答用户的问题。
+如果问题涉及具体的公司文档或内部信息，请建议用户搜索相关文档。
+回答要简洁、准确、有帮助。`
+
+    const messageHistory = aiChatMessages.value
+      .filter(m => m.type !== 'doc-selection')
+      .slice(-6)
+      .map(m => ({ role: m.role, content: m.content }))
+
+    await callDeepSeekStream([
+      { role: 'system', content: systemPrompt },
+      ...messageHistory,
+      { role: 'user', content: question }
+    ], (chunk) => {
+      aiStreamingContent.value += chunk
+      scrollAiChat()
+    }, { signal: aiAbortController.value.signal })
+
+    // 只有没被中断才添加消息
+    if (!aiAbortController.value?.signal.aborted && aiStreamingContent.value) {
+      aiChatMessages.value.push({
+        role: 'assistant',
+        type: 'text',
+        content: aiStreamingContent.value
+      })
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error('生成回答失败:', error)
+    }
+  } finally {
+    aiSearchLoading.value = false
+    aiIsGenerating.value = false
+    aiStreamingContent.value = ''
+    aiAbortController.value = null
+    scrollAiChat()
+  }
+}
+
+// 生成闲聊回复
+const generateAiChatResponse = async (question) => {
+  aiStreamingContent.value = ''
+  aiLoadingPhase.value = ''
+  aiIsGenerating.value = true
+  
+  // 创建新的 AbortController
+  aiAbortController.value = new AbortController()
+
+  try {
+    await callDeepSeekStream([
+      { role: 'system', content: '你是企业知识库的AI助手，友好地与用户交流。' },
+      { role: 'user', content: question }
+    ], (chunk) => {
+      aiStreamingContent.value += chunk
+      scrollAiChat()
+    }, { signal: aiAbortController.value.signal })
+
+    // 只有没被中断才添加消息
+    if (!aiAbortController.value?.signal.aborted && aiStreamingContent.value) {
+      aiChatMessages.value.push({
+        role: 'assistant',
+        type: 'text',
+        content: aiStreamingContent.value
+      })
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error('生成回答失败:', error)
+    }
+  } finally {
+    aiSearchLoading.value = false
+    aiIsGenerating.value = false
+    aiStreamingContent.value = ''
+    aiAbortController.value = null
+    scrollAiChat()
+  }
+}
+
+// 获取帮助消息
+const getAiHelpMessage = () => {
+  return `我是企业知识库的AI助手，可以帮您：
+
+🔍 **智能搜索文档** - 告诉我您想找什么，我会帮您搜索
+
+📋 **选择参考文档** - 搜索后，您可以选择一个或多个文档作为参考来源
+
+💬 **精准问答** - 基于您选择的文档，我会给出准确的回答
+
+---
+
+试试这样问我：
+• "帮我找一下关于XX的文档"
+• "公司的XX流程是什么"
+• "XX项目的相关资料"`
+}
+
+// 渲染Markdown
+const renderAiMarkdown = (content) => {
+  if (!content) return ''
+  try {
+    const html = marked.parse(content, { breaks: true })
+    return DOMPurify.sanitize(html)
+  } catch (e) {
+    return content
+  }
+}
+
+// 移除已选文档
+const removeAiSelectedDoc = (docId) => {
+  aiSelectedDocuments.value = aiSelectedDocuments.value.filter(d => d.id !== docId)
+  if (aiSelectedDocuments.value.length === 0) {
+    showAiSelectedDocs.value = false
+  }
+}
+
+// 清空已选文档
+const clearAiSelectedDocs = () => {
+  aiSelectedDocuments.value = []
+  showAiSelectedDocs.value = false
 }
 
 const useAiSuggestion = (keyword) => {
@@ -884,6 +1496,13 @@ const clearAiChat = () => {
   aiChatMessages.value = []
   aiSuggestions.value = { keywords: [], suggestions: [], intent: '' }
   aiSearchInput.value = ''
+  aiFoundDocuments.value = []
+  aiSelectedDocuments.value = []
+  aiPendingDocSelections.value = []
+  aiWaitingForSelection.value = false
+  aiStreamingContent.value = ''
+  aiLoadingPhase.value = ''
+  showAiSelectedDocs.value = false
 }
 
 const formatTime = (time) => {
@@ -1851,6 +2470,465 @@ const getFileTypeClass = (item) => {
   margin: 0 auto;
   padding-top: 16px;
   flex-shrink: 0;
+}
+
+/* ===== AI 文档选择增强样式 ===== */
+
+/* 聊天顶部操作栏 */
+.ai-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0 12px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ai-chat-header .new-chat-btn {
+  position: static;
+}
+
+.selected-docs-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 20px;
+  color: #409eff;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.selected-docs-indicator:hover {
+  background: #d9ecff;
+}
+
+.selected-docs-indicator .arrow-icon {
+  transition: transform 0.2s;
+}
+
+.selected-docs-indicator .arrow-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* 已选文档面板 */
+.selected-docs-panel {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.selected-docs-panel .panel-title {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #303133;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.panel-docs-list {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.panel-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  color: #606266;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.panel-doc-item:last-child {
+  border-bottom: none;
+}
+
+.panel-doc-item .doc-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-doc-item .remove-btn {
+  color: #c0c4cc;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.panel-doc-item .remove-btn:hover {
+  color: #f56c6c;
+}
+
+.selected-docs-panel .panel-actions {
+  padding: 8px 14px;
+  text-align: right;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* 文档选择气泡 */
+.doc-selection-bubble {
+  background: #fff !important;
+  border: 1px solid #e4e7ed !important;
+  padding: 0 !important;
+  overflow: hidden;
+  max-width: 100% !important;
+}
+
+.doc-selection-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #ecf5ff 0%, #e8f4ff 100%);
+  color: #409eff;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.doc-selection-list {
+  padding: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.doc-selection-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+  margin-bottom: 6px;
+}
+
+.doc-selection-item:last-child {
+  margin-bottom: 0;
+}
+
+.doc-selection-item:hover:not(.disabled) {
+  background: #f5f7fa;
+}
+
+.doc-selection-item.selected {
+  background: #ecf5ff;
+  border-color: #409eff;
+}
+
+.doc-selection-item.disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.doc-checkbox {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #f0f2f5;
+  flex-shrink: 0;
+}
+
+.doc-selection-item.selected .doc-checkbox {
+  background: #409eff;
+}
+
+.doc-checkbox .check-icon {
+  color: #fff;
+  font-size: 14px;
+}
+
+.checkbox-empty {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #c0c4cc;
+  border-radius: 2px;
+}
+
+.doc-selection-item .doc-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-selection-item .doc-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #303133;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-selection-item .doc-meta {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: #909399;
+}
+
+.doc-selection-item .doc-keywords {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-selection-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f0;
+}
+
+.doc-selection-confirmed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #f0f9eb;
+  color: #67c23a;
+  font-size: 0.85rem;
+}
+
+/* 消息中的参考文档 */
+.msg-ref-docs {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.ref-docs-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.ref-docs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ref-doc-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #606266;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ref-doc-item:hover {
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+/* 加载状态 */
+.loading-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading-status .loading-text {
+  color: #909399;
+  font-size: 0.85rem;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.streaming-content {
+  line-height: 1.6;
+}
+
+/* Markdown 渲染样式 */
+.msg-bubble :deep(p) {
+  margin: 0 0 8px;
+}
+
+.msg-bubble :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.msg-bubble :deep(ul),
+.msg-bubble :deep(ol) {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.msg-bubble :deep(li) {
+  margin-bottom: 4px;
+}
+
+.msg-bubble :deep(code) {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: Consolas, Monaco, monospace;
+}
+
+.msg-bubble :deep(pre) {
+  background: #1f2937;
+  color: #e5e7eb;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.msg-bubble :deep(pre code) {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.msg-bubble :deep(strong) {
+  font-weight: 600;
+}
+
+.msg-bubble :deep(h1),
+.msg-bubble :deep(h2),
+.msg-bubble :deep(h3) {
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+
+.msg-bubble :deep(hr) {
+  border: none;
+  border-top: 1px solid #e4e7ed;
+  margin: 12px 0;
+}
+
+/* 文档上下文提示 */
+.context-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #ecf5ff;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #409eff;
+}
+
+/* 停止生成按钮 */
+.stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #f56c6c 0%, #f78989 100%);
+  border: none;
+  border-radius: 40px;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(245, 108, 108, 0.3);
+}
+
+.stop-btn:hover {
+  background: linear-gradient(135deg, #f78989 0%, #f56c6c 100%);
+  box-shadow: 0 4px 12px rgba(245, 108, 108, 0.4);
+}
+
+.stop-btn .el-icon {
+  font-size: 1.1rem;
+}
+
+/* 文档预览对话框 */
+.ai-doc-preview-dialog .doc-preview-content {
+  padding: 0;
+}
+
+.preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: #909399;
+}
+
+.loading-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.preview-body .preview-meta {
+  display: flex;
+  gap: 16px;
+  padding: 16px 20px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.preview-body .preview-meta span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #606266;
+}
+
+.preview-body .preview-text {
+  padding: 20px;
+  font-size: 0.9rem;
+  line-height: 1.8;
+  color: #303133;
+  max-height: 350px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.preview-body .more-text {
+  color: #909399;
+}
+
+/* 滑动动画 */
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 
 @keyframes float {

@@ -279,12 +279,29 @@ const handleNameClick = () => {
 // 拖拽事件
 const onDragStart = (e) => {
   isDragging.value = true
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', JSON.stringify({
+  e.dataTransfer.effectAllowed = 'copyMove'
+  
+  // 设置拖拽数据 - 用于树内部排序
+  const dragData = {
     id: props.node.id,
     parentId: props.node.parentId,
     title: props.node.title
-  }))
+  }
+  e.dataTransfer.setData('text/plain', JSON.stringify(dragData))
+  
+  // 如果是文件（非文件夹），也设置为可拖拽到 AI 助手的格式
+  if (!isFolder(props.node)) {
+    const aiDragData = {
+      type: 'knowledge-document',
+      document: {
+        id: props.node.id,
+        title: props.node.title,
+        keywords: props.node.keywords || ''
+      }
+    }
+    e.dataTransfer.setData('application/json', JSON.stringify(aiDragData))
+  }
+  
   emit('drag-start', e, props.node)
 }
 

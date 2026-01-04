@@ -736,6 +736,9 @@
         </el-button>
       </template>
     </el-dialog>
+    
+    <!-- AI 知识助手 -->
+    <AIAssistant />
   </div>
 </template>
 
@@ -751,6 +754,7 @@ import api from '../api'
 import { useUserStore } from '../stores/user'
 import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 import FileTreeNode from '../components/FileTreeNode.vue'
+import AIAssistant from '../components/AIAssistant.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
