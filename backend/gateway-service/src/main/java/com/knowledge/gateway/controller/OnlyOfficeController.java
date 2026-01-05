@@ -87,7 +87,7 @@ public class OnlyOfficeController {
             }
 
             // 生成唯一的文档 key（用于 OnlyOffice 识别文档）
-            String documentKey = generateDocumentKey(fileId, fileDTO.getCreateTime());
+            String documentKey = generateDocumentKey(fileId, fileDTO);
 
             // 构建配置
             Map<String, Object> config = new HashMap<>();
@@ -363,7 +363,7 @@ public class OnlyOfficeController {
                 return Result.error("文件不存在");
             }
             
-            String documentKey = generateDocumentKey(fileId, fileDTO.getCreateTime());
+            String documentKey = generateDocumentKey(fileId, fileDTO);
             
             // 调用 OnlyOffice 命令服务强制保存
             String commandUrl = documentServerUrl + "/coauthoring/CommandService.ashx";
@@ -528,9 +528,18 @@ public class OnlyOfficeController {
     /**
      * 生成文档 Key
      * Key 必须唯一，当文档内容改变时 Key 也需要改变
+     * 使用 fileHash 确保文件内容变化时 key 也会变化，避免 OnlyOffice 返回缓存的旧文档
      */
-    private String generateDocumentKey(Long fileId, java.time.LocalDateTime uploadTime) {
-        String timeStr = uploadTime != null ? String.valueOf(uploadTime.toEpochSecond(java.time.ZoneOffset.UTC)) : "0";
+    private String generateDocumentKey(Long fileId, FileDTO fileDTO) {
+        // 优先使用 fileHash，确保内容变化时 key 变化
+        if (fileDTO != null && fileDTO.getFileHash() != null && !fileDTO.getFileHash().isEmpty()) {
+            // 取 hash 的前16位，足够唯一且减少 key 长度
+            String hashPrefix = fileDTO.getFileHash().substring(0, Math.min(16, fileDTO.getFileHash().length()));
+            return "file_" + fileId + "_" + hashPrefix;
+        }
+        // 回退方案：使用创建时间
+        java.time.LocalDateTime uploadTime = fileDTO != null ? fileDTO.getCreateTime() : null;
+        String timeStr = uploadTime != null ? String.valueOf(uploadTime.toEpochSecond(java.time.ZoneOffset.UTC)) : String.valueOf(System.currentTimeMillis());
         return "file_" + fileId + "_" + timeStr;
     }
 
