@@ -1034,11 +1034,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new RuntimeException("版本不存在");
         }
         
+        // 获取实际文档内容（优先使用文件提取的文本）
+        String content1 = getVersionTextContent(v1);
+        String content2 = getVersionTextContent(v2);
+        
         // 使用DiffUtil比较内容
-        List<DiffUtil.DiffLine> diffLines = DiffUtil.diff(
-            v1.getContent() != null ? v1.getContent() : "",
-            v2.getContent() != null ? v2.getContent() : ""
-        );
+        List<DiffUtil.DiffLine> diffLines = DiffUtil.diff(content1, content2);
         
         // 转换为DTO
         List<KnowledgeVersionDTO.DiffResult.DiffLine> diffLineDTOs = diffLines.stream().map(line -> {
@@ -1066,6 +1067,24 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         result.setStats(statsDTO);
         
         return result;
+    }
+    
+    /**
+     * 获取版本的文本内容（用于对比）
+     * 优先级：1. 从文件提取的文本（Office文档实际内容） 2. content字段（用户填写的摘要）
+     */
+    private String getVersionTextContent(KnowledgeVersionDTO version) {
+        // 如果有关联文件，使用 Tika 提取实际内容
+        if (version.getFileId() != null) {
+            String extractedText = extractTextFromFile(version.getFileId());
+            if (extractedText != null && !extractedText.trim().isEmpty()) {
+                log.debug("使用文件提取内容进行版本对比: fileId={}, length={}", 
+                        version.getFileId(), extractedText.length());
+                return extractedText;
+            }
+        }
+        // 回退到 content 字段（用于没有文件的纯文本知识）
+        return version.getContent() != null ? version.getContent() : "";
     }
 
     @Override
@@ -1495,8 +1514,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         latestWrapper.last("LIMIT 1");
         KnowledgeVersion latestVersion = knowledgeVersionMapper.selectOne(latestWrapper);
         
-        Long newVersion;
-        boolean isUpdatePending = false;
+
         
         // 确定新版本的状态
         String versionStatus;
@@ -1525,33 +1543,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         }
 
-        if (latestVersion != null && Constants.FILE_STATUS_PENDING.equals(latestVersion.getStatus()) && !isAdmin) {
-            // 复用当前待审核版本
-            newVersion = latestVersion.getVersion();
-            isUpdatePending = true;
-            log.info("检测到已有待审核版本 v{}，执行覆盖更新", newVersion);
-        } else {
-            // 创建新版本
-            // 确保版本号连贯
-            Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : (knowledge.getVersion() != null ? knowledge.getVersion() : 0L);
-            newVersion = maxVersion + 1;
-            
-            if (isAdmin) {
-                 knowledge.setPublishedVersion(newVersion);
-                 log.info("管理员直接发布新版本: v{}", newVersion);
-            }
+        // 每次编辑都创建新版本，保留完整的版本历史
+        // 不再覆盖已有的 PENDING 版本
+        Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : (knowledge.getVersion() != null ? knowledge.getVersion() : 0L);
+        Long newVersion = maxVersion + 1;
+        
+        if (isAdmin) {
+            knowledge.setPublishedVersion(newVersion);
+            log.info("管理员直接发布新版本: v{}", newVersion);
         }
 
-        KnowledgeVersion version;
-        if (isUpdatePending) {
-            version = latestVersion;
-            version.setCreateTime(LocalDateTime.now()); 
-        } else {
-            version = new KnowledgeVersion();
-            version.setKnowledgeId(knowledge.getId());
-            version.setVersion(newVersion);
-            version.setCreateTime(LocalDateTime.now());
-        }
+        KnowledgeVersion version = new KnowledgeVersion();
+        version.setKnowledgeId(knowledge.getId());
+        version.setVersion(newVersion);
+        version.setCreateTime(LocalDateTime.now());
         
         version.setTitle(knowledge.getTitle());
         version.setContent(knowledge.getContent());
@@ -1570,21 +1575,13 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         // 这里选择更新为最新的
         version.setCommitMessage(commitMessage);
         
-        if (!isUpdatePending) {
-            version.setCreatedBy(operatorUsername);
-        } else {
-            // 更新修改者？通常草稿可以多人协作，或者记录最后修改者
-            // 暂且更新为当前操作者
-            version.setCreatedBy(operatorUsername); 
-        }
+        version.setCreatedBy(operatorUsername);
         
         String branch = knowledge.getCurrentBranch() != null ? knowledge.getCurrentBranch() : "main";
         version.setBranch(branch);
         
-        if (!isUpdatePending) {
-            Long parentCommitId = findParentCommitId(knowledge.getId(), branch);
-            version.setParentCommitId(parentCommitId);
-        }
+        Long parentCommitId = findParentCommitId(knowledge.getId(), branch);
+        version.setParentCommitId(parentCommitId);
         
         // 临时设置版本号用于生成hash
         knowledge.setVersion(newVersion);
@@ -1595,14 +1592,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         version.setStatus(versionStatus);
         version.setIsPublished(isPublished);
         
-        if (isUpdatePending) {
-            knowledgeVersionMapper.updateById(version);
-            log.info("更新现有待审核版本成功 - 知识ID: {}, 版本: {}", knowledgeId, newVersion);
-        } else {
-            knowledgeVersionMapper.insert(version);
-            log.info("文件编辑创建新版本成功 - 知识ID: {}, 新版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
-                knowledgeId, newVersion, newFileId, versionStatus, operatorUsername);
-        }
+        knowledgeVersionMapper.insert(version);
+        log.info("文件编辑创建新版本成功 - 知识ID: {}, 新版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
+            knowledgeId, newVersion, newFileId, versionStatus, operatorUsername);
         
         // 6. 更新knowledge表
         knowledge.setFileId(newFileId);  // 更新到新文件
@@ -1810,6 +1802,24 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         
         log.info("知识状态已更新: knowledgeId={}, status={}, hasDraft={}", knowledgeId, status, hasDraft);
         return true;
+    }
+    
+    @Override
+    @Transactional
+    public void updateVersionCommitMessage(Long knowledgeId, Long version, String commitMessage) {
+        LambdaQueryWrapper<KnowledgeVersion> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+        wrapper.eq(KnowledgeVersion::getVersion, version);
+        wrapper.last("LIMIT 1");
+        KnowledgeVersion versionEntity = knowledgeVersionMapper.selectOne(wrapper);
+        
+        if (versionEntity != null) {
+            versionEntity.setCommitMessage(commitMessage);
+            knowledgeVersionMapper.updateById(versionEntity);
+            log.info("版本提交信息已更新: knowledgeId={}, version={}, message={}", knowledgeId, version, commitMessage);
+        } else {
+            log.warn("更新版本提交信息失败：版本不存在 knowledgeId={}, version={}", knowledgeId, version);
+        }
     }
 }
 

@@ -77,6 +77,15 @@
                   <el-icon><Document /></el-icon> {{ fileInfo.fileName }}
                 </span>
                 <div class="preview-actions">
+                  <!-- 提交审核按钮：有未提交的草稿时显示 -->
+                  <el-button 
+                    v-if="canSubmitForReview" 
+                    type="warning" 
+                    size="small" 
+                    @click="submitForReview"
+                  >
+                    <el-icon><Upload /></el-icon> 提交审核
+                  </el-button>
                   <!-- 只有查看最新版本（草稿）时才显示在线编辑按钮 -->
                   <el-button v-if="canEditOffice(fileInfo.fileType) && (isViewingDraft || !hasDraft)" type="primary" size="small" @click="goToOfficeEdit('edit')">
                     <el-icon><Edit /></el-icon> 在线编辑
@@ -450,8 +459,10 @@
                         </div>
                         
                         <div class="commit-meta">
-                          <span class="commit-author">
-                            <el-icon><User /></el-icon>
+                          <span class="commit-author" :style="{ color: getUserColor(version.createdBy) }">
+                            <span class="author-avatar" :style="{ background: getUserColor(version.createdBy) }">
+                              {{ getAuthorInitial(version.createdBy) }}
+                            </span>
                             {{ version.createdBy || '未知' }}
                           </span>
                           <span class="commit-version">v{{ version.version }}</span>
@@ -663,7 +674,7 @@ import { sendMessageStream } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { hasRole, isAdmin, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download } from '@element-plus/icons-vue'
+import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download, Upload } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const route = useRoute()
@@ -770,6 +781,15 @@ const canViewDraft = computed(() => {
   return hasDraft.value && canEdit(knowledge.value)
 })
 
+// 是否可以提交审核（有待审核状态或草稿，且有编辑权限）
+const canSubmitForReview = computed(() => {
+  if (!knowledge.value) return false
+  const isPending = knowledge.value?.status === 'PENDING'
+  const hasDraftFlag = knowledge.value?.hasDraft === true
+  // 只要有待审核状态或草稿，且有编辑权限就可以提交
+  return (isPending || hasDraftFlag) && canEdit(knowledge.value)
+})
+
 // 是否显示横幅
 const showDraftBanner = computed(() => {
   // 查看历史版本、预览特定版本、或有草稿时显示横幅
@@ -841,6 +861,48 @@ const currentFileId = computed(() => {
 const isViewingHistoryVersion = computed(() => {
   return currentViewingVersion.value && currentViewingVersion.value !== knowledge.value?.version
 })
+
+// 提交审核
+const submitForReview = async () => {
+  try {
+    // 让用户输入提交信息（作为版本历史的标题）
+    const { value: commitMessage } = await ElMessageBox.prompt(
+      '请输入提交说明（将显示在版本历史中）：',
+      '提交审核',
+      {
+        confirmButtonText: '提交',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：修复了格式问题，更新了第三章内容',
+        inputValidator: (val) => {
+          if (!val || val.trim().length === 0) {
+            return '请输入提交说明'
+          }
+          return true
+        }
+      }
+    )
+    
+    const res = await api.post(`/knowledge/${knowledge.value.id}/submit-audit`, null, {
+      params: { 
+        userId: userStore.userInfo.id,
+        commitMessage: commitMessage.trim()
+      }
+    })
+    
+    if (res.code === 200) {
+      ElMessage.success('提交审核成功，请等待审核')
+      loadDetail() // 重新加载详情
+      loadVersions() // 刷新版本列表
+    } else {
+      ElMessage.error(res.message || '提交审核失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('提交审核失败', error)
+      ElMessage.error('提交审核失败')
+    }
+  }
+}
 
 // Methods
 const loadDetail = async () => {
@@ -1306,6 +1368,24 @@ const formatTimeFriendly = (t) => {
    if(diff < 86400000) return Math.floor(diff/3600000) + '小时前';
    return date.toLocaleDateString();
 }
+
+// 用户颜色映射（用于版本历史中区分不同用户）
+const userColorMap = ref({})
+const colorPalette = ['#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#909399', '#00d4aa', '#8b5cf6', '#ec4899']
+const getUserColor = (username) => {
+  if (!username) return '#909399'
+  if (!userColorMap.value[username]) {
+    const index = Object.keys(userColorMap.value).length % colorPalette.length
+    userColorMap.value[username] = colorPalette[index]
+  }
+  return userColorMap.value[username]
+}
+
+// 获取作者名首字母（用于头像）
+const getAuthorInitial = (author) => {
+  if (!author) return '?'
+  return author.charAt(0).toUpperCase()
+}
 const formatFileSize = (s) => {
     if(!s) return '0 B'
     const i = Math.floor(Math.log(s) / Math.log(1024))
@@ -1362,18 +1442,35 @@ const switchToVersion = async (version) => {
   }
   
   try {
-    // 加载版本内容（如果还没有完整内容）
+    // 从版本列表中获取版本数据
     const versionData = versions.value.find(v => v.version === version.version)
     console.log('switchToVersion - version:', version.version, 'versionData:', versionData)
     
     if (versionData) {
+      // 设置当前查看的版本
       currentVersionContent.value = versionData
       currentViewingVersion.value = version.version
       
-      console.log('After setting currentVersionContent - fileId:', versionData.fileId, 'currentFileId will be:', versionData.fileId || knowledge.value?.fileId)
+      // 使用版本的 fileId 加载文件信息
+      const targetFileId = versionData.fileId
+      console.log('切换到版本的 fileId:', targetFileId)
       
-      // 重新加载该版本的文件信息
-      await loadFileInfo()
+      if (targetFileId) {
+        try {
+          const fileRes = await api.get(`/file/${targetFileId}`)
+          if (fileRes.code === 200) {
+            fileInfo.value = fileRes.data
+            previewTimestamp.value = Date.now()
+            console.log('版本文件信息已加载:', fileRes.data.fileName)
+          }
+        } catch (e) {
+          console.warn('加载版本文件失败', e)
+        }
+      } else {
+        // 如果版本没有 fileId，使用知识的默认 fileId
+        await loadFileInfo()
+      }
+      
       ElMessage.success(`已切换到版本 v${version.version}`)
     }
   } catch (e) {
@@ -1460,6 +1557,7 @@ const revertToVersion = async (version) => {
       currentViewingVersion.value = null
       currentVersionContent.value = null
       loadDetail()
+      loadVersions() // 刷新版本列表，确保UI显示正确
     } else {
       ElMessage.error(res.message || '回退失败')
     }
@@ -1471,9 +1569,12 @@ const revertToVersion = async (version) => {
   }
 }
 
-const compareVersion = async (version) => {
-  // 与当前版本对比
-  await doCompare(version.version, knowledge.value.version)
+const compareVersion = (version) => {
+  // 跳转到独立的版本对比页面
+  router.push({
+    path: `/knowledge/${route.params.id}/diff`,
+    query: { v1: version.version, v2: knowledge.value.version }
+  })
 }
 
 const compareWithPrevious = async (version, index) => {
@@ -2203,7 +2304,20 @@ onMounted(() => {
 .commit-author {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.author-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .commit-version {

@@ -82,6 +82,11 @@ const routes = [
     name: 'OnlyOfficeEdit',
     component: OnlyOfficeEdit,
     meta: { permission: 'EDIT' }
+  },
+  {
+    path: '/knowledge/:id/diff',
+    name: 'VersionDiff',
+    component: () => import('../views/VersionDiff.vue')
   }
 ]
 

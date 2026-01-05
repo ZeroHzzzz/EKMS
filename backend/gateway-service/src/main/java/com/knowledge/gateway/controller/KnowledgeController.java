@@ -154,7 +154,10 @@ public class KnowledgeController {
     }
 
     @PostMapping("/{id:\\d+}/submit-audit")
-    public Result<AuditDTO> submitForAudit(@PathVariable Long id, @RequestParam Long userId) {
+    public Result<AuditDTO> submitForAudit(
+            @PathVariable Long id, 
+            @RequestParam Long userId,
+            @RequestParam(required = false) String commitMessage) {
         // 提交审核
         KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
         if (knowledge == null) {
@@ -162,6 +165,16 @@ public class KnowledgeController {
         }
         
         Long currentVersion = knowledge.getVersion();
+        
+        // 如果有提交信息，更新版本记录的 commitMessage
+        if (commitMessage != null && !commitMessage.trim().isEmpty()) {
+            try {
+                knowledgeService.updateVersionCommitMessage(id, currentVersion, commitMessage.trim());
+                log.info("更新版本提交信息: knowledgeId={}, version={}, message={}", id, currentVersion, commitMessage);
+            } catch (Exception e) {
+                log.warn("更新版本提交信息失败: {}", e.getMessage());
+            }
+        }
         
         // 检查是否已有该版本的待审核记录（允许同一知识的不同版本分别提交审核）
         List<AuditDTO> pendingAudits = auditService.getPendingAudits();

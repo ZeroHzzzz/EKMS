@@ -315,21 +315,8 @@ public class OnlyOfficeController {
                 return false;
             }
             
-            // 5. 如果有待审核草稿，自动提交审核（带版本号）
-            // 注意：已发布文章编辑后，status可能仍是APPROVED，但hasDraft为true
-            Boolean hasDraft = updatedKnowledge.getHasDraft();
-            if (hasDraft != null && hasDraft) {
-                try {
-                    Long submitUserId = userId != null ? userId : 1L; // 默认使用管理员ID
-                    Long newVersion = updatedKnowledge.getVersion();
-                    auditService.submitForAudit(updatedKnowledge.getId(), newVersion, submitUserId);
-                    log.info("自动提交审核: knowledgeId={}, version={}, userId={}, hasDraft={}", 
-                            updatedKnowledge.getId(), newVersion, submitUserId, hasDraft);
-                } catch (Exception e) {
-                    log.warn("自动提交审核失败（不影响保存）: knowledgeId={}, version={}", 
-                            updatedKnowledge.getId(), updatedKnowledge.getVersion(), e);
-                }
-            }
+            // 注意：编辑保存后不再自动提交审核
+            // 用户需要在详情页手动点击"提交审核"按钮
             
             log.info("文件编辑创建新版本成功: fileId={}, knowledgeId={}, newFileId={}, newVersion={}", 
                     fileId, knowledge.getId(), newFile.getId(), updatedKnowledge.getVersion());

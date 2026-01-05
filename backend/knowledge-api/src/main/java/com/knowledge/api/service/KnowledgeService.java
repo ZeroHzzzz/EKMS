@@ -92,5 +92,13 @@ public interface KnowledgeService {
      * @return 是否成功
      */
     boolean updateKnowledgeStatus(Long knowledgeId, String status, boolean hasDraft);
+    
+    /**
+     * 更新版本的提交信息
+     * @param knowledgeId 知识ID
+     * @param version 版本号
+     * @param commitMessage 提交信息
+     */
+    void updateVersionCommitMessage(Long knowledgeId, Long version, String commitMessage);
 }
 
