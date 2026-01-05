@@ -32,7 +32,7 @@ public class KnowledgeRelationController {
         }
     }
 
-    @DeleteMapping("/{relationId}")
+    @DeleteMapping("/{relationId:\\d+}")
     public Result<Boolean> deleteRelation(@PathVariable Long relationId) {
         try {
             boolean result = relationService.deleteRelation(relationId);
@@ -56,7 +56,7 @@ public class KnowledgeRelationController {
         }
     }
 
-    @GetMapping("/{knowledgeId}")
+    @GetMapping("/{knowledgeId:\\d+}")
     public Result<List<KnowledgeRelationDTO>> getRelations(@PathVariable Long knowledgeId) {
         try {
             List<KnowledgeRelationDTO> result = relationService.getRelations(knowledgeId);

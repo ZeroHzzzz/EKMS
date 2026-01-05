@@ -33,7 +33,7 @@ public class CommentController {
         }
     }
 
-    @DeleteMapping("/{commentId}")
+    @DeleteMapping("/{commentId:\\d+}")
     public Result<Boolean> deleteComment(
             @PathVariable Long commentId,
             @RequestParam Long userId) {
@@ -46,7 +46,7 @@ public class CommentController {
         }
     }
 
-    @GetMapping("/knowledge/{knowledgeId}")
+    @GetMapping("/knowledge/{knowledgeId:\\d+}")
     public Result<List<CommentDTO>> getComments(
             @PathVariable Long knowledgeId,
             @RequestParam(required = false) Long userId) {
@@ -59,7 +59,7 @@ public class CommentController {
         }
     }
 
-    @PostMapping("/{commentId}/like")
+    @PostMapping("/{commentId:\\d+}/like")
     public Result<Boolean> likeComment(
             @PathVariable Long commentId,
             @RequestParam Long userId) {
@@ -72,7 +72,7 @@ public class CommentController {
         }
     }
 
-    @DeleteMapping("/{commentId}/like")
+    @DeleteMapping("/{commentId:\\d+}/like")
     public Result<Boolean> cancelLikeComment(
             @PathVariable Long commentId,
             @RequestParam Long userId) {

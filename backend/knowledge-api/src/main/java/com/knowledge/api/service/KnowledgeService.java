@@ -40,5 +40,14 @@ public interface KnowledgeService {
     List<KnowledgeVersionDTO> getKnowledgeVersions(Long knowledgeId);
     KnowledgeVersionDTO getKnowledgeVersion(Long knowledgeId, Long version);
     KnowledgeVersionDTO.DiffResult compareVersions(Long knowledgeId, Long version1, Long version2);
+    
+    /**
+     * 回退到指定版本
+     * @param knowledgeId 知识ID
+     * @param targetVersion 目标版本号
+     * @param operatorUsername 操作人用户名
+     * @return 回退后的知识DTO
+     */
+    KnowledgeDTO revertToVersion(Long knowledgeId, Long targetVersion, String operatorUsername);
 }
 

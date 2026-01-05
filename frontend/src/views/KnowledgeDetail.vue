@@ -1,11 +1,23 @@
 <template>
   <div class="knowledge-detail-container" v-loading="loading">
     <div v-if="knowledge" class="detail-wrapper">
+      <!-- 草稿/版本状态提示横幅 -->
+      <div v-if="showDraftBanner" class="draft-banner" :class="draftBannerType">
+        <el-icon><Warning /></el-icon>
+        <span>{{ draftBannerMessage }}</span>
+        <el-button v-if="canViewDraft" size="small" type="primary" text @click="toggleViewMode">
+          {{ isViewingDraft ? '查看已发布版本' : '查看待审核草稿' }}
+        </el-button>
+      </div>
+      
       <!-- 头部信息 -->
       <div class="detail-header">
         <div class="header-left">
           <el-button class="back-btn" @click="goBack" :icon="ArrowLeft" circle />
-          <h1 v-if="!isEditMode" class="title">{{ knowledge.title }}</h1>
+          <h1 v-if="!isEditMode" class="title">
+            {{ displayContent.title }}
+            <el-tag v-if="isViewingDraft" size="small" type="warning" effect="dark" style="margin-left: 8px;">草稿</el-tag>
+          </h1>
           <el-input v-else v-model="editForm.title" placeholder="请输入标题" class="title-input" />
         </div>
         <div class="header-actions">
@@ -54,8 +66,8 @@
           <!-- 查看模式：文件预览/文本内容 -->
           <div v-else class="view-container">
             <!-- 只有纯文本内容 -->
-            <div v-if="!knowledge.fileId && knowledge.content" class="text-content-viewer">
-              <pre>{{ knowledge.content }}</pre>
+            <div v-if="!displayContent.fileId && displayContent.content" class="text-content-viewer">
+              <pre>{{ displayContent.content }}</pre>
             </div>
 
             <!-- 文件预览区 -->
@@ -129,36 +141,41 @@
                   <label>基本信息</label>
                   <div class="prop-item">
                     <span class="label">作者</span>
-                    <span class="value">{{ knowledge.author }}</span>
+                    <span class="value">{{ displayContent.author }}</span>
                   </div>
                    <div class="prop-item">
                     <span class="label">版本</span>
-                    <span class="value">v{{ knowledge.version }}</span>
+                    <span class="value">
+                      v{{ displayContent.version || knowledge.version }}
+                      <el-tag v-if="isViewingDraft" size="small" type="warning" style="margin-left: 4px;">草稿</el-tag>
+                      <el-tag v-else-if="hasDraft" size="small" type="success" style="margin-left: 4px;">已发布</el-tag>
+                    </span>
                   </div>
                   <div class="prop-item">
                     <span class="label">状态</span>
                     <el-tag size="small" :type="getStatusType(knowledge.status)">{{ getStatusText(knowledge.status) }}</el-tag>
+                    <el-tag v-if="hasDraft" size="small" type="warning" effect="plain" style="margin-left: 4px;">有草稿</el-tag>
                   </div>
                    <div class="prop-item">
                     <span class="label">分类</span>
-                    <span class="value">{{ knowledge.category }}</span>
+                    <span class="value">{{ displayContent.category }}</span>
                   </div>
                    <div class="prop-item">
                     <span class="label">时间</span>
-                    <span class="value">{{ formatTime(knowledge.updateTime || knowledge.createTime) }}</span>
+                    <span class="value">{{ formatTime(displayContent.createTime || knowledge.updateTime || knowledge.createTime) }}</span>
                   </div>
                 </div>
 
-                <div class="prop-group" v-if="knowledge.summary">
+                <div class="prop-group" v-if="displayContent.summary">
                   <label>摘要</label>
-                  <p class="summary-text">{{ knowledge.summary }}</p>
+                  <p class="summary-text">{{ displayContent.summary }}</p>
                 </div>
 
-                <div class="prop-group" v-if="knowledge.keywords">
+                <div class="prop-group" v-if="displayContent.keywords">
                   <label>关键词</label>
                   <div class="tags-wrapper">
                     <el-tag 
-                      v-for="tag in (knowledge.keywords || '').split(',')" 
+                      v-for="tag in (displayContent.keywords || '').split(',')" 
                       :key="tag" 
                       size="small" 
                       class="keyword-tag"
@@ -246,12 +263,12 @@
                     v-model="aiInput"
                     type="textarea"
                     :rows="2"
-                    placeholder="输入您的问题..."
-                    @keyup.enter.ctrl="sendAiMessage"
+                    placeholder="输入您的问题... (Enter发送, Shift+Enter换行)"
+                    @keydown.enter.exact.prevent="sendAiMessage"
                     :disabled="aiLoading"
                   />
                   <div class="ai-input-actions">
-                    <span class="hint">Ctrl+Enter 发送</span>
+                    <span class="hint">Enter 发送</span>
                     <el-button 
                       v-if="!aiLoading"
                       type="primary" 
@@ -335,8 +352,9 @@
                   <el-input
                     v-model="newCommentContent"
                     type="textarea"
-                    placeholder="发表看法..."
+                    placeholder="发表看法... (Enter发送, Shift+Enter换行)"
                     :rows="2"
+                    @keydown.enter.exact.prevent="submitComment"
                   />
                   <div class="comment-btn-row">
                     <el-button type="primary" size="small" @click="submitComment" :loading="commentSubmitting">发送</el-button>
@@ -383,26 +401,84 @@
 
              <el-tab-pane label="历史" name="history">
                <div class="history-panel">
-                 <el-timeline>
-                    <el-timeline-item
-                      v-for="(version, index) in versions"
-                      :key="index"
-                      :timestamp="formatTime(version.createTime)"
-                      placement="top"
+                 <!-- Git风格的commit列表 -->
+                 <div class="git-log">
+                    <div 
+                      v-for="(version, index) in versions" 
+                      :key="version.id"
+                      class="commit-item"
+                      :class="{ 'is-current': version.version === knowledge.version }"
                     >
-                       <div class="history-card">
-                         <div class="history-header">
-                            <h4>v{{ version.version }} <el-tag size="small" v-if="version.branch" effect="plain">{{ version.branch }}</el-tag></h4>
-                            <span class="history-time">{{ formatTime(version.createTime) }}</span>
-                         </div>
-                         <p class="history-msg">{{ version.changeDescription || '无变更说明' }}</p>
-                         <div class="history-ops">
-                            <el-button size="small" link @click="viewVersion(version)">查看</el-button>
-                            <el-button size="small" link v-if="version.version !== knowledge.version" @click="compareVersion(version)">与当前版本对比</el-button>
-                         </div>
-                       </div>
-                    </el-timeline-item>
-                 </el-timeline>
+                      <!-- Commit线和节点 -->
+                      <div class="commit-graph">
+                        <div class="commit-line" v-if="index < versions.length - 1"></div>
+                        <div class="commit-node" :class="{ 'is-current': version.version === knowledge.version }">
+                          <el-icon v-if="version.version === knowledge.version"><CircleCheckFilled /></el-icon>
+                        </div>
+                      </div>
+                      
+                      <!-- Commit内容 -->
+                      <div class="commit-content">
+                        <div class="commit-header">
+                          <div class="commit-hash-row">
+                            <span class="commit-hash" :title="version.commitHash">
+                              {{ version.commitHash ? version.commitHash.substring(0, 8) : '无hash' }}
+                            </span>
+                            <el-tag v-if="version.version === knowledge.version" size="small" type="success" effect="dark">当前版本</el-tag>
+                            <el-tag v-if="version.branch" size="small" effect="plain">{{ version.branch }}</el-tag>
+                          </div>
+                          <span class="commit-time">{{ formatTimeFriendly(version.createTime) }}</span>
+                        </div>
+                        
+                        <div class="commit-message">
+                          {{ version.commitMessage || version.changeDescription || '无变更说明' }}
+                        </div>
+                        
+                        <div class="commit-meta">
+                          <span class="commit-author">
+                            <el-icon><User /></el-icon>
+                            {{ version.createdBy || '未知' }}
+                          </span>
+                          <span class="commit-version">v{{ version.version }}</span>
+                        </div>
+                        
+                        <div class="commit-actions">
+                          <el-button size="small" text type="primary" @click="viewVersion(version)">
+                            <el-icon><View /></el-icon> 查看
+                          </el-button>
+                          <el-button 
+                            size="small" 
+                            text 
+                            type="warning"
+                            v-if="version.version !== knowledge.version"
+                            @click="compareVersion(version)"
+                          >
+                            <el-icon><Refresh /></el-icon> 与当前对比
+                          </el-button>
+                          <el-button 
+                            size="small" 
+                            text 
+                            type="info"
+                            v-if="index < versions.length - 1"
+                            @click="compareWithPrevious(version, index)"
+                          >
+                            <el-icon><TopRight /></el-icon> 与上一版本对比
+                          </el-button>
+                          <el-button 
+                            size="small" 
+                            text 
+                            type="danger"
+                            v-if="isAdmin(userStore.userInfo) && version.version !== knowledge.version"
+                            @click="revertToVersion(version)"
+                          >
+                            <el-icon><RefreshLeft /></el-icon> 回退到此版本
+                          </el-button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <el-empty v-if="versions.length === 0" description="暂无版本历史" :image-size="60" />
+                 </div>
                </div>
              </el-tab-pane>
           </el-tabs>
@@ -448,9 +524,83 @@
       </template>
     </el-dialog>
 
-    <!-- Version View/Compare Dialogs (Keep simple/same) -->
-    <el-dialog v-model="showVersionViewDialog" title="版本详情" width="60%">
-       <pre>{{ selectedVersion?.content }}</pre>
+    <!-- Version View Dialog -->
+    <el-dialog v-model="showVersionViewDialog" title="版本详情" width="70%">
+       <div class="version-view-dialog">
+         <div class="version-info-header">
+           <div class="version-info-item">
+             <span class="label">版本号</span>
+             <span class="value">v{{ selectedVersion?.version }}</span>
+           </div>
+           <div class="version-info-item">
+             <span class="label">Commit</span>
+             <span class="value commit-hash">{{ selectedVersion?.commitHash }}</span>
+           </div>
+           <div class="version-info-item">
+             <span class="label">分支</span>
+             <span class="value">{{ selectedVersion?.branch || 'main' }}</span>
+           </div>
+           <div class="version-info-item">
+             <span class="label">创建者</span>
+             <span class="value">{{ selectedVersion?.createdBy }}</span>
+           </div>
+           <div class="version-info-item">
+             <span class="label">创建时间</span>
+             <span class="value">{{ formatTime(selectedVersion?.createTime) }}</span>
+           </div>
+         </div>
+         <div class="version-message">
+           <strong>变更说明：</strong>{{ selectedVersion?.commitMessage || selectedVersion?.changeDescription || '无' }}
+         </div>
+         <el-divider>内容</el-divider>
+         <div class="version-content-wrapper">
+           <pre class="version-content">{{ selectedVersion?.content || '(无内容)' }}</pre>
+         </div>
+       </div>
+    </el-dialog>
+    
+    <!-- Version Compare Dialog -->
+    <el-dialog v-model="showCompareDialog" title="版本对比" width="85%" class="compare-dialog">
+       <div class="compare-header">
+         <div class="compare-version old">
+           <el-tag type="danger" effect="dark">旧版本 v{{ compareData.version1 }}</el-tag>
+           <span class="compare-hash">{{ compareData.hash1?.substring(0, 8) }}</span>
+         </div>
+         <el-icon class="compare-arrow"><ArrowRight /></el-icon>
+         <div class="compare-version new">
+           <el-tag type="success" effect="dark">新版本 v{{ compareData.version2 }}</el-tag>
+           <span class="compare-hash">{{ compareData.hash2?.substring(0, 8) }}</span>
+         </div>
+       </div>
+       
+       <div class="compare-stats" v-if="compareData.stats">
+         <el-tag type="success" effect="plain">
+           <el-icon><Plus /></el-icon> {{ compareData.stats.insertCount }} 行新增
+         </el-tag>
+         <el-tag type="danger" effect="plain">
+           <el-icon><Minus /></el-icon> {{ compareData.stats.deleteCount }} 行删除
+         </el-tag>
+         <el-tag type="info" effect="plain">
+           {{ compareData.stats.equalCount }} 行未变
+         </el-tag>
+       </div>
+       
+       <div class="diff-container" v-loading="compareLoading">
+         <div class="diff-view">
+           <div 
+             v-for="(line, idx) in compareData.diffLines" 
+             :key="idx"
+             class="diff-line"
+             :class="getDiffLineClass(line.type)"
+           >
+             <span class="line-number old">{{ line.lineNumber1 || '' }}</span>
+             <span class="line-number new">{{ line.lineNumber2 || '' }}</span>
+             <span class="line-type">{{ getDiffLineSymbol(line.type) }}</span>
+             <span class="line-content">{{ line.content }}</span>
+           </div>
+           <el-empty v-if="!compareData.diffLines?.length && !compareLoading" description="内容完全相同，无差异" />
+         </div>
+       </div>
     </el-dialog>
   </div>
 </template>
@@ -462,8 +612,8 @@ import api from '../api'
 import { sendMessageStream } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
-import { hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound } from '@element-plus/icons-vue'
+import { hasRole, isAdmin, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
+import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const route = useRoute()
@@ -493,6 +643,22 @@ const showVersionViewDialog = ref(false)
 const selectedVersion = ref(null)
 const relationGraphRef = ref(null)
 
+// 版本对比相关状态
+const showCompareDialog = ref(false)
+const compareLoading = ref(false)
+const compareData = ref({
+  version1: null,
+  version2: null,
+  hash1: null,
+  hash2: null,
+  diffLines: [],
+  stats: null
+})
+
+// 草稿/发布版本相关状态
+const publishedVersionContent = ref(null)  // 已发布版本的内容
+const isViewingDraft = ref(false)          // 是否正在查看草稿版本
+
 // AI Chat State
 const aiMessages = ref([])
 const aiInput = ref('')
@@ -513,6 +679,53 @@ const previewUrl = computed(() => {
   return `/api/file/preview/${fileInfo.value.id}`
 })
 
+// 是否有待审核草稿
+const hasDraft = computed(() => {
+  return knowledge.value?.hasDraft === true && 
+         knowledge.value?.publishedVersion != null &&
+         knowledge.value?.version !== knowledge.value?.publishedVersion
+})
+
+// 是否可以查看草稿（作者或管理员）
+const canViewDraft = computed(() => {
+  return hasDraft.value && canEdit(knowledge.value)
+})
+
+// 是否显示草稿横幅
+const showDraftBanner = computed(() => {
+  return hasDraft.value
+})
+
+// 草稿横幅类型
+const draftBannerType = computed(() => {
+  if (canViewDraft.value) {
+    return isViewingDraft.value ? 'banner-draft' : 'banner-info'
+  }
+  return 'banner-info'
+})
+
+// 草稿横幅消息
+const draftBannerMessage = computed(() => {
+  if (canViewDraft.value) {
+    if (isViewingDraft.value) {
+      return '您正在查看待审核的草稿版本，审核通过后将发布。'
+    } else {
+      return '该文章有待审核的新版本，您当前查看的是已发布版本。'
+    }
+  }
+  return '该文章有更新版本正在审核中，您当前查看的是已发布版本。'
+})
+
+// 当前显示的内容（根据isViewingDraft决定显示草稿还是已发布版本）
+const displayContent = computed(() => {
+  if (hasDraft.value && !isViewingDraft.value && publishedVersionContent.value) {
+    // 显示已发布版本
+    return publishedVersionContent.value
+  }
+  // 显示最新版本（草稿或无草稿时的当前版本）
+  return knowledge.value || {}
+})
+
 // Methods
 const loadDetail = async () => {
   loading.value = true
@@ -521,6 +734,24 @@ const loadDetail = async () => {
     knowledge.value = res.data || {}
     
     editForm.value = { ...knowledge.value }
+    
+    // 如果有草稿，加载已发布版本的内容
+    if (knowledge.value.hasDraft && knowledge.value.publishedVersion) {
+      try {
+        const publishedRes = await api.get(`/knowledge/${route.params.id}/versions/${knowledge.value.publishedVersion}`)
+        if (publishedRes.code === 200 && publishedRes.data) {
+          publishedVersionContent.value = publishedRes.data
+        }
+      } catch (e) { 
+        console.warn('加载已发布版本失败', e) 
+      }
+      
+      // 判断默认显示哪个版本：作者/管理员默认看草稿，普通用户看已发布版本
+      isViewingDraft.value = canEdit(knowledge.value)
+    } else {
+      publishedVersionContent.value = null
+      isViewingDraft.value = false
+    }
     
     if (knowledge.value.fileId) {
       try {
@@ -542,6 +773,11 @@ const loadDetail = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 切换查看草稿/已发布版本
+const toggleViewMode = () => {
+  isViewingDraft.value = !isViewingDraft.value
 }
 
 const checkCollectStatus = async () => {
@@ -820,7 +1056,7 @@ const remoteMethod = async (query) => {
   if(!query) return
   searchLoading.value = true
   try {
-     const res = await api.get('/knowledge/search', { params: { keyword: query, pageNum: 1, pageSize: 10 } })
+     const res = await api.post('/knowledge/search', { keyword: query, pageNum: 1, pageSize: 10 })
      relationSearchResults.value = (res.data.list || []).filter(i => i.id !== route.params.id)
   } finally { searchLoading.value = false }
 }
@@ -838,8 +1074,28 @@ const addKnowledgeRelation = async () => {
 
 const saveEdit = async () => {
   try {
-    await api.put(`/knowledge/${route.params.id}`, editForm.value)
-    ElMessage.success('保存成功')
+    const originalStatus = knowledge.value.status
+    const res = await api.put(`/knowledge/${route.params.id}`, {
+      ...editForm.value,
+      updateBy: userStore.userInfo?.username
+    })
+    
+    if (res.code === 200 && res.data) {
+      const newStatus = res.data.status
+      
+      // 如果状态从已发布变为待审核，提示用户
+      if (originalStatus === 'APPROVED' && newStatus === 'PENDING') {
+        ElMessage.success({
+          message: '保存成功！由于内容已修改，文章需要重新审核后才能发布。',
+          duration: 5000
+        })
+      } else {
+        ElMessage.success('保存成功')
+      }
+    } else {
+      ElMessage.success('保存成功')
+    }
+    
     router.replace({ query: {} })
     loadDetail()
   } catch (e) {
@@ -910,8 +1166,105 @@ const viewVersion = (version) => {
   showVersionViewDialog.value = true
 }
 
-const compareVersion = (version) => {
-  ElMessage.info('版本对比功能即将上线')
+// 回退到指定版本（仅管理员）
+const revertToVersion = async (version) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要回退到版本 v${version.version} 吗？\n\n这将创建一个新版本，内容与 v${version.version} 相同，并立即发布。`,
+      '版本回退',
+      {
+        confirmButtonText: '确定回退',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    const res = await api.post(`/knowledge/${route.params.id}/versions/${version.version}/revert`, null, {
+      params: { operatorUsername: userStore.userInfo?.username }
+    })
+    
+    if (res.code === 200) {
+      const newVersion = res.data
+      ElMessage.success(`已成功回退并发布，新版本号: v${newVersion.version}`)
+      loadDetail()
+    } else {
+      ElMessage.error(res.message || '回退失败')
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('版本回退失败', e)
+      ElMessage.error(e.message || '版本回退失败')
+    }
+  }
+}
+
+const compareVersion = async (version) => {
+  // 与当前版本对比
+  await doCompare(version.version, knowledge.value.version)
+}
+
+const compareWithPrevious = async (version, index) => {
+  // 与上一版本对比
+  if (index < versions.value.length - 1) {
+    const previousVersion = versions.value[index + 1]
+    await doCompare(previousVersion.version, version.version)
+  }
+}
+
+const doCompare = async (v1, v2) => {
+  showCompareDialog.value = true
+  compareLoading.value = true
+  compareData.value = {
+    version1: v1,
+    version2: v2,
+    hash1: null,
+    hash2: null,
+    diffLines: [],
+    stats: null
+  }
+  
+  try {
+    const res = await api.get(`/knowledge/${route.params.id}/versions/compare`, {
+      params: { version1: v1, version2: v2 }
+    })
+    
+    if (res.code === 200 && res.data) {
+      compareData.value = {
+        ...compareData.value,
+        diffLines: res.data.diffLines || [],
+        stats: res.data.stats
+      }
+      
+      // 获取版本hash信息
+      const ver1 = versions.value.find(v => v.version === v1)
+      const ver2 = versions.value.find(v => v.version === v2)
+      compareData.value.hash1 = ver1?.commitHash
+      compareData.value.hash2 = ver2?.commitHash
+    }
+  } catch (error) {
+    console.error('版本对比失败', error)
+    ElMessage.error('版本对比失败')
+  } finally {
+    compareLoading.value = false
+  }
+}
+
+const getDiffLineClass = (type) => {
+  const classMap = {
+    'INSERT': 'diff-insert',
+    'DELETE': 'diff-delete',
+    'EQUAL': 'diff-equal'
+  }
+  return classMap[type] || ''
+}
+
+const getDiffLineSymbol = (type) => {
+  const symbolMap = {
+    'INSERT': '+',
+    'DELETE': '-',
+    'EQUAL': ' '
+  }
+  return symbolMap[type] || ' '
 }
 
 const replyToComment = (comment) => {
@@ -940,6 +1293,37 @@ onMounted(() => {
   height: 100%;
   padding: 16px;
   gap: 16px;
+}
+
+/* 草稿状态横幅 */
+.draft-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.draft-banner.banner-info {
+  background: linear-gradient(135deg, #fdf6ec 0%, #fef0e6 100%);
+  color: #e6a23c;
+  border: 1px solid #faecd8;
+}
+
+.draft-banner.banner-draft {
+  background: linear-gradient(135deg, #ecf5ff 0%, #e6f1fc 100%);
+  color: #409eff;
+  border: 1px solid #d9ecff;
+}
+
+.draft-banner .el-icon {
+  font-size: 18px;
+}
+
+.draft-banner span {
+  flex: 1;
 }
 
 /* Header */
@@ -1411,5 +1795,325 @@ onMounted(() => {
     padding: 24px;
     max-width: 800px;
     margin: 0 auto;
+}
+
+/* Git Log Style History */
+.history-panel {
+  padding: 0;
+}
+
+.git-log {
+  display: flex;
+  flex-direction: column;
+}
+
+.commit-item {
+  display: flex;
+  padding: 12px 8px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.commit-item:hover {
+  background: #f5f7fa;
+}
+
+.commit-item.is-current {
+  background: #ecf5ff;
+}
+
+.commit-graph {
+  position: relative;
+  width: 24px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.commit-line {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  width: 2px;
+  height: calc(100% + 12px);
+  background: #dcdfe6;
+  transform: translateX(-50%);
+}
+
+.commit-node {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #dcdfe6;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px #dcdfe6;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.commit-node.is-current {
+  width: 18px;
+  height: 18px;
+  background: #67c23a;
+  box-shadow: 0 0 0 2px #67c23a;
+}
+
+.commit-node.is-current .el-icon {
+  color: white;
+  font-size: 14px;
+}
+
+.commit-content {
+  flex: 1;
+  margin-left: 12px;
+  min-width: 0;
+}
+
+.commit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.commit-hash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.commit-hash {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+  font-size: 12px;
+  color: #606266;
+  background: #f0f2f5;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.commit-time {
+  font-size: 12px;
+  color: #909399;
+}
+
+.commit-message {
+  font-size: 14px;
+  color: #303133;
+  font-weight: 500;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.commit-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.commit-author {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.commit-version {
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.commit-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Version View Dialog */
+.version-view-dialog {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.version-info-header {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.version-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.version-info-item .label {
+  font-size: 12px;
+  color: #909399;
+}
+
+.version-info-item .value {
+  font-size: 14px;
+  color: #303133;
+  font-weight: 500;
+}
+
+.version-info-item .value.commit-hash {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 13px;
+}
+
+.version-message {
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.version-content-wrapper {
+  max-height: 400px;
+  overflow: auto;
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.version-content {
+  margin: 0;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d4d4d4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Compare Dialog */
+.compare-dialog .el-dialog__body {
+  padding: 0 20px 20px;
+}
+
+.compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.compare-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compare-hash {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 12px;
+  color: #606266;
+}
+
+.compare-arrow {
+  font-size: 24px;
+  color: #909399;
+}
+
+.compare-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+
+.compare-stats .el-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff-container {
+  max-height: 500px;
+  overflow: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background: #1e1e1e;
+}
+
+.diff-view {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.diff-line {
+  display: flex;
+  padding: 0;
+  min-height: 24px;
+}
+
+.diff-line.diff-insert {
+  background: rgba(46, 160, 67, 0.2);
+}
+
+.diff-line.diff-delete {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+.diff-line.diff-equal {
+  background: transparent;
+}
+
+.line-number {
+  width: 40px;
+  padding: 0 8px;
+  text-align: right;
+  color: #6e7681;
+  background: rgba(0, 0, 0, 0.2);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.line-number.old {
+  border-right: 1px solid #30363d;
+}
+
+.line-type {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  font-weight: bold;
+}
+
+.diff-insert .line-type {
+  color: #3fb950;
+}
+
+.diff-delete .line-type {
+  color: #f85149;
+}
+
+.line-content {
+  flex: 1;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #d4d4d4;
+}
+
+.diff-insert .line-content {
+  color: #aff5b4;
+}
+
+.diff-delete .line-content {
+  color: #ffa198;
 }
 </style>

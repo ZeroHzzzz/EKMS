@@ -78,7 +78,9 @@ CREATE TABLE IF NOT EXISTS `knowledge` (
     `status` VARCHAR(20) DEFAULT 'DRAFT' COMMENT '状态',
     `click_count` BIGINT DEFAULT 0 COMMENT '点击次数',
     `collect_count` BIGINT DEFAULT 0 COMMENT '收藏次数',
-    `version` BIGINT DEFAULT 1 COMMENT '版本号',
+    `version` BIGINT DEFAULT 1 COMMENT '版本号（最新版本）',
+    `published_version` BIGINT DEFAULT NULL COMMENT '已发布的版本号（用户查看的版本）',
+    `has_draft` TINYINT(1) DEFAULT 0 COMMENT '是否有待审核的草稿版本',
     `current_branch` VARCHAR(50) DEFAULT 'main' COMMENT '当前分支',
     `current_commit_hash` VARCHAR(64) COMMENT '当前Commit Hash',
     `parent_id` BIGINT COMMENT '父节点ID（用于知识树结构）',
@@ -93,6 +95,8 @@ CREATE TABLE IF NOT EXISTS `knowledge` (
     INDEX `idx_file_id` (`file_id`),
     INDEX `idx_parent_id` (`parent_id`),
     INDEX `idx_parent_sort` (`parent_id`, `sort_order`),
+    INDEX `idx_published_version` (`published_version`),
+    INDEX `idx_has_draft` (`has_draft`),
     FULLTEXT INDEX `ft_content_text` (`content_text`) WITH PARSER ngram COMMENT '全文索引（MySQL ngram分词）'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识表';
 
@@ -133,12 +137,15 @@ CREATE TABLE IF NOT EXISTS `knowledge_version` (
     `change_description` VARCHAR(500) COMMENT '变更说明',
     `created_by` VARCHAR(50) COMMENT '创建人',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `is_published` TINYINT(1) DEFAULT 0 COMMENT '是否为已发布版本',
+    `status` VARCHAR(20) DEFAULT 'DRAFT' COMMENT '版本状态：DRAFT(草稿)、PENDING(待审核)、APPROVED(已发布)、REJECTED(已驳回)',
     INDEX `idx_knowledge_id` (`knowledge_id`),
     INDEX `idx_version` (`knowledge_id`, `version`),
     INDEX `idx_create_time` (`create_time`),
     INDEX `idx_commit_hash` (`commit_hash`),
     INDEX `idx_branch` (`knowledge_id`, `branch`),
-    INDEX `idx_parent_commit` (`parent_commit_id`)
+    INDEX `idx_parent_commit` (`parent_commit_id`),
+    INDEX `idx_is_published` (`knowledge_id`, `is_published`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识版本历史表';
 
 -- 知识分支表

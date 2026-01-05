@@ -1305,6 +1305,17 @@ const buildTree = (list) => {
     map[item.id] = { ...item, children: [] }
   })
   
+  // 辅助函数：将节点挂载到"未分类"
+  const addToUnclassified = (nodeId) => {
+    const unclassifiedDept = departmentRoots.find(dept => dept.title === '未分类')
+    if (unclassifiedDept) {
+      const deptId = unclassifiedDept.id < 0 ? `dept-${Math.abs(unclassifiedDept.id)}` : `dept-${unclassifiedDept.id}`
+      map[deptId].children.push(map[nodeId])
+    } else {
+      console.warn('未分类节点不存在，知识将不会显示:', nodeId)
+    }
+  }
+  
   // 构建树：将知识节点挂载到部门根节点下
   knowledgeNodes.forEach(item => {
     if (item.parentId) {
@@ -1320,13 +1331,14 @@ const buildTree = (list) => {
           const deptId = deptRoot.id < 0 ? `dept-${Math.abs(deptRoot.id)}` : `dept-${deptRoot.id}`
           map[deptId].children.push(map[item.id])
         } else {
-          // 找不到部门，作为根节点
-          roots.push(map[item.id])
+          // 找不到部门，挂载到"未分类"
+          console.warn('父节点不存在且找不到匹配的部门，移到未分类:', item.department, '知识ID:', item.id, '知识标题:', item.title)
+          addToUnclassified(item.id)
         }
       }
     } else {
       // 没有父节点，挂载到对应部门下
-      if (item.department) {
+      if (item.department && item.department !== '未知') {
         // 匹配部门：优先使用 department 字段，如果匹配不到，尝试使用 title 字段
         let deptRoot = departmentRoots.find(dept => 
           dept.department === item.department || dept.title === item.department
@@ -1335,19 +1347,13 @@ const buildTree = (list) => {
           const deptId = deptRoot.id < 0 ? `dept-${Math.abs(deptRoot.id)}` : `dept-${deptRoot.id}`
           map[deptId].children.push(map[item.id])
         } else {
-          // 找不到匹配的部门，作为根节点（这种情况不应该发生，但容错处理）
-          console.warn('找不到匹配的部门:', item.department, '知识ID:', item.id, '知识标题:', item.title)
-          roots.push(map[item.id])
+          // 找不到匹配的部门，挂载到"未分类"
+          console.warn('找不到匹配的部门，移到未分类:', item.department, '知识ID:', item.id, '知识标题:', item.title)
+          addToUnclassified(item.id)
         }
       } else {
-        // 没有部门的知识，挂载到"未分类"部门
-        const unclassifiedDept = departmentRoots.find(dept => dept.title === '未分类')
-        if (unclassifiedDept) {
-          const deptId = unclassifiedDept.id < 0 ? `dept-${Math.abs(unclassifiedDept.id)}` : `dept-${unclassifiedDept.id}`
-          map[deptId].children.push(map[item.id])
-        } else {
-          roots.push(map[item.id])
-        }
+        // 没有部门或部门为"未知"的知识，挂载到"未分类"部门
+        addToUnclassified(item.id)
       }
     }
   })
@@ -3476,6 +3482,8 @@ const handleUploadToFolder = () => {
   // 如果是虚拟根节点或部门根节点，parentId 应该为 null
   const nodeId = selectedVisualNode.value.id === 'root' ? null : selectedVisualNode.value.id
   uploadForm.value.parentId = normalizeParentId(nodeId)
+  // 继承父节点的 department
+  uploadForm.value.department = selectedVisualNode.value.department || null
   // 获取节点路径
   if (nodeId) {
     uploadForm.value.parentPath = getNodePath(nodeId) || selectedVisualNode.value.title || '根目录'
@@ -3491,6 +3499,8 @@ const uploadToFolder = (folderData) => {
   // 如果是虚拟根节点或部门根节点，parentId 应该为 null
   const nodeId = folderData.id === 'root' ? null : folderData.id
   uploadForm.value.parentId = normalizeParentId(nodeId)
+  // 继承父节点的 department
+  uploadForm.value.department = folderData.department || null
   // 获取节点路径
   if (nodeId) {
     uploadForm.value.parentPath = getNodePath(nodeId) || folderData.title || '根目录'
@@ -3579,6 +3589,8 @@ const handleUploadToListFolder = () => {
   if (!selectedListNode.value || !isFolder(selectedListNode.value)) return
   // 如果是虚拟根节点或部门根节点，parentId 应该为 null
   uploadForm.value.parentId = normalizeParentId(selectedListNode.value.id === 'root' ? null : selectedListNode.value.id)
+  // 继承父节点的 department
+  uploadForm.value.department = selectedListNode.value.department || null
   showUploadDialog.value = true
 }
 
@@ -3679,6 +3691,8 @@ const handleContextMenuClick = (action) => {
       if (data && isFolder(data)) {
         const nodeId = data.id === 'root' ? null : data.id
         uploadForm.value.parentId = normalizeParentId(nodeId)
+        // 继承父节点的 department
+        uploadForm.value.department = data.department || null
         // 获取节点路径
         if (nodeId) {
           uploadForm.value.parentPath = getNodePath(nodeId) || data.title || '根目录'
@@ -3824,9 +3838,9 @@ const startUpload = async () => {
         })
         if (checkRes.code === 200 && checkRes.data) {
           fileDTO = checkRes.data
-          ElMessage.info(`${file.name} 已存在，跳过上传`)
-          uploadProgress.value = Math.round(((i + 1) / fileList.value.length) * 100)
-          continue
+          // 文件已存在，但仍需要继续创建知识条目和提交审核
+          // 不要 continue，让代码继续执行后面的创建知识和提交审核逻辑
+          ElMessage.info(`${file.name} 文件已存在，将创建知识条目`)
         }
       } catch (error) {
         // 文件不存在或其他错误，继续上传（不显示错误提示）

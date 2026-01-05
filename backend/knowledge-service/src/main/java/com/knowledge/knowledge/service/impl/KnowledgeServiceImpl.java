@@ -68,13 +68,15 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     public KnowledgeDTO createKnowledge(KnowledgeDTO knowledgeDTO) {
         Knowledge knowledge = new Knowledge();
         BeanUtils.copyProperties(knowledgeDTO, knowledge);
-        // 如果创建时指定了状态，使用指定状态；否则默认为待审核
-        // 设置状态：普通用户默认为待审核，管理员可指定状态（默认已发布）
+        
+        // 检查创建者是否是管理员
+        boolean isAdmin = false;
         String status = Constants.FILE_STATUS_PENDING;
         try {
             if (knowledgeDTO.getCreateBy() != null) {
                 UserDTO user = userService.getUserByUsername(knowledgeDTO.getCreateBy());
                 if (user != null && Constants.ROLE_ADMIN.equals(user.getRole())) {
+                    isAdmin = true;
                     if (knowledgeDTO.getStatus() != null && !knowledgeDTO.getStatus().isEmpty()) {
                         status = knowledgeDTO.getStatus();
                     } else {
@@ -85,13 +87,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         } catch (Exception e) {
             log.warn("检查用户角色失败，使用默认状态PENDING: {}", e.getMessage());
         }
+        
         knowledge.setStatus(status);
         knowledge.setClickCount(0L);
         knowledge.setCollectCount(0L);
         knowledge.setVersion(1L);
-        knowledge.setCurrentBranch("main"); // 默认分支为main
+        knowledge.setHasDraft(false);
+        knowledge.setCurrentBranch("main");
         knowledge.setCreateTime(LocalDateTime.now());
-        // 设置创建人
+        
+        // 如果是管理员创建且状态为已发布，设置publishedVersion
+        if (isAdmin && Constants.FILE_STATUS_APPROVED.equals(status)) {
+            knowledge.setPublishedVersion(1L);
+        }
+        
         if (knowledgeDTO.getCreateBy() != null) {
             knowledge.setCreateBy(knowledgeDTO.getCreateBy());
         }
@@ -122,6 +131,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         initialVersion.setCommitHash(commitHash);
         initialVersion.setCreatedBy(knowledgeDTO.getCreateBy());
         initialVersion.setCreateTime(LocalDateTime.now());
+        // 设置版本状态
+        initialVersion.setStatus(status);
+        initialVersion.setIsPublished(isAdmin && Constants.FILE_STATUS_APPROVED.equals(status));
         knowledgeVersionMapper.insert(initialVersion);
         
         // 提取并保存文档全文内容
@@ -146,28 +158,89 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new RuntimeException("知识不存在");
         }
         
-        // 保存当前版本到版本历史表
-        saveVersionHistory(knowledge, knowledgeDTO.getChangeDescription(), knowledgeDTO.getUpdateBy());
+        // 记录原始状态
+        String originalStatus = knowledge.getStatus();
+        Long originalPublishedVersion = knowledge.getPublishedVersion();
         
-
-        // 更新知识内容 (忽略contentText，避免被null覆盖)
-        BeanUtils.copyProperties(knowledgeDTO, knowledge, "id", "createTime", "createBy", "contentText");
-        
-        // 如果文件ID变更或contentText为空，重新提取内容
-        if (knowledge.getFileId() != null && 
-            (knowledge.getContentText() == null || !knowledge.getFileId().equals(knowledgeMapper.selectById(knowledgeDTO.getId()).getFileId()))) {
-             String fullText = extractTextFromFile(knowledge.getFileId());
-             if (fullText != null) {
-                 knowledge.setContentText(fullText);
-             }
+        // 检查更新者是否是管理员
+        boolean isAdmin = false;
+        try {
+            if (knowledgeDTO.getUpdateBy() != null) {
+                UserDTO user = userService.getUserByUsername(knowledgeDTO.getUpdateBy());
+                isAdmin = user != null && Constants.ROLE_ADMIN.equals(user.getRole());
+            }
+        } catch (Exception e) {
+            log.warn("检查用户角色失败: {}", e.getMessage());
         }
         
-        // 处理版本号，如果为null则初始化为1
+        // 处理版本号
         Long currentVersion = knowledge.getVersion();
         if (currentVersion == null) {
             currentVersion = 1L;
         }
-        knowledge.setVersion(currentVersion + 1);
+        Long newVersion = currentVersion + 1;
+        
+        // 保存新版本到版本历史表（作为草稿/待审核）
+        String versionStatus;
+        boolean isPublished = false;
+        
+        // 判断新版本的状态
+        if (Constants.FILE_STATUS_APPROVED.equals(originalStatus) && originalPublishedVersion != null) {
+            // 已有发布版本，新编辑的作为待审核草稿
+            if (isAdmin) {
+                // 管理员编辑：直接发布新版本
+                versionStatus = Constants.FILE_STATUS_APPROVED;
+                isPublished = true;
+                knowledge.setPublishedVersion(newVersion);
+                knowledge.setHasDraft(false);
+                knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+                log.info("管理员编辑已发布文章，直接发布新版本 - 知识ID: {}, 新版本: {}", knowledge.getId(), newVersion);
+            } else {
+                // 普通用户编辑：创建待审核草稿，保留已发布版本
+                versionStatus = Constants.FILE_STATUS_PENDING;
+                isPublished = false;
+                knowledge.setHasDraft(true);
+                // status保持APPROVED，因为已发布版本仍然对外可见
+                // 但同时标记有待审核的草稿
+                log.info("用户编辑已发布文章，创建待审核草稿 - 知识ID: {}, 草稿版本: {}, 已发布版本: {}", 
+                        knowledge.getId(), newVersion, originalPublishedVersion);
+            }
+        } else {
+            // 尚未有发布版本，或原状态不是已发布
+            if (isAdmin) {
+                versionStatus = Constants.FILE_STATUS_APPROVED;
+                isPublished = true;
+                knowledge.setPublishedVersion(newVersion);
+                knowledge.setHasDraft(false);
+                knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+            } else {
+                versionStatus = Constants.FILE_STATUS_PENDING;
+                isPublished = false;
+                knowledge.setHasDraft(true);
+                knowledge.setStatus(Constants.FILE_STATUS_PENDING);
+            }
+        }
+        
+        // 保存版本历史
+        saveVersionHistoryWithStatus(knowledge, knowledgeDTO, newVersion, versionStatus, isPublished);
+        
+        // 更新知识内容（保存最新草稿/发布内容）
+        BeanUtils.copyProperties(knowledgeDTO, knowledge, "id", "createTime", "createBy", "contentText", 
+                "publishedVersion", "hasDraft", "status", "version");
+        
+        // 如果文件ID变更或contentText为空，重新提取内容
+        if (knowledge.getFileId() != null) {
+            Knowledge originalKnowledge = knowledgeMapper.selectById(knowledgeDTO.getId());
+            if (knowledge.getContentText() == null || 
+                !knowledge.getFileId().equals(originalKnowledge.getFileId())) {
+                String fullText = extractTextFromFile(knowledge.getFileId());
+                if (fullText != null) {
+                    knowledge.setContentText(fullText);
+                }
+            }
+        }
+        
+        knowledge.setVersion(newVersion);
         
         // 设置当前分支（如果没有则默认为main）
         if (knowledge.getCurrentBranch() == null || knowledge.getCurrentBranch().trim().isEmpty()) {
@@ -177,7 +250,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         knowledge.setUpdateTime(LocalDateTime.now());
         knowledgeMapper.updateById(knowledge);
         
-        // 更新当前commit hash（从最新版本获取）
+        // 更新当前commit hash
         LambdaQueryWrapper<KnowledgeVersion> versionWrapper = new LambdaQueryWrapper<>();
         versionWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledge.getId());
         versionWrapper.eq(KnowledgeVersion::getBranch, knowledge.getCurrentBranch());
@@ -192,6 +265,63 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         KnowledgeDTO result = new KnowledgeDTO();
         BeanUtils.copyProperties(knowledge, result);
         return result;
+    }
+    
+    /**
+     * 保存版本历史（带状态）
+     */
+    private void saveVersionHistoryWithStatus(Knowledge knowledge, KnowledgeDTO dto, Long newVersion, 
+                                              String versionStatus, boolean isPublished) {
+        KnowledgeVersion version = new KnowledgeVersion();
+        version.setKnowledgeId(knowledge.getId());
+        version.setVersion(newVersion);
+        
+        // 从DTO获取新内容
+        version.setTitle(dto.getTitle() != null ? dto.getTitle() : knowledge.getTitle());
+        version.setContent(dto.getContent() != null ? dto.getContent() : knowledge.getContent());
+        version.setSummary(dto.getSummary() != null ? dto.getSummary() : knowledge.getSummary());
+        version.setCategory(dto.getCategory() != null ? dto.getCategory() : knowledge.getCategory());
+        version.setKeywords(dto.getKeywords() != null ? dto.getKeywords() : knowledge.getKeywords());
+        version.setAuthor(dto.getAuthor() != null ? dto.getAuthor() : knowledge.getAuthor());
+        version.setDepartment(dto.getDepartment() != null ? dto.getDepartment() : knowledge.getDepartment());
+        version.setFileId(dto.getFileId() != null ? dto.getFileId() : knowledge.getFileId());
+        
+        String commitMessage = dto.getChangeDescription() != null && !dto.getChangeDescription().trim().isEmpty() 
+            ? dto.getChangeDescription() 
+            : "更新知识内容";
+        version.setChangeDescription(commitMessage);
+        version.setCommitMessage(commitMessage);
+        
+        version.setCreatedBy(dto.getUpdateBy() != null ? dto.getUpdateBy() : knowledge.getUpdateBy());
+        version.setCreateTime(LocalDateTime.now());
+        
+        String branch = knowledge.getCurrentBranch() != null ? knowledge.getCurrentBranch() : "main";
+        version.setBranch(branch);
+        
+        Long parentCommitId = findParentCommitId(knowledge.getId(), branch);
+        version.setParentCommitId(parentCommitId);
+        
+        // 临时设置版本号用于生成hash
+        knowledge.setVersion(newVersion);
+        String commitHash = generateCommitHash(knowledge, commitMessage, dto.getUpdateBy(), branch, parentCommitId);
+        version.setCommitHash(commitHash);
+        
+        // 设置版本状态
+        version.setStatus(versionStatus);
+        version.setIsPublished(isPublished);
+        
+        knowledgeVersionMapper.insert(version);
+        log.info("保存版本历史 - 知识ID: {}, 版本: {}, 状态: {}, 是否发布: {}", 
+                knowledge.getId(), newVersion, versionStatus, isPublished);
+    }
+    
+    /**
+     * 安全比较两个对象是否相等（处理null情况）
+     */
+    private boolean equals(Object a, Object b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.equals(b);
     }
     
     /**
@@ -468,9 +598,44 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         if (knowledge == null) {
             return false;
         }
+        
+        // 获取当前最新版本号
+        Long currentVersion = knowledge.getVersion();
+        if (currentVersion == null) {
+            currentVersion = 1L;
+        }
+        
+        // 更新knowledge表：发布当前版本
         knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+        knowledge.setPublishedVersion(currentVersion);  // 设置发布版本为当前版本
+        knowledge.setHasDraft(false);  // 清除草稿标记
         knowledge.setUpdateTime(LocalDateTime.now());
         boolean result = knowledgeMapper.updateById(knowledge) > 0;
+        
+        // 更新version表：标记当前版本为已发布
+        if (result) {
+            LambdaQueryWrapper<KnowledgeVersion> versionWrapper = new LambdaQueryWrapper<>();
+            versionWrapper.eq(KnowledgeVersion::getKnowledgeId, id);
+            versionWrapper.eq(KnowledgeVersion::getVersion, currentVersion);
+            KnowledgeVersion latestVersion = knowledgeVersionMapper.selectOne(versionWrapper);
+            if (latestVersion != null) {
+                latestVersion.setIsPublished(true);
+                latestVersion.setStatus(Constants.FILE_STATUS_APPROVED);
+                knowledgeVersionMapper.updateById(latestVersion);
+                log.info("版本已标记为发布: knowledgeId={}, version={}", id, currentVersion);
+            }
+            
+            // 将之前的发布版本标记为非发布（可选，保留历史）
+            LambdaQueryWrapper<KnowledgeVersion> oldVersionWrapper = new LambdaQueryWrapper<>();
+            oldVersionWrapper.eq(KnowledgeVersion::getKnowledgeId, id);
+            oldVersionWrapper.ne(KnowledgeVersion::getVersion, currentVersion);
+            oldVersionWrapper.eq(KnowledgeVersion::getIsPublished, true);
+            List<KnowledgeVersion> oldPublishedVersions = knowledgeVersionMapper.selectList(oldVersionWrapper);
+            for (KnowledgeVersion oldVersion : oldPublishedVersions) {
+                oldVersion.setIsPublished(false);
+                knowledgeVersionMapper.updateById(oldVersion);
+            }
+        }
         
         // 同步更新Elasticsearch索引
         if (result) {
@@ -478,7 +643,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 KnowledgeDTO dto = new KnowledgeDTO();
                 BeanUtils.copyProperties(knowledge, dto);
                 searchService.updateIndex(dto);
-                log.info("发布知识并更新索引成功: knowledgeId={}", id);
+                log.info("发布知识并更新索引成功: knowledgeId={}, publishedVersion={}", id, currentVersion);
             } catch (Exception e) {
                 log.warn("发布知识后更新索引失败: knowledgeId={}", id, e);
                 // 索引失败不影响主流程
@@ -906,9 +1071,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             result.addAll(deptKnowledges);
         }
         
-        // 处理没有部门的知识（department为null或空）
+        // 处理没有部门的知识（department为null、空或"未知"）
         List<KnowledgeDTO> noDeptKnowledges = knowledgeDTOs.stream()
-            .filter(k -> (k.getDepartment() == null || k.getDepartment().trim().isEmpty()) && k.getParentId() == null)
+            .filter(k -> (k.getDepartment() == null || k.getDepartment().trim().isEmpty() || "未知".equals(k.getDepartment().trim())) && k.getParentId() == null)
             .sorted((a, b) -> {
                 int sortCompare = Integer.compare(a.getSortOrder() != null ? a.getSortOrder() : 0,
                                                  b.getSortOrder() != null ? b.getSortOrder() : 0);
@@ -917,15 +1082,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             })
             .collect(Collectors.toList());
         
+        // 始终创建"未分类"部门节点（使用一个很大的负数ID避免与部门ID冲突）
+        // 这样用户可以将没有分类的知识放到这里
+        KnowledgeDTO unclassifiedNode = new KnowledgeDTO();
+        unclassifiedNode.setId(-999999L);
+        unclassifiedNode.setTitle("未分类");
+        unclassifiedNode.setIsDepartmentRoot(true);
+        unclassifiedNode.setParentId(null);
+        result.add(unclassifiedNode);
+        
         if (!noDeptKnowledges.isEmpty()) {
-            // 创建"未分类"部门节点（使用一个很大的负数ID避免与部门ID冲突）
-            KnowledgeDTO unclassifiedNode = new KnowledgeDTO();
-            unclassifiedNode.setId(-999999L);
-            unclassifiedNode.setTitle("未分类");
-            unclassifiedNode.setIsDepartmentRoot(true);
-            unclassifiedNode.setParentId(null);
-            result.add(unclassifiedNode);
-            
             List<KnowledgeDTO> unclassifiedTree = buildTreeForDepartment(noDeptKnowledges, knowledgeDTOs);
             result.addAll(unclassifiedTree);
         }
@@ -1051,6 +1217,121 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             BeanUtils.copyProperties(k, dto);
             return dto;
         }).collect(Collectors.toList());
+    }
+    
+    @Override
+    @Transactional
+    public KnowledgeDTO revertToVersion(Long knowledgeId, Long targetVersion, String operatorUsername) {
+        // 1. 获取当前知识
+        Knowledge knowledge = knowledgeMapper.selectById(knowledgeId);
+        if (knowledge == null) {
+            throw new RuntimeException("知识不存在");
+        }
+        
+        // 2. 检查操作者是否是管理员（只有管理员才能回退版本）
+        boolean isAdmin = false;
+        try {
+            if (operatorUsername != null) {
+                UserDTO user = userService.getUserByUsername(operatorUsername);
+                isAdmin = user != null && Constants.ROLE_ADMIN.equals(user.getRole());
+            }
+        } catch (Exception e) {
+            log.warn("检查用户角色失败: {}", e.getMessage());
+        }
+        
+        if (!isAdmin) {
+            throw new RuntimeException("只有管理员才能执行版本回退操作");
+        }
+        
+        // 3. 获取目标版本的内容
+        LambdaQueryWrapper<KnowledgeVersion> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+        wrapper.eq(KnowledgeVersion::getVersion, targetVersion);
+        wrapper.last("LIMIT 1");
+        KnowledgeVersion targetVersionEntity = knowledgeVersionMapper.selectOne(wrapper);
+        
+        if (targetVersionEntity == null) {
+            throw new RuntimeException("目标版本不存在");
+        }
+        
+        // 4. 创建新版本（回退版本）
+        Long newVersion = knowledge.getVersion() + 1;
+        String commitMessage = "回退到版本 v" + targetVersion;
+        
+        KnowledgeVersion revertVersion = new KnowledgeVersion();
+        revertVersion.setKnowledgeId(knowledgeId);
+        revertVersion.setVersion(newVersion);
+        // 复制目标版本的内容
+        revertVersion.setTitle(targetVersionEntity.getTitle());
+        revertVersion.setContent(targetVersionEntity.getContent());
+        revertVersion.setSummary(targetVersionEntity.getSummary());
+        revertVersion.setCategory(targetVersionEntity.getCategory());
+        revertVersion.setKeywords(targetVersionEntity.getKeywords());
+        revertVersion.setAuthor(targetVersionEntity.getAuthor());
+        revertVersion.setDepartment(targetVersionEntity.getDepartment());
+        revertVersion.setFileId(targetVersionEntity.getFileId());
+        revertVersion.setChangeDescription(commitMessage);
+        revertVersion.setCommitMessage(commitMessage);
+        revertVersion.setBranch(knowledge.getCurrentBranch() != null ? knowledge.getCurrentBranch() : "main");
+        revertVersion.setParentCommitId(findParentCommitId(knowledgeId, revertVersion.getBranch()));
+        revertVersion.setCreatedBy(operatorUsername);
+        revertVersion.setCreateTime(LocalDateTime.now());
+        
+        // 生成commit hash
+        knowledge.setVersion(newVersion);
+        String commitHash = generateCommitHash(knowledge, commitMessage, operatorUsername, revertVersion.getBranch(), revertVersion.getParentCommitId());
+        revertVersion.setCommitHash(commitHash);
+        
+        // 5. 管理员回退：直接发布新版本
+        revertVersion.setStatus(Constants.FILE_STATUS_APPROVED);
+        revertVersion.setIsPublished(true);
+        knowledge.setPublishedVersion(newVersion);
+        knowledge.setHasDraft(false);
+        knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+        
+        // 取消之前的发布标记
+        LambdaQueryWrapper<KnowledgeVersion> oldWrapper = new LambdaQueryWrapper<>();
+        oldWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+        oldWrapper.eq(KnowledgeVersion::getIsPublished, true);
+        List<KnowledgeVersion> oldVersions = knowledgeVersionMapper.selectList(oldWrapper);
+        for (KnowledgeVersion v : oldVersions) {
+            v.setIsPublished(false);
+            knowledgeVersionMapper.updateById(v);
+        }
+        
+        knowledgeVersionMapper.insert(revertVersion);
+        
+        // 6. 更新knowledge表内容
+        knowledge.setTitle(targetVersionEntity.getTitle());
+        knowledge.setContent(targetVersionEntity.getContent());
+        knowledge.setSummary(targetVersionEntity.getSummary());
+        knowledge.setCategory(targetVersionEntity.getCategory());
+        knowledge.setKeywords(targetVersionEntity.getKeywords());
+        knowledge.setAuthor(targetVersionEntity.getAuthor());
+        knowledge.setDepartment(targetVersionEntity.getDepartment());
+        knowledge.setFileId(targetVersionEntity.getFileId());
+        knowledge.setVersion(newVersion);
+        knowledge.setCurrentCommitHash(commitHash);
+        knowledge.setUpdateTime(LocalDateTime.now());
+        knowledge.setUpdateBy(operatorUsername);
+        
+        knowledgeMapper.updateById(knowledge);
+        
+        log.info("版本回退成功 - 知识ID: {}, 回退到版本 {} 的内容, 新版本号: {}, 操作者(管理员): {}", 
+                knowledgeId, targetVersion, newVersion, operatorUsername);
+        
+        // 7. 更新搜索索引
+        try {
+            KnowledgeDTO dto = new KnowledgeDTO();
+            BeanUtils.copyProperties(knowledge, dto);
+            searchService.updateIndex(dto);
+        } catch (Exception e) {
+            log.warn("回退后更新索引失败: knowledgeId={}", knowledgeId, e);
+        }
+        
+        KnowledgeDTO result = new KnowledgeDTO();
+        BeanUtils.copyProperties(knowledge, result);
+        return result;
     }
 }
 

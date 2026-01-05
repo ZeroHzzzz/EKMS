@@ -47,7 +47,7 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/{id:\\d+}")
     public Result<KnowledgeDTO> updateKnowledge(@PathVariable Long id, @RequestBody KnowledgeDTO knowledgeDTO) {
         knowledgeDTO.setId(id);
         KnowledgeDTO result = knowledgeService.updateKnowledge(knowledgeDTO);
@@ -63,7 +63,7 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     public Result<KnowledgeDTO> getKnowledge(@PathVariable Long id) {
         KnowledgeDTO result = knowledgeService.getKnowledgeById(id);
         knowledgeService.updateClickCount(id);
@@ -76,7 +76,7 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{id:\\d+}")
     public Result<Boolean> deleteKnowledge(@PathVariable Long id) {
         boolean result = knowledgeService.deleteKnowledge(id);
         // 从ElasticSearch删除索引
@@ -117,25 +117,25 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @PostMapping("/{id}/collect")
+    @PostMapping("/{id:\\d+}/collect")
     public Result<Boolean> collectKnowledge(@PathVariable Long id, @RequestParam Long userId) {
         boolean result = knowledgeService.collectKnowledge(userId, id);
         return Result.success(result);
     }
 
-    @DeleteMapping("/{id}/collect")
+    @DeleteMapping("/{id:\\d+}/collect")
     public Result<Boolean> cancelCollectKnowledge(@PathVariable Long id, @RequestParam Long userId) {
         boolean result = knowledgeService.cancelCollectKnowledge(userId, id);
         return Result.success(result);
     }
 
-    @GetMapping("/{id}/path")
+    @GetMapping("/{id:\\d+}/path")
     public Result<List<KnowledgeDTO>> getKnowledgePath(@PathVariable Long id) {
         List<KnowledgeDTO> result = knowledgeService.getKnowledgePath(id);
         return Result.success(result);
     }
 
-    @GetMapping("/{id}/collect/status")
+    @GetMapping("/{id:\\d+}/collect/status")
     public Result<Boolean> isCollected(@PathVariable Long id, @RequestParam Long userId) {
         boolean result = knowledgeService.isCollected(userId, id);
         return Result.success(result);
@@ -147,13 +147,13 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @PostMapping("/{id}/publish")
+    @PostMapping("/{id:\\d+}/publish")
     public Result<Boolean> publishKnowledge(@PathVariable Long id) {
         boolean result = knowledgeService.publishKnowledge(id);
         return Result.success(result);
     }
 
-    @PostMapping("/{id}/submit-audit")
+    @PostMapping("/{id:\\d+}/submit-audit")
     public Result<AuditDTO> submitForAudit(@PathVariable Long id, @RequestParam Long userId) {
         // 提交审核
         KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
@@ -185,7 +185,7 @@ public class KnowledgeController {
         return Result.error("知识状态不正确，无法提交审核（只有待审核或已驳回状态的知识可以提交审核）");
     }
 
-    @GetMapping("/{id}/related")
+    @GetMapping("/{id:\\d+}/related")
     public Result<List<KnowledgeDTO>> getRelatedKnowledge(@PathVariable Long id, @RequestParam(defaultValue = "5") int limit) {
         List<KnowledgeDTO> result = knowledgeService.getRelatedKnowledge(id, limit);
         return Result.success(result);
@@ -211,7 +211,7 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @PutMapping("/{id}/move")
+    @PutMapping("/{id:\\d+}/move")
     public Result<Boolean> moveKnowledge(
             @PathVariable Long id,
             @RequestBody MoveKnowledgeRequest request) {
@@ -260,20 +260,20 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @GetMapping("/{id}/audit/history")
+    @GetMapping("/{id:\\d+}/audit/history")
     public Result<List<AuditRecordDTO>> getAuditHistory(@PathVariable Long id) {
         List<AuditRecordDTO> result = auditService.getAuditHistory(id);
         return Result.success(result);
     }
 
     // 版本相关接口
-    @GetMapping("/{id}/versions")
+    @GetMapping("/{id:\\d+}/versions")
     public Result<List<KnowledgeVersionDTO>> getKnowledgeVersions(@PathVariable Long id) {
         List<KnowledgeVersionDTO> result = knowledgeService.getKnowledgeVersions(id);
         return Result.success(result);
     }
 
-    @GetMapping("/{id}/versions/{version}")
+    @GetMapping("/{id:\\d+}/versions/{version:\\d+}")
     public Result<KnowledgeVersionDTO> getKnowledgeVersion(@PathVariable Long id, @PathVariable Long version) {
         KnowledgeVersionDTO result = knowledgeService.getKnowledgeVersion(id, version);
         if (result == null) {
@@ -282,7 +282,7 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @GetMapping("/{id}/versions/compare")
+    @GetMapping("/{id:\\d+}/versions/compare")
     public Result<KnowledgeVersionDTO.DiffResult> compareVersions(
             @PathVariable Long id,
             @RequestParam Long version1,
@@ -290,9 +290,31 @@ public class KnowledgeController {
         KnowledgeVersionDTO.DiffResult result = knowledgeService.compareVersions(id, version1, version2);
         return Result.success(result);
     }
+    
+    @PostMapping("/{id:\\d+}/versions/{version:\\d+}/revert")
+    public Result<KnowledgeDTO> revertToVersion(
+            @PathVariable Long id,
+            @PathVariable Long version,
+            @RequestParam String operatorUsername) {
+        try {
+            KnowledgeDTO result = knowledgeService.revertToVersion(id, version, operatorUsername);
+            // 更新搜索索引
+            if (result != null) {
+                try {
+                    searchService.updateIndex(result);
+                } catch (Exception e) {
+                    log.warn("回退后更新索引失败: knowledgeId={}", id, e);
+                }
+            }
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("版本回退失败: knowledgeId={}, version={}", id, version, e);
+            return Result.error("版本回退失败: " + e.getMessage());
+        }
+    }
 
     // 评论相关接口
-    @GetMapping("/{id}/comments")
+    @GetMapping("/{id:\\d+}/comments")
     public Result<List<CommentDTO>> getComments(@PathVariable Long id) {
         // 获取当前用户ID (这里假设从上下文或参数获取，暂传null或通过拦截器设置)
         // 实际上应该从UserContext或Header获取，为了简化演示暂不传currentUserId
@@ -301,7 +323,7 @@ public class KnowledgeController {
         return Result.success(result);
     }
 
-    @PostMapping("/{id}/comments")
+    @PostMapping("/{id:\\d+}/comments")
     public Result<CommentDTO> addComment(@PathVariable Long id, @RequestBody CommentDTO commentDTO) {
         // 需要当前用户ID，这里假设commentDTO中包含或者从Header获取
         // 实际场景应从上下文获取userId
@@ -337,19 +359,19 @@ public class KnowledgeController {
     }
     
     // 关联相关接口
-    @GetMapping("/{id}/relations")
+    @GetMapping("/{id:\\d+}/relations")
     public Result<List<KnowledgeRelationDTO>> getRelations(@PathVariable Long id) {
         List<KnowledgeRelationDTO> result = relationService.getRelations(id);
         return Result.success(result);
     }
 
-    @PostMapping("/{id}/relations")
+    @PostMapping("/{id:\\d+}/relations")
     public Result<Boolean> addRelation(@PathVariable Long id, @RequestBody KnowledgeRelationDTO relationDTO) {
         boolean result = relationService.addRelation(id, relationDTO.getRelatedKnowledgeId(), relationDTO.getRelationType());
         return Result.success(result);
     }
     
-    @DeleteMapping("/{id}/relations/{relationId}")
+    @DeleteMapping("/{id:\\d+}/relations/{relationId:\\d+}")
     public Result<Boolean> deleteRelation(@PathVariable Long id, @PathVariable Long relationId) {
         boolean result = relationService.deleteRelation(relationId);
         return Result.success(result);
@@ -398,7 +420,7 @@ public class KnowledgeController {
      * 提取并更新指定知识的文档全文内容
      * 用于手动触发单个文档的内容提取
      */
-    @PostMapping("/{id}/extract-content")
+    @PostMapping("/{id:\\d+}/extract-content")
     public Result<String> extractContent(@PathVariable Long id) {
         try {
             KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);

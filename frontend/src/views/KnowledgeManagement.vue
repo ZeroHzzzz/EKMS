@@ -840,13 +840,8 @@ const canAudit = (row) => {
 
 const canDelete = (row) => {
   if (!userInfo.value) return false
-  // ADMIN可以删除所有知识
-  if (hasRole(userInfo.value, ROLE_ADMIN)) return true
-  // EDITOR只能删除自己创建的知识
-  if (hasRole(userInfo.value, ROLE_EDITOR) && row.author === userInfo.value.realName) {
-    return true
-  }
-  return false
+  // 只有管理员可以删除知识
+  return hasRole(userInfo.value, ROLE_ADMIN)
 }
 
 // 状态显示

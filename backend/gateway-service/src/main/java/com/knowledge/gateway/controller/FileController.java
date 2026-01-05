@@ -100,7 +100,7 @@ public class FileController {
         }
     }
 
-    @GetMapping("/{fileId}")
+    @GetMapping("/{fileId:\\d+}")
     public Result<FileDTO> getFile(@PathVariable Long fileId) {
         try {
             FileDTO fileDTO = fileService.getFileById(fileId);
@@ -122,7 +122,7 @@ public class FileController {
         }
     }
 
-    @DeleteMapping("/{fileId}")
+    @DeleteMapping("/{fileId:\\d+}")
     public Result<Boolean> deleteFile(@PathVariable Long fileId) {
         try {
             boolean result = fileService.deleteFile(fileId);
@@ -133,7 +133,7 @@ public class FileController {
         }
     }
 
-    @GetMapping("/preview/{fileId}")
+    @GetMapping("/preview/{fileId:\\d+}")
     public ResponseEntity<Resource> previewFile(@PathVariable Long fileId) {
         try {
             FileDTO fileDTO = fileService.getFileById(fileId);

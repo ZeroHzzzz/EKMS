@@ -30,6 +30,10 @@ public class KnowledgeVersionDTO implements Serializable {
     private Long parentCommitId;      // 父Commit ID
     private String commitMessage;     // Commit消息
     
+    // 发布状态字段
+    private Boolean isPublished;      // 是否为已发布版本
+    private String status;            // 版本状态：DRAFT(草稿)、PENDING(待审核)、APPROVED(已发布)、REJECTED(已驳回)
+    
     /**
      * 差异结果
      */

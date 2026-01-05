@@ -29,7 +29,7 @@ public class DepartmentController {
         }
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/{id:\\d+}")
     public Result<DepartmentDTO> updateDepartment(@PathVariable Long id, @RequestBody DepartmentDTO departmentDTO) {
         log.info("更新部门 - 部门ID: {}", id);
         try {
@@ -42,7 +42,7 @@ public class DepartmentController {
         }
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{id:\\d+}")
     public Result<Void> deleteDepartment(@PathVariable Long id) {
         log.info("删除部门 - 部门ID: {}", id);
         try {
@@ -54,7 +54,7 @@ public class DepartmentController {
         }
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     public Result<DepartmentDTO> getDepartment(@PathVariable Long id) {
         try {
             DepartmentDTO departmentDTO = departmentService.getDepartmentById(id);

@@ -20,7 +20,9 @@ public class Knowledge extends BaseEntity {
     private String status;
     private Long clickCount;
     private Long collectCount;
-    private Long version;
+    private Long version;              // 最新版本号
+    private Long publishedVersion;     // 已发布的版本号（用户查看的版本）
+    private Boolean hasDraft;          // 是否有待审核的草稿版本
     private Long parentId;
     private Integer sortOrder;
     

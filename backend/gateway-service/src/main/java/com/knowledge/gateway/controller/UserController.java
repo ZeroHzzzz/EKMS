@@ -34,7 +34,7 @@ public class UserController {
         }
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     public Result<UserDTO> getUser(@PathVariable Long id) {
         try {
             UserDTO userDTO = userService.getUserById(id);
@@ -50,7 +50,7 @@ public class UserController {
         }
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{id:\\d+}")
     public Result<Void> deleteUser(@PathVariable Long id) {
         log.info("删除用户 - 用户ID: {}", id);
         try {
@@ -63,7 +63,7 @@ public class UserController {
         }
     }
 
-    @PutMapping("/{id}/role")
+    @PutMapping("/{id:\\d+}/role")
     public Result<Void> updateUserRole(@PathVariable Long id, @RequestBody UpdateRoleRequest request) {
         log.info("更新用户角色 - 用户ID: {}, 新角色: {}", id, request.getRole());
         try {
@@ -76,7 +76,7 @@ public class UserController {
         }
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/{id:\\d+}")
     public Result<UserDTO> updateUser(@PathVariable Long id, @RequestBody UpdateUserRequest request) {
         log.info("更新用户信息 - 用户ID: {}", id);
         try {
@@ -98,7 +98,7 @@ public class UserController {
         }
     }
 
-    @PutMapping("/{id}/password")
+    @PutMapping("/{id:\\d+}/password")
     public Result<Void> updatePassword(@PathVariable Long id, @RequestBody UpdatePasswordRequest request) {
         log.info("修改密码 - 用户ID: {}", id);
         try {

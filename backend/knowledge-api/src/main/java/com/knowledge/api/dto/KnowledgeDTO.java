@@ -22,7 +22,9 @@ public class KnowledgeDTO implements Serializable {
     private String status;
     private Long clickCount;
     private Long collectCount;
-    private Long version;
+    private Long version;              // 最新版本号
+    private Long publishedVersion;     // 已发布的版本号
+    private Boolean hasDraft;          // 是否有待审核的草稿版本
     @JsonDeserialize(using = ParentIdDeserializer.class)
     private Long parentId;
     private Integer sortOrder;
