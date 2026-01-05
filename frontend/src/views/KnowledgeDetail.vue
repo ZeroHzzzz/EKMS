@@ -77,6 +77,9 @@
                   <el-icon><Document /></el-icon> {{ fileInfo.fileName }}
                 </span>
                 <div class="preview-actions">
+                  <el-button v-if="canEditOffice(fileInfo.fileType)" type="primary" size="small" @click="goToOfficeEdit('edit')">
+                    <el-icon><Edit /></el-icon> 在线编辑
+                  </el-button>
                   <el-button text type="primary" @click="downloadFile">下载</el-button>
                   <el-button text type="primary" @click="openInNewWindow">新窗口打开</el-button>
                 </div>
@@ -672,6 +675,7 @@ const quickQuestions = [
   '有哪些重要概念？'
 ]
 
+
 // Computed
 const isEditMode = computed(() => route.query.edit === 'true')
 const previewUrl = computed(() => {
@@ -866,6 +870,28 @@ const isVideoFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['MP
 const isAudioFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['MP3','WAV'])
 const isOfficeFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['DOC','DOCX','XLS','XLSX','PPT','PPTX','CSV','OFD'])
 const isTextFile = (type) => checkFileType(type, fileInfo.value?.fileName, ['TXT','MD','JSON','XML','LOG', 'JAVA', 'JS', 'VUE', 'HTML', 'CSS', 'SQL', 'PROPERTIES', 'YML', 'YAML', 'INI', 'CONF', 'SH', 'BAT'])
+
+// 检查是否支持 OnlyOffice 编辑
+const canEditOffice = (type) => {
+  // 支持编辑的格式：docx, xlsx, pptx 等
+  const editableTypes = ['DOCX', 'XLSX', 'PPTX', 'DOC', 'XLS', 'PPT']
+  return checkFileType(type, fileInfo.value?.fileName, editableTypes)
+}
+
+// 跳转到 OnlyOffice 编辑页面
+const goToOfficeEdit = (mode = 'edit') => {
+  if (!fileInfo.value?.id) {
+    ElMessage.warning('文件信息不完整')
+    return
+  }
+  router.push({
+    path: `/office-edit/${fileInfo.value.id}`,
+    query: {
+      mode: mode,
+      fileName: fileInfo.value.fileName
+    }
+  })
+}
 
 // AI Chat Methods
 const sendAiMessage = async () => {

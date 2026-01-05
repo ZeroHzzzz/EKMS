@@ -513,6 +513,19 @@ public class FileServiceImpl implements FileService {
         return null;
     }
 
+    @Override
+    public boolean updateFileSize(Long fileId, Long newSize) {
+        FileInfo fileInfo = fileInfoMapper.selectById(fileId);
+        if (fileInfo != null) {
+            fileInfo.setFileSize(newSize);
+            fileInfo.setUpdateTime(LocalDateTime.now());
+            fileInfoMapper.updateById(fileInfo);
+            log.info("更新文件大小: fileId={}, newSize={}", fileId, newSize);
+            return true;
+        }
+        return false;
+    }
+
     private String detectFileType(String fileName) {
         String extension = fileName.substring(fileName.lastIndexOf(".") + 1).toUpperCase();
         switch (extension) {

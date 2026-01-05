@@ -1,5 +1,6 @@
 server:
   port: 8080
+  address: 0.0.0.0
 
 spring:
   application:
@@ -26,4 +27,19 @@ dubbo:
     address: nacos://localhost:8848
     username: nacos
     password: nacos
+
+# OnlyOffice Document Server 配置
+onlyoffice:
+  document-server:
+    # 内部访问地址（容器间通信）
+    url: http://onlyoffice
+    # 外部访问地址（浏览器访问）
+    external-url: http://localhost:8013
+  # 回调地址（OnlyOffice 保存文档时调用）
+  # host.docker.internal 指向 Docker 宿主机（需要后端监听 0.0.0.0）
+  callback:
+    url: http://host.docker.internal:8080
+  # 文件下载地址（OnlyOffice 获取文件）
+  file-download:
+    url: http://host.docker.internal:8080
 

@@ -16,5 +16,13 @@ public interface FileService {
     boolean deleteFile(Long fileId);
     String getFilePreviewUrl(Long fileId);
     String getFilePath(Long fileId);
+    
+    /**
+     * 更新文件大小（OnlyOffice 编辑后调用）
+     * @param fileId 文件ID
+     * @param newSize 新的文件大小
+     * @return 是否更新成功
+     */
+    boolean updateFileSize(Long fileId, Long newSize);
 }
 

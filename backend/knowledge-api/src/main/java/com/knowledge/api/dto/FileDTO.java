@@ -16,7 +16,7 @@ public class FileDTO implements Serializable {
     private String fileHash;
     private String status;
     private Long uploadUserId;
-    private LocalDateTime uploadTime;
+    private LocalDateTime createTime;
     private String previewUrl;
 }
 

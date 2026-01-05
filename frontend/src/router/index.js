@@ -10,6 +10,7 @@ import UserCenter from '../views/UserCenter.vue'
 import MyCollections from '../views/MyCollections.vue'
 import KnowledgeTree from '../views/KnowledgeTree.vue'
 import KnowledgeManagement from '../views/KnowledgeManagement.vue'
+import OnlyOfficeEdit from '../views/OnlyOfficeEdit.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
 
@@ -75,6 +76,12 @@ const routes = [
     component: KnowledgeTree,
     component: KnowledgeTree
     // meta: { permission: 'MANAGE_STRUCTURE' } // 普通用户可见
+  },
+  {
+    path: '/office-edit/:fileId',
+    name: 'OnlyOfficeEdit',
+    component: OnlyOfficeEdit,
+    meta: { permission: 'EDIT' }
   }
 ]
 
