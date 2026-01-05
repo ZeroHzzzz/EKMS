@@ -7,6 +7,12 @@ import java.util.List;
 
 public interface AuditService {
     AuditDTO submitForAudit(Long knowledgeId, Long userId);
+    
+    /**
+     * 提交指定版本进行审核
+     */
+    AuditDTO submitForAudit(Long knowledgeId, Long version, Long userId);
+    
     AuditDTO approve(Long auditId, Long auditorId, String comment);
     AuditDTO reject(Long auditId, Long auditorId, String comment);
     List<AuditDTO> getPendingAudits();

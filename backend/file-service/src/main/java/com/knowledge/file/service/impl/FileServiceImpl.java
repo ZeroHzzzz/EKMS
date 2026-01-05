@@ -525,6 +525,67 @@ public class FileServiceImpl implements FileService {
         }
         return false;
     }
+    
+    @Override
+    @Transactional
+    public FileDTO saveEditedFile(Long originalFileId, String downloadUrl) {
+        try {
+            // 获取原文件信息
+            FileInfo originalFile = fileInfoMapper.selectById(originalFileId);
+            if (originalFile == null) {
+                log.error("原文件不存在: fileId={}", originalFileId);
+                return null;
+            }
+            
+            // 生成新文件名（使用UUID确保唯一）
+            String fileExtension = originalFile.getFileName().substring(originalFile.getFileName().lastIndexOf("."));
+            String newFileName = IdUtil.simpleUUID() + fileExtension;
+            Path newFilePath = Paths.get(uploadPath, newFileName);
+            
+            // 下载编辑后的文件
+            java.net.URL url = new java.net.URL(downloadUrl);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(60000);
+            
+            try (InputStream in = conn.getInputStream();
+                 FileOutputStream out = new FileOutputStream(newFilePath.toFile())) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                }
+            }
+            conn.disconnect();
+            
+            // 计算新文件的哈希值
+            String newFileHash = DigestUtil.sha256Hex(newFilePath.toFile());
+            long newFileSize = Files.size(newFilePath);
+            
+            // 创建新文件记录
+            FileInfo newFileInfo = new FileInfo();
+            newFileInfo.setFileName(originalFile.getFileName()); // 保持原文件名
+            newFileInfo.setFilePath(newFilePath.toAbsolutePath().toString());
+            newFileInfo.setFileType(originalFile.getFileType());
+            newFileInfo.setFileSize(newFileSize);
+            newFileInfo.setFileHash(newFileHash);
+            newFileInfo.setStatus(Constants.FILE_STATUS_DRAFT);
+            newFileInfo.setCreateTime(LocalDateTime.now());
+            fileInfoMapper.insert(newFileInfo);
+            
+            log.info("保存编辑后的文件成功: originalFileId={}, newFileId={}, newPath={}", 
+                    originalFileId, newFileInfo.getId(), newFilePath.toAbsolutePath());
+            
+            FileDTO fileDTO = new FileDTO();
+            BeanUtils.copyProperties(newFileInfo, fileDTO);
+            return fileDTO;
+            
+        } catch (Exception e) {
+            log.error("保存编辑后的文件失败: originalFileId={}, downloadUrl={}", originalFileId, downloadUrl, e);
+            return null;
+        }
+    }
 
     private String detectFileType(String fileName) {
         String extension = fileName.substring(fileName.lastIndexOf(".") + 1).toUpperCase();

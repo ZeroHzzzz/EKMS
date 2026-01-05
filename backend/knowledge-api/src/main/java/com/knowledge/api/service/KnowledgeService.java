@@ -17,6 +17,15 @@ public interface KnowledgeService {
     void updateClickCount(Long id);
     void updateCollectCount(Long id, boolean collect);
     boolean publishKnowledge(Long id);
+    
+    /**
+     * 发布指定版本
+     * @param knowledgeId 知识ID
+     * @param version 要发布的版本号
+     * @return 是否成功
+     */
+    boolean publishVersion(Long knowledgeId, Long version);
+    
     List<KnowledgeDTO> getHotKnowledge(int limit);
     List<KnowledgeDTO> getRelatedKnowledge(Long id, int limit);
     StatisticsDTO getStatistics();
@@ -49,5 +58,22 @@ public interface KnowledgeService {
      * @return 回退后的知识DTO
      */
     KnowledgeDTO revertToVersion(Long knowledgeId, Long targetVersion, String operatorUsername);
+    
+    /**
+     * 根据文件ID获取关联的知识
+     * @param fileId 文件ID
+     * @return 知识DTO，如果不存在返回null
+     */
+    KnowledgeDTO getKnowledgeByFileId(Long fileId);
+    
+    /**
+     * 从文件编辑创建新版本（用于OnlyOffice编辑后保存）
+     * @param knowledgeId 知识ID
+     * @param newFileId 新文件ID
+     * @param operatorUsername 操作人用户名
+     * @param changeDescription 变更说明
+     * @return 更新后的知识DTO
+     */
+    KnowledgeDTO createVersionFromFileEdit(Long knowledgeId, Long newFileId, String operatorUsername, String changeDescription);
 }
 

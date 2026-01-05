@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 @TableName("audit")
 public class Audit extends BaseEntity {
     private Long knowledgeId;
+    private Long version;  // 审核的版本号
     private String status;
     private Long submitUserId;
     private Long auditorId;

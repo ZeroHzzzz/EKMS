@@ -423,13 +423,16 @@
                       <!-- Commit内容 -->
                       <div class="commit-content">
                         <div class="commit-header">
-                          <div class="commit-hash-row">
-                            <span class="commit-hash" :title="version.commitHash">
-                              {{ version.commitHash ? version.commitHash.substring(0, 8) : '无hash' }}
-                            </span>
-                            <el-tag v-if="version.version === knowledge.version" size="small" type="success" effect="dark">当前版本</el-tag>
-                            <el-tag v-if="version.branch" size="small" effect="plain">{{ version.branch }}</el-tag>
-                          </div>
+                        <div class="commit-hash-row">
+                          <span class="commit-hash" :title="version.commitHash">
+                            {{ version.commitHash ? version.commitHash.substring(0, 8) : '无hash' }}
+                          </span>
+                          <el-tag v-if="version.isPublished" size="small" type="success" effect="dark">当前版本</el-tag>
+                          <el-tag v-else-if="version.status === 'PENDING'" size="small" type="warning" effect="dark">待审核</el-tag>
+                          <el-tag v-else-if="version.status === 'REJECTED'" size="small" type="danger" effect="plain">已驳回</el-tag>
+                          <el-tag v-else size="small" type="info" effect="plain">未发布</el-tag>
+                          <el-tag v-if="version.branch" size="small" effect="plain">{{ version.branch }}</el-tag>
+                        </div>
                           <span class="commit-time">{{ formatTimeFriendly(version.createTime) }}</span>
                         </div>
                         
@@ -530,10 +533,26 @@
     <!-- Version View Dialog -->
     <el-dialog v-model="showVersionViewDialog" title="版本详情" width="70%">
        <div class="version-view-dialog">
+         <!-- 版本状态提示 -->
+         <div v-if="selectedVersion && !selectedVersion.isPublished" class="version-status-banner">
+           <el-alert 
+             :title="getVersionStatusMessage(selectedVersion)" 
+             :type="selectedVersion.status === 'PENDING' ? 'warning' : (selectedVersion.status === 'REJECTED' ? 'error' : 'info')"
+             :closable="false"
+             show-icon
+           />
+         </div>
+         
          <div class="version-info-header">
            <div class="version-info-item">
              <span class="label">版本号</span>
-             <span class="value">v{{ selectedVersion?.version }}</span>
+             <span class="value">
+               v{{ selectedVersion?.version }}
+               <el-tag v-if="selectedVersion?.isPublished" size="small" type="success" style="margin-left:4px">已发布</el-tag>
+               <el-tag v-else-if="selectedVersion?.status === 'PENDING'" size="small" type="warning" style="margin-left:4px">待审核</el-tag>
+               <el-tag v-else-if="selectedVersion?.status === 'REJECTED'" size="small" type="danger" style="margin-left:4px">已驳回</el-tag>
+               <el-tag v-else size="small" type="info" style="margin-left:4px">未发布</el-tag>
+             </span>
            </div>
            <div class="version-info-item">
              <span class="label">Commit</span>
@@ -683,6 +702,9 @@ const previewUrl = computed(() => {
   return `/api/file/preview/${fileInfo.value.id}`
 })
 
+// 预览版本内容（通过URL参数指定版本）
+const previewVersionContent = ref(null)
+
 // 是否有待审核草稿
 const hasDraft = computed(() => {
   return knowledge.value?.hasDraft === true && 
@@ -697,11 +719,15 @@ const canViewDraft = computed(() => {
 
 // 是否显示草稿横幅
 const showDraftBanner = computed(() => {
-  return hasDraft.value
+  // 如果是预览特定版本，或者有草稿，显示横幅
+  return hasDraft.value || (previewVersionContent.value && isViewingDraft.value)
 })
 
 // 草稿横幅类型
 const draftBannerType = computed(() => {
+  if (previewVersionContent.value && isViewingDraft.value) {
+    return 'banner-draft'
+  }
   if (canViewDraft.value) {
     return isViewingDraft.value ? 'banner-draft' : 'banner-info'
   }
@@ -710,6 +736,10 @@ const draftBannerType = computed(() => {
 
 // 草稿横幅消息
 const draftBannerMessage = computed(() => {
+  // 如果是通过URL参数预览特定版本
+  if (previewVersionContent.value && isViewingDraft.value) {
+    return `您正在预览版本 v${previewVersionContent.value.version}，这是待审核的版本。`
+  }
   if (canViewDraft.value) {
     if (isViewingDraft.value) {
       return '您正在查看待审核的草稿版本，审核通过后将发布。'
@@ -720,8 +750,12 @@ const draftBannerMessage = computed(() => {
   return '该文章有更新版本正在审核中，您当前查看的是已发布版本。'
 })
 
-// 当前显示的内容（根据isViewingDraft决定显示草稿还是已发布版本）
+// 当前显示的内容（根据isViewingDraft和previewVersionContent决定显示哪个版本）
 const displayContent = computed(() => {
+  // 如果有通过URL参数指定的预览版本，优先显示
+  if (previewVersionContent.value && isViewingDraft.value) {
+    return previewVersionContent.value
+  }
   if (hasDraft.value && !isViewingDraft.value && publishedVersionContent.value) {
     // 显示已发布版本
     return publishedVersionContent.value
@@ -739,6 +773,23 @@ const loadDetail = async () => {
     
     editForm.value = { ...knowledge.value }
     
+    // 检查是否有预览特定版本的请求
+    const previewVersion = route.query.previewVersion
+    if (previewVersion) {
+      try {
+        const versionRes = await api.get(`/knowledge/${route.params.id}/versions/${previewVersion}`)
+        if (versionRes.code === 200 && versionRes.data) {
+          previewVersionContent.value = versionRes.data
+          isViewingDraft.value = true  // 显示预览版本
+        }
+      } catch (e) { 
+        console.warn('加载预览版本失败', e) 
+        previewVersionContent.value = null
+      }
+    } else {
+      previewVersionContent.value = null
+    }
+    
     // 如果有草稿，加载已发布版本的内容
     if (knowledge.value.hasDraft && knowledge.value.publishedVersion) {
       try {
@@ -750,11 +801,18 @@ const loadDetail = async () => {
         console.warn('加载已发布版本失败', e) 
       }
       
-      // 判断默认显示哪个版本：作者/管理员默认看草稿，普通用户看已发布版本
-      isViewingDraft.value = canEdit(knowledge.value)
+      // 判断默认显示哪个版本：
+      // 1. 如果有预览版本参数，显示预览版本
+      // 2. 作者/管理员默认看草稿
+      // 3. 普通用户看已发布版本
+      if (!previewVersion) {
+        isViewingDraft.value = canEdit(knowledge.value)
+      }
     } else {
       publishedVersionContent.value = null
-      isViewingDraft.value = false
+      if (!previewVersion) {
+        isViewingDraft.value = false
+      }
     }
     
     if (knowledge.value.fileId) {
@@ -1190,6 +1248,15 @@ const loadVersions = async () => {
 const viewVersion = (version) => {
   selectedVersion.value = version
   showVersionViewDialog.value = true
+}
+
+// 获取版本状态消息
+const getVersionStatusMessage = (version) => {
+  if (!version) return ''
+  if (version.isPublished) return '这是当前发布的版本'
+  if (version.status === 'PENDING') return '此版本正在等待审核，审核通过后将发布'
+  if (version.status === 'REJECTED') return '此版本审核未通过，不会发布'
+  return '此版本尚未发布，仅管理员和作者可见'
 }
 
 // 回退到指定版本（仅管理员）
@@ -1960,6 +2027,10 @@ onMounted(() => {
 .version-view-dialog {
   max-height: 70vh;
   overflow-y: auto;
+}
+
+.version-status-banner {
+  margin-bottom: 16px;
 }
 
 .version-info-header {

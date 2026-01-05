@@ -30,13 +30,14 @@
 
     <div class="filter-bar">
       <div class="filter-left">
-      <!-- 知识审核页面默认显示待审核状态 -->
+      <!-- 知识管理页面默认显示全部状态 -->
       <el-select 
         v-model="filters.status" 
-        placeholder="状态筛选" 
+        placeholder="全部状态" 
         style="width: 150px"
+        @change="handleFilterChange"
       >
-        <el-option label="全部状态" value="" />
+        <el-option label="全部状态" :value="null" />
         <el-option label="待审核" value="PENDING" />
         <el-option label="已发布" value="APPROVED" />
         <el-option label="已驳回" value="REJECTED" />
@@ -45,7 +46,8 @@
           v-model="filters.author"
           placeholder="作者筛选"
           clearable
-        style="width: 150px; margin-left: 10px"
+          style="width: 150px; margin-left: 10px"
+          @clear="handleFilterChange"
         >
           <template #prefix>
             <el-icon><User /></el-icon>
@@ -60,6 +62,7 @@
           value-format="YYYY-MM-DD"
           clearable
           style="width: 240px; margin-left: 10px"
+          @change="handleFilterChange"
         />
         <el-button 
           type="primary" 
@@ -377,11 +380,23 @@
           <h4>知识信息</h4>
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="标题">{{ currentKnowledge.title }}</el-descriptions-item>
+            <el-descriptions-item label="版本">
+              <el-tag type="warning" size="small">v{{ currentAudit?.version || currentKnowledge.version }}</el-tag>
+              <span v-if="currentKnowledge.publishedVersion && currentKnowledge.publishedVersion !== (currentAudit?.version || currentKnowledge.version)" style="margin-left: 8px; color: #909399; font-size: 12px;">
+                (当前发布: v{{ currentKnowledge.publishedVersion }})
+              </span>
+            </el-descriptions-item>
             <el-descriptions-item label="分类">{{ currentKnowledge.category || '-' }}</el-descriptions-item>
             <el-descriptions-item label="作者">{{ currentKnowledge.author }}</el-descriptions-item>
             <el-descriptions-item label="部门">{{ currentKnowledge.department || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="提交人">{{ currentAudit?.submitUserName || '-' }}</el-descriptions-item>
             <el-descriptions-item label="摘要" :span="2">{{ currentKnowledge.summary || '-' }}</el-descriptions-item>
           </el-descriptions>
+          <div v-if="currentKnowledge.fileId" class="preview-link" style="margin-top: 12px;">
+            <el-button type="primary" text @click="previewVersionContent">
+              <el-icon><View /></el-icon> 预览待审核版本内容
+            </el-button>
+          </div>
         </div>
         <el-form-item label="审核意见" style="margin-top: 20px">
           <el-input 
@@ -405,11 +420,23 @@
           <h4>知识信息</h4>
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="标题">{{ currentKnowledge.title }}</el-descriptions-item>
+            <el-descriptions-item label="版本">
+              <el-tag type="warning" size="small">v{{ currentAudit?.version || currentKnowledge.version }}</el-tag>
+              <span v-if="currentKnowledge.publishedVersion && currentKnowledge.publishedVersion !== (currentAudit?.version || currentKnowledge.version)" style="margin-left: 8px; color: #909399; font-size: 12px;">
+                (当前发布: v{{ currentKnowledge.publishedVersion }})
+              </span>
+            </el-descriptions-item>
             <el-descriptions-item label="分类">{{ currentKnowledge.category || '-' }}</el-descriptions-item>
             <el-descriptions-item label="作者">{{ currentKnowledge.author }}</el-descriptions-item>
             <el-descriptions-item label="部门">{{ currentKnowledge.department || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="提交人">{{ currentAudit?.submitUserName || '-' }}</el-descriptions-item>
             <el-descriptions-item label="摘要" :span="2">{{ currentKnowledge.summary || '-' }}</el-descriptions-item>
           </el-descriptions>
+          <div v-if="currentKnowledge.fileId" class="preview-link" style="margin-top: 12px;">
+            <el-button type="primary" text @click="previewVersionContent">
+              <el-icon><View /></el-icon> 预览待审核版本内容
+            </el-button>
+          </div>
         </div>
         <el-form-item label="驳回原因" style="margin-top: 20px">
           <el-input 
@@ -473,7 +500,7 @@ const userInfo = computed(() => userStore.userInfo)
 
 const searchKeyword = ref('')
 const filters = ref({
-  status: 'PENDING', // 知识审核页面默认显示待审核状态
+  status: null, // 知识管理页面默认显示全部状态
   author: '',
   dateRange: null
 })
@@ -661,24 +688,24 @@ const fetchSuggestions = async (queryString, cb) => {
   // 选择建议项
   const handleSelect = (item) => {
     searchKeyword.value = item.value
-    if (item.type !== 'history') {
-      saveSearchHistory(item.value)
-    }
     handleSearch()
 }
 
 const handleSearch = () => {
-    if (searchKeyword.value && searchKeyword.value.trim().length > 0) {
-      saveSearchHistory(searchKeyword.value.trim())
-    }
     pageNum.value = 1
     loadData()
   }
 
+// 筛选条件变化时自动更新
+const handleFilterChange = () => {
+  pageNum.value = 1
+  loadData()
+}
+
   // 清空筛选
   const clearFilters = () => {
     filters.value = {
-      status: null,
+      status: null, // null 表示全部状态
       author: '',
       dateRange: null
     }
@@ -1099,26 +1126,26 @@ const doReject = async () => {
 
 // 加载审核信息
 const loadAuditInfo = async (knowledge) => {
-  if (knowledge.status !== 'PENDING') return
+  // 只有待审核状态或有草稿的知识才需要加载审核信息
+  if (knowledge.status !== 'PENDING' && !knowledge.hasDraft) return
   
   try {
     // 获取所有待审核记录，找到该知识的审核记录
     const res = await api.get('/knowledge/audit/pending')
     if (res.code === 200 && res.data) {
       const audits = Array.isArray(res.data) ? res.data : [res.data]
-      const audit = audits.find(a => a.knowledgeId === knowledge.id && a.status === 'PENDING')
+      // 优先匹配版本号，如果没有版本号则匹配knowledgeId
+      let audit = audits.find(a => 
+        a.knowledgeId === knowledge.id && 
+        a.status === 'PENDING' &&
+        (a.version === knowledge.version || !a.version)
+      )
+      if (!audit) {
+        // 如果按版本找不到，尝试只按knowledgeId查找
+        audit = audits.find(a => a.knowledgeId === knowledge.id && a.status === 'PENDING')
+      }
       if (audit) {
-        // 加载提交人信息
-        if (audit.submitUserId) {
-          try {
-            const userRes = await api.get(`/user/${audit.submitUserId}`)
-            if (userRes.code === 200 && userRes.data) {
-              audit.submitUser = userRes.data
-            }
-          } catch (error) {
-            console.error(`加载提交人信息失败`, error)
-          }
-        }
+        // 提交人姓名现在从后端返回
         // 设置提交时间
         if (!audit.submitTime && audit.createTime) {
           audit.submitTime = audit.createTime
@@ -1129,6 +1156,20 @@ const loadAuditInfo = async (knowledge) => {
   } catch (error) {
     console.error('加载审核信息失败', error)
   }
+}
+
+// 预览待审核版本内容
+const previewVersionContent = () => {
+  if (!currentKnowledge.value) return
+  
+  const knowledgeId = currentKnowledge.value.id
+  const version = currentAudit.value?.version || currentKnowledge.value.version
+  
+  // 跳转到知识详情页，并带上版本参数
+  router.push({
+    path: `/knowledge/${knowledgeId}`,
+    query: { previewVersion: version }
+  })
 }
 
 const deleteKnowledge = async (row) => {

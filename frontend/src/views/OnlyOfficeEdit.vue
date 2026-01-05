@@ -12,9 +12,14 @@
         <span v-if="loading" class="loading-hint">
           <el-icon class="is-loading"><Loading /></el-icon> 加载中...
         </span>
-        <span v-else-if="editorReady" class="ready-hint">
+        <span v-else class="ready-hint">
           <el-icon><CircleCheckFilled /></el-icon> 已就绪
         </span>
+        <el-tooltip content="OnlyOffice会自动保存，关闭编辑器时会创建新版本" placement="bottom">
+          <span class="save-tip">
+            <el-icon><InfoFilled /></el-icon>
+          </span>
+        </el-tooltip>
       </div>
     </div>
 
@@ -39,7 +44,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Loading, CircleCheckFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, Loading, CircleCheckFilled, InfoFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import api from '../api'
 
@@ -55,7 +60,6 @@ const fileName = ref(route.query.fileName || '')
 // 状态
 const loading = ref(true)
 const error = ref(null)
-const editorReady = ref(false)
 let docEditor = null
 
 // 返回上一页
@@ -73,7 +77,6 @@ const initEditor = async () => {
 
   loading.value = true
   error.value = null
-  editorReady.value = false
 
   try {
     // 获取编辑器配置
@@ -125,7 +128,6 @@ const initEditor = async () => {
           onDocumentReady: () => {
             console.log('文档已加载')
             loading.value = false
-            editorReady.value = true
           },
           onDocumentStateChange: (event) => {
             console.log('文档状态:', event.data ? '有未保存的更改' : '已保存')
@@ -303,6 +305,14 @@ onBeforeUnmount(() => {
   gap: 6px;
   color: #67c23a;
   font-size: 14px;
+}
+
+.save-tip {
+  display: flex;
+  align-items: center;
+  color: #909399;
+  font-size: 16px;
+  cursor: help;
 }
 
 .error-container {

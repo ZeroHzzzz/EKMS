@@ -209,8 +209,21 @@ const isExpanded = computed(() => {
 })
 
 // 判断是否是文件夹
+// 如果没有 fileId，就认为是文件夹（与主页面逻辑保持一致）
 const isFolder = (node) => {
-  return !node.fileId && (node.children?.length > 0 || node.hasChildren || node.isDepartmentRoot || node.isFolder)
+  // 部门根节点始终是文件夹
+  if (node.isDepartmentRoot || (node.id && String(node.id).startsWith('dept-'))) {
+    return true
+  }
+  // 如果有子节点，肯定是文件夹
+  if (node.children && node.children.length > 0) {
+    return true
+  }
+  // 如果没有文件ID，也认为是文件夹
+  if (!node.fileId) {
+    return true
+  }
+  return false
 }
 
 // 获取文件图标

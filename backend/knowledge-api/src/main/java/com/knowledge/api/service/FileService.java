@@ -24,5 +24,13 @@ public interface FileService {
      * @return 是否更新成功
      */
     boolean updateFileSize(Long fileId, Long newSize);
+    
+    /**
+     * 保存编辑后的文件为新文件（用于版本管理）
+     * @param originalFileId 原文件ID
+     * @param downloadUrl OnlyOffice提供的编辑后文件下载URL
+     * @return 新创建的文件DTO，如果失败返回null
+     */
+    FileDTO saveEditedFile(Long originalFileId, String downloadUrl);
 }
 

@@ -3,7 +3,10 @@ package com.knowledge.gateway.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.knowledge.api.dto.FileDTO;
+import com.knowledge.api.dto.KnowledgeDTO;
+import com.knowledge.api.service.AuditService;
 import com.knowledge.api.service.FileService;
+import com.knowledge.api.service.KnowledgeService;
 import com.knowledge.common.result.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
@@ -30,6 +33,12 @@ public class OnlyOfficeController {
 
     @DubboReference(check = false, timeout = 10000)
     private FileService fileService;
+    
+    @DubboReference(check = false, timeout = 10000)
+    private KnowledgeService knowledgeService;
+    
+    @DubboReference(check = false, timeout = 10000)
+    private AuditService auditService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -106,7 +115,15 @@ public class OnlyOfficeController {
             Map<String, Object> editorConfig = new HashMap<>();
             
             // 回调地址（文档保存时 OnlyOffice 会调用）
-            editorConfig.put("callbackUrl", callbackBaseUrl + "/api/onlyoffice/callback?fileId=" + fileId);
+            // 添加用户信息参数，用于版本管理
+            String callbackUrl = callbackBaseUrl + "/api/onlyoffice/callback?fileId=" + fileId;
+            if (userName != null && !userName.isEmpty()) {
+                callbackUrl += "&userName=" + java.net.URLEncoder.encode(userName, "UTF-8");
+            }
+            if (userId != null && !userId.isEmpty()) {
+                callbackUrl += "&userId=" + userId;
+            }
+            editorConfig.put("callbackUrl", callbackUrl);
             
             // 语言设置
             editorConfig.put("lang", "zh-CN");
@@ -166,11 +183,13 @@ public class OnlyOfficeController {
     @PostMapping("/callback")
     public Map<String, Object> callback(
             @RequestParam Long fileId,
+            @RequestParam(required = false) String userName,
+            @RequestParam(required = false) Long userId,
             @RequestBody String body) {
         Map<String, Object> response = new HashMap<>();
         
         try {
-            log.info("OnlyOffice 回调: fileId={}, body={}", fileId, body);
+            log.info("OnlyOffice 回调: fileId={}, userName={}, userId={}, body={}", fileId, userName, userId, body);
             
             JsonNode json = objectMapper.readTree(body);
             int status = json.get("status").asInt();
@@ -191,15 +210,15 @@ public class OnlyOfficeController {
                 String downloadUrl = json.get("url").asText();
                 log.info("下载编辑后的文档: fileId={}, url={}", fileId, downloadUrl);
                 
-                // 下载并保存文件
-                boolean saved = downloadAndSaveFile(fileId, downloadUrl);
+                // 创建新版本（保存为新文件）
+                boolean saved = createNewVersionFromEdit(fileId, downloadUrl, userName, userId);
                 if (!saved) {
-                    log.error("保存文件失败: fileId={}", fileId);
+                    log.error("创建新版本失败: fileId={}", fileId);
                     response.put("error", 1);
                     return response;
                 }
                 
-                log.info("文档保存成功: fileId={}", fileId);
+                log.info("文档保存成功并创建新版本: fileId={}", fileId);
             } else if (status == 4) {
                 log.info("文档关闭，无修改: fileId={}", fileId);
             } else {
@@ -213,6 +232,67 @@ public class OnlyOfficeController {
         }
         
         return response;
+    }
+    
+    /**
+     * 从文件编辑创建新版本
+     * @param fileId 原文件ID
+     * @param downloadUrl OnlyOffice提供的下载URL
+     * @param userName 操作用户名
+     * @param userId 操作用户ID
+     * @return 是否成功
+     */
+    private boolean createNewVersionFromEdit(Long fileId, String downloadUrl, String userName, Long userId) {
+        try {
+            // 1. 根据文件ID获取关联的知识
+            KnowledgeDTO knowledge = knowledgeService.getKnowledgeByFileId(fileId);
+            if (knowledge == null) {
+                log.warn("找不到文件关联的知识，回退到直接保存: fileId={}", fileId);
+                // 如果没有关联的知识，直接更新原文件
+                return downloadAndSaveFile(fileId, downloadUrl);
+            }
+            
+            // 2. 保存编辑后的文件为新文件
+            FileDTO newFile = fileService.saveEditedFile(fileId, downloadUrl);
+            if (newFile == null) {
+                log.error("保存编辑后的文件失败: fileId={}", fileId);
+                return false;
+            }
+            
+            // 3. 创建新版本
+            String operatorUsername = userName != null ? userName : "系统";
+            String changeDescription = "通过OnlyOffice编辑更新";
+            
+            KnowledgeDTO updatedKnowledge = knowledgeService.createVersionFromFileEdit(
+                    knowledge.getId(), newFile.getId(), operatorUsername, changeDescription);
+            
+            if (updatedKnowledge == null) {
+                log.error("创建新版本失败: knowledgeId={}", knowledge.getId());
+                return false;
+            }
+            
+            // 4. 如果有待审核草稿，自动提交审核
+            // 注意：已发布文章编辑后，status可能仍是APPROVED，但hasDraft为true
+            Boolean hasDraft = updatedKnowledge.getHasDraft();
+            if (hasDraft != null && hasDraft) {
+                try {
+                    Long submitUserId = userId != null ? userId : 1L; // 默认使用管理员ID
+                    auditService.submitForAudit(updatedKnowledge.getId(), submitUserId);
+                    log.info("自动提交审核: knowledgeId={}, userId={}, hasDraft={}", 
+                            updatedKnowledge.getId(), submitUserId, hasDraft);
+                } catch (Exception e) {
+                    log.warn("自动提交审核失败（不影响保存）: knowledgeId={}", updatedKnowledge.getId(), e);
+                }
+            }
+            
+            log.info("文件编辑创建新版本成功: fileId={}, knowledgeId={}, newFileId={}, newVersion={}", 
+                    fileId, knowledge.getId(), newFile.getId(), updatedKnowledge.getVersion());
+            return true;
+            
+        } catch (Exception e) {
+            log.error("创建新版本失败: fileId={}", fileId, e);
+            return false;
+        }
     }
 
     /**
@@ -237,10 +317,55 @@ public class OnlyOfficeController {
             command.put("c", "forcesave");
             command.put("key", documentKey);
             
-            // 发送命令（这里简化处理，实际可能需要处理响应）
-            log.info("发送强制保存命令: fileId={}, key={}", fileId, documentKey);
+            log.info("发送强制保存命令: fileId={}, key={}, url={}", fileId, documentKey, commandUrl);
             
-            return Result.success(true);
+            // 发送HTTP POST请求到OnlyOffice命令服务
+            URL url = new URL(commandUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(30000);
+            
+            // 写入请求体
+            String jsonBody = objectMapper.writeValueAsString(command);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(jsonBody.getBytes("UTF-8"));
+            }
+            
+            // 读取响应
+            int responseCode = conn.getResponseCode();
+            StringBuilder responseBody = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(
+                    responseCode >= 400 ? conn.getErrorStream() : conn.getInputStream(), "UTF-8"))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    responseBody.append(line);
+                }
+            }
+            
+            conn.disconnect();
+            
+            log.info("强制保存响应: fileId={}, responseCode={}, body={}", fileId, responseCode, responseBody);
+            
+            // 解析响应
+            if (responseCode == 200) {
+                JsonNode responseJson = objectMapper.readTree(responseBody.toString());
+                int error = responseJson.has("error") ? responseJson.get("error").asInt() : -1;
+                if (error == 0) {
+                    return Result.success(true);
+                } else {
+                    // error 4 表示没有文档正在编辑，这也是成功的情况
+                    if (error == 4) {
+                        return Result.success(true);
+                    }
+                    return Result.error("OnlyOffice返回错误码: " + error);
+                }
+            } else {
+                return Result.error("OnlyOffice服务响应异常: " + responseCode);
+            }
+            
         } catch (Exception e) {
             log.error("强制保存失败: fileId={}", fileId, e);
             return Result.error("强制保存失败: " + e.getMessage());

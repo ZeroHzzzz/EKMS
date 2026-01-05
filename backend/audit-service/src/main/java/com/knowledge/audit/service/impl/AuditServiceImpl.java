@@ -44,15 +44,52 @@ public class AuditServiceImpl implements AuditService {
     @Override
     @Transactional
     public AuditDTO submitForAudit(Long knowledgeId, Long userId) {
+        // 获取知识当前版本
+        Long version = null;
+        try {
+            com.knowledge.api.dto.KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(knowledgeId);
+            if (knowledge != null) {
+                version = knowledge.getVersion();
+            }
+        } catch (Exception e) {
+            log.warn("获取知识版本失败: knowledgeId={}", knowledgeId, e);
+        }
+        return submitForAudit(knowledgeId, version, userId);
+    }
+    
+    @Override
+    @Transactional
+    public AuditDTO submitForAudit(Long knowledgeId, Long version, Long userId) {
+        // 检查是否已存在同一知识同一版本的待审核记录
+        LambdaQueryWrapper<Audit> existWrapper = new LambdaQueryWrapper<>();
+        existWrapper.eq(Audit::getKnowledgeId, knowledgeId);
+        existWrapper.eq(Audit::getStatus, Constants.AUDIT_STATUS_PENDING);
+        if (version != null) {
+            existWrapper.eq(Audit::getVersion, version);
+        }
+        Audit existingAudit = auditMapper.selectOne(existWrapper);
+        if (existingAudit != null) {
+            log.info("已存在该版本的待审核记录: knowledgeId={}, version={}, auditId={}", 
+                    knowledgeId, version, existingAudit.getId());
+            AuditDTO dto = new AuditDTO();
+            BeanUtils.copyProperties(existingAudit, dto);
+            dto.setSubmitTime(existingAudit.getCreateTime());
+            return dto;
+        }
+        
         Audit audit = new Audit();
         audit.setKnowledgeId(knowledgeId);
+        audit.setVersion(version);
         audit.setStatus(Constants.AUDIT_STATUS_PENDING);
         audit.setSubmitUserId(userId);
         audit.setCreateTime(LocalDateTime.now());
         auditMapper.insert(audit);
         
+        log.info("创建审核记录: knowledgeId={}, version={}, auditId={}", knowledgeId, version, audit.getId());
+        
         AuditDTO dto = new AuditDTO();
         BeanUtils.copyProperties(audit, dto);
+        dto.setSubmitTime(audit.getCreateTime());
         return dto;
     }
 
@@ -70,9 +107,17 @@ public class AuditServiceImpl implements AuditService {
         audit.setUpdateTime(LocalDateTime.now());
         auditMapper.updateById(audit);
         
-        // 审核通过后，将知识状态更新为已发布
+        // 审核通过后，发布对应版本
         if (audit.getKnowledgeId() != null) {
-            knowledgeService.publishKnowledge(audit.getKnowledgeId());
+            if (audit.getVersion() != null) {
+                // 有版本号时，发布指定版本
+                knowledgeService.publishVersion(audit.getKnowledgeId(), audit.getVersion());
+                log.info("审核通过，发布指定版本: knowledgeId={}, version={}", audit.getKnowledgeId(), audit.getVersion());
+            } else {
+                // 兼容旧数据，没有版本号时发布当前版本
+                knowledgeService.publishKnowledge(audit.getKnowledgeId());
+                log.info("审核通过，发布当前版本: knowledgeId={}", audit.getKnowledgeId());
+            }
         }
         
         AuditDTO dto = new AuditDTO();
@@ -127,6 +172,32 @@ public class AuditServiceImpl implements AuditService {
             AuditDTO dto = new AuditDTO();
             BeanUtils.copyProperties(audit, dto);
             dto.setSubmitTime(audit.getCreateTime());
+            
+            // 获取知识信息用于展示
+            try {
+                if (audit.getKnowledgeId() != null) {
+                    com.knowledge.api.dto.KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(audit.getKnowledgeId());
+                    if (knowledge != null) {
+                        dto.setKnowledgeTitle(knowledge.getTitle());
+                        dto.setFileId(knowledge.getFileId());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("获取知识信息失败: knowledgeId={}", audit.getKnowledgeId(), e);
+            }
+            
+            // 获取提交人姓名
+            try {
+                if (audit.getSubmitUserId() != null) {
+                    UserDTO user = userService.getUserById(audit.getSubmitUserId());
+                    if (user != null) {
+                        dto.setSubmitUserName(user.getRealName() != null ? user.getRealName() : user.getUsername());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("获取提交人信息失败: userId={}", audit.getSubmitUserId(), e);
+            }
+            
             return dto;
         }).collect(java.util.stream.Collectors.toList());
     }
@@ -141,6 +212,32 @@ public class AuditServiceImpl implements AuditService {
             AuditDTO dto = new AuditDTO();
             BeanUtils.copyProperties(audit, dto);
             dto.setSubmitTime(audit.getCreateTime());
+            
+            // 获取知识信息用于展示
+            try {
+                if (audit.getKnowledgeId() != null) {
+                    com.knowledge.api.dto.KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(audit.getKnowledgeId());
+                    if (knowledge != null) {
+                        dto.setKnowledgeTitle(knowledge.getTitle());
+                        dto.setFileId(knowledge.getFileId());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("获取知识信息失败: knowledgeId={}", audit.getKnowledgeId(), e);
+            }
+            
+            // 获取提交人姓名
+            try {
+                if (audit.getSubmitUserId() != null) {
+                    UserDTO user = userService.getUserById(audit.getSubmitUserId());
+                    if (user != null) {
+                        dto.setSubmitUserName(user.getRealName() != null ? user.getRealName() : user.getUsername());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("获取提交人信息失败: userId={}", audit.getSubmitUserId(), e);
+            }
+            
             return dto;
         }).collect(java.util.stream.Collectors.toList());
     }

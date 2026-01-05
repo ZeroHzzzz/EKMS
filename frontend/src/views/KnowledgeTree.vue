@@ -228,8 +228,14 @@
               v-for="dept in departmentSections" 
               :key="dept.id"
               class="dept-list-item"
-              :class="{ 'is-active': activeDeptId === dept.id }"
+              :class="{ 
+                'is-active': activeDeptId === dept.id,
+                'drag-over': dragOverDeptId === dept.id 
+              }"
               @click="setActiveDept(dept.id)"
+              @dragover.prevent="handleDeptDragOver($event, dept.id)"
+              @dragleave="handleDeptDragLeave($event, dept.id)"
+              @drop.prevent="handleDropToDept($event, dept.title)"
             >
               <el-icon class="dept-item-icon"><OfficeBuilding /></el-icon>
               <span class="dept-item-name">{{ dept.title }}</span>
@@ -240,8 +246,14 @@
             <div 
               v-if="unclassifiedKnowledge.length > 0"
               class="dept-list-item unclassified"
-              :class="{ 'is-active': activeDeptId === 'unclassified' }"
+              :class="{ 
+                'is-active': activeDeptId === 'unclassified',
+                'drag-over': dragOverDeptId === 'unclassified' 
+              }"
               @click="setActiveDept('unclassified')"
+              @dragover.prevent="handleDeptDragOver($event, 'unclassified')"
+              @dragleave="handleDeptDragLeave($event, 'unclassified')"
+              @drop.prevent="handleDropToDept($event, null)"
             >
               <el-icon class="dept-item-icon"><QuestionFilled /></el-icon>
               <span class="dept-item-name">未分类</span>
@@ -809,6 +821,7 @@ const expandedNodeIds = ref([]) // 展开的节点ID列表
 const dragOverNodeId = ref(null) // 拖拽悬停的节点ID
 const dragOverPosition = ref(null) // 拖拽悬停的位置 (before/after/inside)
 const draggingNode = ref(null) // 正在拖拽的节点
+const dragOverDeptId = ref(null) // 拖拽悬停的部门ID（用于跨分类拖拽）
 
 // 计算选中的文件数量（排除文件夹）
 const selectedFileCount = computed(() => {
@@ -989,10 +1002,24 @@ const handleTreeDrop = async (e, targetNode, position) => {
       newSortOrder = (targetNode.sortOrder || 0) + 1
     }
     
-    const res = await api.put(`/knowledge/${draggingNode.value.id}/move`, {
-      parentId: newParentId,
-      sortOrder: newSortOrder
-    })
+    // 检查是否跨分类移动（department 不同）
+    const isCrossDepartment = draggingNode.value.department !== targetNode.department
+    
+    let res
+    if (isCrossDepartment) {
+      // 跨分类移动：需要同时更新 department、parentId
+      res = await api.put(`/knowledge/${draggingNode.value.id}`, {
+        department: targetNode.department,
+        parentId: newParentId,
+        sortOrder: newSortOrder
+      })
+    } else {
+      // 同分类移动：只更新 parentId 和 sortOrder
+      res = await api.put(`/knowledge/${draggingNode.value.id}/move`, {
+        parentId: newParentId,
+        sortOrder: newSortOrder
+      })
+    }
     
     if (res.code === 200) {
       ElMessage.success('移动成功')
@@ -1011,10 +1038,91 @@ const handleTreeDragEnd = (e) => {
   resetDragState()
 }
 
+// 拖拽展开分类的计时器
+let deptExpandTimer = null
+const deptExpandDelay = 800 // 悬停800ms后自动展开分类
+
 const resetDragState = () => {
   draggingNode.value = null
   dragOverNodeId.value = null
   dragOverPosition.value = null
+  dragOverDeptId.value = null
+  // 清除展开计时器
+  if (deptExpandTimer) {
+    clearTimeout(deptExpandTimer)
+    deptExpandTimer = null
+  }
+}
+
+// ========== 跨分类拖拽功能 ==========
+// 部门拖拽悬停处理
+const handleDeptDragOver = (e, deptId) => {
+  if (!draggingNode.value) return
+  e.dataTransfer.dropEffect = 'move'
+  
+  // 如果悬停的部门变化了，重置计时器
+  if (dragOverDeptId.value !== deptId) {
+    if (deptExpandTimer) {
+      clearTimeout(deptExpandTimer)
+      deptExpandTimer = null
+    }
+    dragOverDeptId.value = deptId
+    
+    // 启动计时器，延迟后自动展开该分类
+    deptExpandTimer = setTimeout(() => {
+      if (draggingNode.value && dragOverDeptId.value === deptId) {
+        // 自动切换到目标分类
+        activeDeptId.value = deptId
+        // 展开第一层节点
+        nextTick(() => {
+          expandedNodeIds.value = activeTreeData.value.map(n => n.id)
+        })
+      }
+    }, deptExpandDelay)
+  }
+}
+
+// 部门拖拽离开处理
+const handleDeptDragLeave = (e, deptId) => {
+  if (dragOverDeptId.value === deptId) {
+    dragOverDeptId.value = null
+    // 清除展开计时器
+    if (deptExpandTimer) {
+      clearTimeout(deptExpandTimer)
+      deptExpandTimer = null
+    }
+  }
+}
+
+// 拖拽到部门处理 - 跨分类移动（直接放到分类根级）
+const handleDropToDept = async (e, targetDepartment) => {
+  if (!draggingNode.value) return
+  
+  // 不能移动到当前所在的分类
+  if (draggingNode.value.department === targetDepartment) {
+    ElMessage.info('节点已在该分类中')
+    resetDragState()
+    return
+  }
+  
+  try {
+    // 使用通用更新接口更新节点的 department，并将节点移到新分类的根级
+    const res = await api.put(`/knowledge/${draggingNode.value.id}`, {
+      department: targetDepartment,
+      parentId: null  // 移到新分类的根级
+    })
+    
+    if (res.code === 200) {
+      ElMessage.success(`已移动到${targetDepartment || '未分类'}`)
+      await loadTree()
+    } else {
+      ElMessage.error(res.message || '移动失败')
+    }
+  } catch (error) {
+    ElMessage.error('移动失败: ' + (error.message || '未知错误'))
+  } finally {
+    resetDragState()
+  }
 }
 
 // 检查 node 是否是 parent 的后代
@@ -3471,7 +3579,8 @@ const handleAddChildToVisualNode = () => {
   nodeForm.value = {
     title: '',
     summary: '',
-    keywords: ''
+    keywords: '',
+    department: selectedVisualNode.value.department || null  // 继承父节点的 department
   }
   showAddDialog.value = true
 }
@@ -3553,6 +3662,8 @@ const handleAddSiblingNode = (nodeData, isFolder = false) => {
     // 叶子节点添加同级节点 = 上传新文件
     // 设置父节点ID并打开上传对话框
     uploadForm.value.parentId = parentId
+    // 继承同级节点的 department
+    uploadForm.value.department = nodeData.department || null
     showUploadDialog.value = true
   } else {
     // 文件夹节点添加同级节点 = 创建新节点（文件夹或文件）
@@ -3562,7 +3673,7 @@ const handleAddSiblingNode = (nodeData, isFolder = false) => {
       title: '',
       summary: '',
       keywords: '',
-      department: null
+      department: nodeData.department || null  // 继承同级节点的 department
     }
     showAddDialog.value = true
   }
@@ -3579,7 +3690,8 @@ const handleAddChildToListNode = (nodeData = null) => {
   nodeForm.value = {
     title: '',
     summary: '',
-    keywords: ''
+    keywords: '',
+    department: targetNode.department || null  // 继承父节点的 department
   }
   showAddDialog.value = true
 }
@@ -3651,7 +3763,8 @@ const handleContextMenuClick = (action) => {
       nodeForm.value = {
         title: '',
         summary: '',
-        keywords: ''
+        keywords: '',
+        department: data.department || null  // 继承父节点的 department
       }
       showAddDialog.value = true
       break
@@ -3661,7 +3774,8 @@ const handleContextMenuClick = (action) => {
       nodeForm.value = {
         title: '',
         summary: '',
-        keywords: ''
+        keywords: '',
+        department: data.department || null  // 继承父节点的 department
       }
       showAddDialog.value = true
       break
@@ -4706,6 +4820,18 @@ watch(viewMode, (newMode) => {
 
 .dept-list-item.unclassified .dept-item-icon {
   color: #e6a23c;
+}
+
+/* 拖拽悬停样式 */
+.dept-list-item.drag-over {
+  background: #ecf5ff;
+  border: 2px dashed #409eff;
+  transform: scale(1.02);
+}
+
+.dept-list-item.drag-over .dept-item-icon,
+.dept-list-item.drag-over .dept-item-name {
+  color: #409eff;
 }
 
 .dept-item-name {
