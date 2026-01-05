@@ -105,5 +105,17 @@ public class KnowledgeRelationServiceImpl implements KnowledgeRelationService {
             return dto;
         }).collect(Collectors.toList());
     }
+    @Override
+    @Transactional
+    public void deleteByKnowledgeId(Long knowledgeId) {
+        // 删除该知识作为源或目标的关联关系
+        LambdaQueryWrapper<KnowledgeRelation> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeRelation::getKnowledgeId, knowledgeId)
+               .or()
+               .eq(KnowledgeRelation::getRelatedKnowledgeId, knowledgeId);
+        
+        int deleted = relationMapper.delete(wrapper);
+        log.info("已删除知识 ID={} 关联的 {} 条关系数据", knowledgeId, deleted);
+    }
 }
 

@@ -243,6 +243,7 @@ public class OnlyOfficeController {
      * @return 是否成功
      */
     private boolean createNewVersionFromEdit(Long fileId, String downloadUrl, String userName, Long userId) {
+        File tempFile = null;
         try {
             // 1. 根据文件ID获取关联的知识
             KnowledgeDTO knowledge = knowledgeService.getKnowledgeByFileId(fileId);
@@ -252,14 +253,57 @@ public class OnlyOfficeController {
                 return downloadAndSaveFile(fileId, downloadUrl);
             }
             
-            // 2. 保存编辑后的文件为新文件
+            // 获取当前文件信息以便比对
+            FileDTO currentFile = fileService.getFileById(fileId);
+            if (currentFile == null) {
+                log.error("原文件不存在: fileId={}", fileId);
+                return false;
+            }
+
+            // 2. 预先下载文件到临时目录进行比对
+            tempFile = File.createTempFile("onlyoffice_check_" + fileId + "_", ".tmp");
+            
+            // 下载文件到临时文件
+            URL url = new URL(downloadUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(60000);
+            
+            try (InputStream in = conn.getInputStream();
+                 FileOutputStream out = new FileOutputStream(tempFile)) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                }
+            }
+            conn.disconnect();
+            
+            // 计算新文件的哈希
+            String newFileHash = null;
+            if (tempFile.exists() && tempFile.length() > 0) {
+                 // 使用 Hutool (项目已有依赖)
+                 newFileHash = cn.hutool.crypto.digest.DigestUtil.sha256Hex(tempFile);
+            }
+            
+            // 比对哈希
+            if (newFileHash != null && currentFile.getFileHash() != null && newFileHash.equalsIgnoreCase(currentFile.getFileHash())) {
+                log.info("文件内容无变化，跳过创建新版本: fileId={}, hash={}", fileId, newFileHash);
+                return true; // 视为成功
+            }
+            
+            log.info("检测到文件内容变更，准备创建新版本: fileId={}, oldHash={}, newHash={}", 
+                    fileId, currentFile.getFileHash(), newFileHash);
+
+            // 3. 保存编辑后的文件为新文件
             FileDTO newFile = fileService.saveEditedFile(fileId, downloadUrl);
             if (newFile == null) {
                 log.error("保存编辑后的文件失败: fileId={}", fileId);
                 return false;
             }
             
-            // 3. 创建新版本
+            // 4. 创建新版本
             String operatorUsername = userName != null ? userName : "系统";
             String changeDescription = "通过OnlyOffice编辑更新";
             
@@ -271,17 +315,19 @@ public class OnlyOfficeController {
                 return false;
             }
             
-            // 4. 如果有待审核草稿，自动提交审核
+            // 5. 如果有待审核草稿，自动提交审核（带版本号）
             // 注意：已发布文章编辑后，status可能仍是APPROVED，但hasDraft为true
             Boolean hasDraft = updatedKnowledge.getHasDraft();
             if (hasDraft != null && hasDraft) {
                 try {
                     Long submitUserId = userId != null ? userId : 1L; // 默认使用管理员ID
-                    auditService.submitForAudit(updatedKnowledge.getId(), submitUserId);
-                    log.info("自动提交审核: knowledgeId={}, userId={}, hasDraft={}", 
-                            updatedKnowledge.getId(), submitUserId, hasDraft);
+                    Long newVersion = updatedKnowledge.getVersion();
+                    auditService.submitForAudit(updatedKnowledge.getId(), newVersion, submitUserId);
+                    log.info("自动提交审核: knowledgeId={}, version={}, userId={}, hasDraft={}", 
+                            updatedKnowledge.getId(), newVersion, submitUserId, hasDraft);
                 } catch (Exception e) {
-                    log.warn("自动提交审核失败（不影响保存）: knowledgeId={}", updatedKnowledge.getId(), e);
+                    log.warn("自动提交审核失败（不影响保存）: knowledgeId={}, version={}", 
+                            updatedKnowledge.getId(), updatedKnowledge.getVersion(), e);
                 }
             }
             
@@ -292,6 +338,15 @@ public class OnlyOfficeController {
         } catch (Exception e) {
             log.error("创建新版本失败: fileId={}", fileId, e);
             return false;
+        } finally {
+            // 清理临时文件
+            if (tempFile != null && tempFile.exists()) {
+                try {
+                    tempFile.delete();
+                } catch (Exception e) {
+                    log.warn("无法删除临时文件: {}", tempFile.getAbsolutePath());
+                }
+            }
         }
     }
 

@@ -169,5 +169,65 @@ public class DiffUtil {
             return equalCount;
         }
     }
-}
+    /**
+     * 三路合并算法 (简化的行级合并)
+     * @param base 基础版本
+     * @param ours 当前版本 (Local/Server)
+     * @param theirs 传入版本 (Remote/Incoming)
+     * @return 合并结果
+     */
+    public static String merge(String base, String ours, String theirs) {
+        // 如果内容完全一样，直接返回
+        if (ours.equals(theirs)) {
+            return ours;
+        }
+        
+        List<String> baseLines = splitLines(base);
+        List<String> oursLines = splitLines(ours);
+        List<String> theirsLines = splitLines(theirs);
+        
+        // 计算 Base -> Ours 的差异
+        List<DiffLine> diffOurs = diffLines(baseLines, oursLines);
+        // 计算 Base -> Theirs 的差异
+        List<DiffLine> diffTheirs = diffLines(baseLines, theirsLines);
+        
+        // 如果一方没变，返回另一方
+        if (isUnchanged(diffOurs)) return theirs;
+        if (isUnchanged(diffTheirs)) return ours;
+        
+        // 合并策略：
+        // 1. 我们需要重建最终的内容列表
+        // 2. 遍历Base的每一行，检查它在Ours和Theirs中是否被修改/删除
+        // 3. 同时检查Ours和Theirs是否有新增行
+        // 注意：DiffUtil目前的实现是基于LCS的简单Diff，直接用来做3-way merge比较困难
+        // 因为它只给出了 diff lines，没有明确的对应关系
+        
+        // 这里采用一种更稳健的策略：
+        // 如果Ours和Theirs都对Base进行了修改，尝试检测是否修改了不同的区域
+         
+        // 简单冲突检测：如果两个版本都修改了，且修改后的内容不同，则认为冲突
+        // 为了支持更细粒度的合并，我们需要知道每一行的变更情况
+        // 鉴于DiffUtil实现的限制，我们暂且使用如下策略：
+        // 如果两者内容不一致，直接标记为冲突，交给用户处理
+        // 这是最安全的做法，避免错误合并
+        
+        // TODO: 要实现真正的行级无冲突合并，需要更复杂的 Diff3 算法
+        // 这里暂时保持安全策略，但改进冲突标记的格式，使其更清晰
+        
+        StringBuilder result = new StringBuilder();
+        result.append("<<<<<<< HEAD (当前版本)\n");
+        result.append(ours);
+        result.append("\n=======\n");
+        result.append(theirs);
+        result.append("\n>>>>>>> Incoming Change (新变更)");
+        
+        return result.toString();
+    }
 
+    private static boolean isUnchanged(List<DiffLine> diffs) {
+        for (DiffLine line : diffs) {
+            if (line.getType() != DiffType.EQUAL) return false;
+        }
+        return true;
+    }
+}

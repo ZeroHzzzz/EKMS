@@ -75,5 +75,22 @@ public interface KnowledgeService {
      * @return 更新后的知识DTO
      */
     KnowledgeDTO createVersionFromFileEdit(Long knowledgeId, Long newFileId, String operatorUsername, String changeDescription);
+    
+    /**
+     * 驳回指定版本（将版本状态更新为已驳回）
+     * @param knowledgeId 知识ID
+     * @param version 版本号
+     * @return 是否成功
+     */
+    boolean rejectVersion(Long knowledgeId, Long version);
+    
+    /**
+     * 更新知识的整体状态（不创建新版本，仅更新状态标记）
+     * @param knowledgeId 知识ID
+     * @param status 新状态
+     * @param hasDraft 是否有草稿
+     * @return 是否成功
+     */
+    boolean updateKnowledgeStatus(Long knowledgeId, String status, boolean hasDraft);
 }
 

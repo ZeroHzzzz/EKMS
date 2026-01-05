@@ -139,16 +139,33 @@ public class AuditServiceImpl implements AuditService {
         audit.setUpdateTime(LocalDateTime.now());
         auditMapper.updateById(audit);
         
-        // 审核驳回后，将知识状态更新为已驳回
+        // 审核驳回后，更新版本状态
         if (audit.getKnowledgeId() != null) {
             try {
-                // 获取知识信息
                 com.knowledge.api.dto.KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(audit.getKnowledgeId());
                 if (knowledge != null) {
-                    knowledge.setStatus(Constants.FILE_STATUS_REJECTED);
-                    knowledge.setUpdateBy("系统");
-                    knowledgeService.updateKnowledge(knowledge);
-                    log.info("审核驳回后，已将知识状态更新为已驳回: knowledgeId={}", audit.getKnowledgeId());
+                    // 将对应版本的状态更新为已驳回（通过knowledgeService）
+                    if (audit.getVersion() != null) {
+                        knowledgeService.rejectVersion(audit.getKnowledgeId(), audit.getVersion());
+                        log.info("审核驳回后，已将版本状态更新为已驳回: knowledgeId={}, version={}", 
+                                audit.getKnowledgeId(), audit.getVersion());
+                    }
+                    
+                    // 判断是否需要更新knowledge表的状态
+                    // 只有在没有已发布版本的情况下，才将知识整体状态设为已驳回
+                    if (knowledge.getPublishedVersion() == null) {
+                        // 没有已发布版本，将整体状态设为已驳回
+                        knowledge.setStatus(Constants.FILE_STATUS_REJECTED);
+                        knowledge.setHasDraft(false);
+                        knowledge.setUpdateBy("系统");
+                        knowledgeService.updateKnowledgeStatus(knowledge.getId(), Constants.FILE_STATUS_REJECTED, false);
+                        log.info("审核驳回后，知识无已发布版本，将整体状态更新为已驳回: knowledgeId={}", audit.getKnowledgeId());
+                    } else {
+                        // 有已发布版本，只清除草稿标记，保留已发布状态
+                        knowledgeService.updateKnowledgeStatus(knowledge.getId(), Constants.FILE_STATUS_APPROVED, false);
+                        log.info("审核驳回后，知识有已发布版本，保留发布状态，清除草稿标记: knowledgeId={}, publishedVersion={}", 
+                                audit.getKnowledgeId(), knowledge.getPublishedVersion());
+                    }
                 }
             } catch (Exception e) {
                 log.error("审核驳回后更新知识状态失败: knowledgeId={}", audit.getKnowledgeId(), e);
@@ -253,8 +270,12 @@ public class AuditServiceImpl implements AuditService {
             AuditRecordDTO dto = new AuditRecordDTO();
             BeanUtils.copyProperties(audit, dto);
             dto.setAuditId(audit.getId());
+            dto.setKnowledgeId(audit.getKnowledgeId());
+            dto.setVersion(audit.getVersion());  // 设置版本号
             dto.setAuditorId(audit.getAuditorId());
+            dto.setStatus(audit.getStatus());
             dto.setAuditTime(audit.getUpdateTime() != null ? audit.getUpdateTime() : audit.getCreateTime());
+            dto.setSubmitTime(audit.getCreateTime());
             
             // 根据审核状态设置操作类型
             if (Constants.AUDIT_STATUS_PENDING.equals(audit.getStatus())) {
@@ -263,6 +284,18 @@ public class AuditServiceImpl implements AuditService {
                 dto.setAction("APPROVE");
             } else if (Constants.AUDIT_STATUS_REJECTED.equals(audit.getStatus())) {
                 dto.setAction("REJECT");
+            }
+            
+            // 获取提交人姓名
+            if (audit.getSubmitUserId() != null) {
+                try {
+                    UserDTO submitter = userService.getUserById(audit.getSubmitUserId());
+                    if (submitter != null) {
+                        dto.setSubmitUserName(submitter.getRealName() != null ? submitter.getRealName() : submitter.getUsername());
+                    }
+                } catch (Exception e) {
+                    log.warn("获取提交人信息失败: submitUserId={}", audit.getSubmitUserId(), e);
+                }
             }
             
             // 获取审核人姓名
@@ -301,6 +334,29 @@ public class AuditServiceImpl implements AuditService {
         }
         
         return errors;
+    }
+
+    @Override
+    @Transactional
+    public void deleteByKnowledgeId(Long knowledgeId) {
+        if (knowledgeId == null) return;
+        
+        LambdaQueryWrapper<Audit> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Audit::getKnowledgeId, knowledgeId);
+        auditMapper.delete(wrapper);
+        log.info("删除知识关联的审核记录: knowledgeId={}", knowledgeId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByKnowledgeIdAndVersionGt(Long knowledgeId, Long version) {
+        if (knowledgeId == null || version == null) return;
+
+        LambdaQueryWrapper<Audit> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Audit::getKnowledgeId, knowledgeId);
+        wrapper.gt(Audit::getVersion, version);
+        int count = auditMapper.delete(wrapper);
+        log.info("删除指定版本之后的审核记录: knowledgeId={}, version>{}, count={}", knowledgeId, version, count);
     }
 }
 

@@ -9,5 +9,6 @@ public interface CommentService {
     List<CommentDTO> getComments(Long knowledgeId, Long currentUserId);
     boolean likeComment(Long commentId, Long userId);
     boolean cancelLikeComment(Long commentId, Long userId);
+    void deleteByKnowledgeId(Long knowledgeId);
 }
 

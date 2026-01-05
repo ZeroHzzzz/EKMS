@@ -8,5 +8,6 @@ public interface KnowledgeRelationService {
     boolean deleteRelation(Long relationId);
     boolean deleteRelation(Long knowledgeId, Long relatedKnowledgeId);
     List<KnowledgeRelationDTO> getRelations(Long knowledgeId);
+    void deleteByKnowledgeId(Long knowledgeId);
 }
 

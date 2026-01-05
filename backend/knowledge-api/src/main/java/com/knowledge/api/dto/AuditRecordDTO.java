@@ -10,10 +10,15 @@ public class AuditRecordDTO implements Serializable {
 
     private Long id;
     private Long auditId;
+    private Long knowledgeId;
+    private Long version;  // 审核的版本号
     private Long auditorId;
     private String auditorName;
     private String action; // SUBMIT, APPROVE, REJECT
+    private String status; // PENDING, APPROVED, REJECTED
     private String comment;
     private LocalDateTime auditTime;
+    private LocalDateTime submitTime; // 提交时间
+    private String submitUserName; // 提交人姓名
 }
 

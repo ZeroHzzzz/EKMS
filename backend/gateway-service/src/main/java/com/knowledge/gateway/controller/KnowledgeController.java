@@ -161,28 +161,41 @@ public class KnowledgeController {
             return Result.error("知识不存在");
         }
         
-        // 检查是否已有待审核记录
+        Long currentVersion = knowledge.getVersion();
+        
+        // 检查是否已有该版本的待审核记录（允许同一知识的不同版本分别提交审核）
         List<AuditDTO> pendingAudits = auditService.getPendingAudits();
-        boolean hasAudit = pendingAudits.stream()
-            .anyMatch(a -> a.getKnowledgeId().equals(id) && Constants.AUDIT_STATUS_PENDING.equals(a.getStatus()));
-        if (hasAudit) {
-            return Result.error("该知识已提交审核，请勿重复提交");
+        boolean hasAuditForCurrentVersion = pendingAudits.stream()
+            .anyMatch(a -> a.getKnowledgeId().equals(id) 
+                && Constants.AUDIT_STATUS_PENDING.equals(a.getStatus())
+                && (a.getVersion() == null || a.getVersion().equals(currentVersion)));
+        if (hasAuditForCurrentVersion) {
+            // 找到那个待审核记录并返回，视为成功
+            AuditDTO existingAudit = pendingAudits.stream()
+                .filter(a -> a.getKnowledgeId().equals(id) 
+                    && Constants.AUDIT_STATUS_PENDING.equals(a.getStatus())
+                    && (a.getVersion() == null || a.getVersion().equals(currentVersion)))
+                .findFirst()
+                .orElse(null);
+            return Result.success(existingAudit);
         }
         
-        // 如果知识状态是待审核或已驳回，可以提交审核
+        // 如果知识状态是待审核或已驳回，或者有草稿待审核
         if (Constants.FILE_STATUS_PENDING.equals(knowledge.getStatus()) || 
-            Constants.FILE_STATUS_REJECTED.equals(knowledge.getStatus())) {
-            // 创建审核记录
-            AuditDTO auditDTO = auditService.submitForAudit(id, userId);
-            // 确保知识状态为待审核
-            if (!Constants.FILE_STATUS_PENDING.equals(knowledge.getStatus())) {
+            Constants.FILE_STATUS_REJECTED.equals(knowledge.getStatus()) ||
+            Boolean.TRUE.equals(knowledge.getHasDraft())) {
+            // 创建审核记录（带版本号）
+            AuditDTO auditDTO = auditService.submitForAudit(id, currentVersion, userId);
+            // 确保知识状态正确
+            if (!Constants.FILE_STATUS_PENDING.equals(knowledge.getStatus()) 
+                && !Constants.FILE_STATUS_APPROVED.equals(knowledge.getStatus())) {
                 knowledge.setStatus(Constants.FILE_STATUS_PENDING);
                 knowledgeService.updateKnowledge(knowledge);
             }
             return Result.success(auditDTO);
         }
         
-        return Result.error("知识状态不正确，无法提交审核（只有待审核或已驳回状态的知识可以提交审核）");
+        return Result.error("知识状态不正确，无法提交审核（只有待审核、已驳回或有草稿的知识可以提交审核）");
     }
 
     @GetMapping("/{id:\\d+}/related")

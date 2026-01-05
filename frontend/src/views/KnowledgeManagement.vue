@@ -185,14 +185,17 @@
           <el-tag :type="getStatusType(scope.row.status)" size="small">
             {{ getStatusText(scope.row.status) }}
           </el-tag>
+          <el-tag v-if="scope.row.hasDraft && scope.row.status === 'APPROVED'" type="warning" size="small" style="margin-left: 5px">
+            Pending Update
+          </el-tag>
         </template>
       </el-table-column>
       <!-- 审核列 -->
       <el-table-column label="审核" width="130" align="center">
         <template #default="scope">
           <div class="audit-cell">
-            <!-- 待审核状态 -->
-            <template v-if="scope.row.status === 'PENDING'">
+            <!-- 待审核状态 或 有待审核草稿 -->
+            <template v-if="scope.row.status === 'PENDING' || scope.row.hasDraft">
               <el-tooltip content="通过" placement="top">
                 <el-button type="success" size="small" circle :icon="Check" @click.stop="handleAuditApprove(scope.row)" />
               </el-tooltip>
@@ -200,7 +203,7 @@
                 <el-button type="danger" size="small" circle :icon="Close" @click.stop="handleAuditReject(scope.row)" />
               </el-tooltip>
             </template>
-            <!-- 已发布状态 -->
+            <!-- 已发布状态（且无草稿） -->
             <template v-else-if="scope.row.status === 'APPROVED'">
               <el-button disabled size="small" circle :icon="Check" class="audit-btn-disabled" />
               <el-tooltip content="撤回发布" placement="top">
@@ -522,7 +525,7 @@ const batchAuditing = ref(false)
 
 // 计算是否有待审核的选中项
 const hasPendingItems = computed(() => {
-  return selectedItems.value.some(item => item.status === 'PENDING')
+  return selectedItems.value.some(item => item.status === 'PENDING' || item.hasDraft)
 })
 
 // 搜索历史
@@ -1136,13 +1139,13 @@ const loadAuditInfo = async (knowledge) => {
       const audits = Array.isArray(res.data) ? res.data : [res.data]
       // 优先匹配版本号，如果没有版本号则匹配knowledgeId
       let audit = audits.find(a => 
-        a.knowledgeId === knowledge.id && 
+        String(a.knowledgeId) === String(knowledge.id) && 
         a.status === 'PENDING' &&
-        (a.version === knowledge.version || !a.version)
+        (String(a.version) === String(knowledge.version) || !a.version)
       )
       if (!audit) {
         // 如果按版本找不到，尝试只按knowledgeId查找
-        audit = audits.find(a => a.knowledgeId === knowledge.id && a.status === 'PENDING')
+        audit = audits.find(a => String(a.knowledgeId) === String(knowledge.id) && a.status === 'PENDING')
       }
       if (audit) {
         // 提交人姓名现在从后端返回

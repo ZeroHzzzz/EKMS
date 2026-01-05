@@ -19,5 +19,17 @@ public interface AuditService {
     List<AuditDTO> getAllAudits(); // 获取所有审核记录
     List<AuditRecordDTO> getAuditHistory(Long knowledgeId);
     List<String> validateContent(String content);
+    
+    /**
+     * 删除指定知识的所有审核记录
+     */
+    void deleteByKnowledgeId(Long knowledgeId);
+
+    /**
+     * 删除指定知识大于指定版本的所有审核记录
+     * @param knowledgeId 知识ID
+     * @param version 版本号
+     */
+    void deleteByKnowledgeIdAndVersionGt(Long knowledgeId, Long version);
 }
 

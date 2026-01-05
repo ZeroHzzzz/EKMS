@@ -71,13 +71,14 @@
             </div>
 
             <!-- 文件预览区 -->
-            <div v-if="knowledge.fileId && fileInfo" class="file-preview-viewer">
+            <div v-if="currentFileId && fileInfo" class="file-preview-viewer">
               <div class="preview-toolbar">
                 <span class="file-name">
                   <el-icon><Document /></el-icon> {{ fileInfo.fileName }}
                 </span>
                 <div class="preview-actions">
-                  <el-button v-if="canEditOffice(fileInfo.fileType)" type="primary" size="small" @click="goToOfficeEdit('edit')">
+                  <!-- 只有查看最新版本（草稿）时才显示在线编辑按钮 -->
+                  <el-button v-if="canEditOffice(fileInfo.fileType) && (isViewingDraft || !hasDraft)" type="primary" size="small" @click="goToOfficeEdit('edit')">
                     <el-icon><Edit /></el-icon> 在线编辑
                   </el-button>
                   <el-button text type="primary" @click="downloadFile">下载</el-button>
@@ -85,24 +86,26 @@
                 </div>
               </div>
               
-              <div class="preview-stage">
+              <div class="preview-stage" :key="previewKey">
                 <!-- PDF -->
                 <iframe 
                   v-if="isPdfFile(fileInfo.fileType)"
                   :src="previewUrl" 
+                  :key="'pdf-' + previewKey"
                   class="preview-frame"
                 ></iframe>
 
                 <!-- 图片 -->
                 <div v-else-if="isImageFile(fileInfo.fileType)" class="image-preview-box">
-                  <img :src="previewUrl" :alt="fileInfo.fileName" />
+                  <img :src="previewUrl" :key="'img-' + previewKey" :alt="fileInfo.fileName" />
                 </div>
 
                 <!-- 视频 -->
                 <div v-else-if="isVideoFile(fileInfo.fileType)" class="video-preview-box">
                   <!-- 使用 kkFileView 预览视频 (iframe) -->
                   <iframe 
-                    :src="getKkFileViewUrl()" 
+                    :src="kkFileViewUrl" 
+                    :key="'video-' + previewKey"
                     class="preview-frame"
                     allowfullscreen
                   ></iframe>
@@ -110,13 +113,14 @@
 
                  <!-- 音频 -->
                 <div v-else-if="isAudioFile(fileInfo.fileType)" class="audio-preview-box">
-                  <audio :src="previewUrl" controls class="audio-player"></audio>
+                  <audio :src="previewUrl" :key="'audio-' + previewKey" controls class="audio-player"></audio>
                 </div>
 
                 <!-- Office / 文本 (kkFileView) -->
                 <div v-else-if="isOfficeFile(fileInfo.fileType) || isTextFile(fileInfo.fileType)" class="office-preview-box">
                   <iframe 
-                    :src="getKkFileViewUrl()" 
+                    :src="kkFileViewUrl" 
+                    :key="'office-' + previewKey"
                     class="preview-frame"
                   ></iframe>
                 </div>
@@ -166,6 +170,10 @@
                    <div class="prop-item">
                     <span class="label">时间</span>
                     <span class="value">{{ formatTime(displayContent.createTime || knowledge.updateTime || knowledge.createTime) }}</span>
+                  </div>
+                  <div class="prop-item" style="opacity: 0.6; font-size: 11px;">
+                    <span class="label">Debug</span>
+                    <span class="value">FileID: {{ fileInfo?.id || '?' }} | Ver: {{ currentViewingVersion || knowledge.version }}</span>
                   </div>
                 </div>
 
@@ -410,7 +418,8 @@
                       v-for="(version, index) in versions" 
                       :key="version.id"
                       class="commit-item"
-                      :class="{ 'is-current': version.version === knowledge.version }"
+                      :class="{ 'is-current': version.version === knowledge.version, 'is-viewing': currentViewingVersion === version.version }"
+                      @click.stop="switchToVersion(version)"
                     >
                       <!-- Commit线和节点 -->
                       <div class="commit-graph">
@@ -449,8 +458,17 @@
                         </div>
                         
                         <div class="commit-actions">
-                          <el-button size="small" text type="primary" @click="viewVersion(version)">
-                            <el-icon><View /></el-icon> 查看
+                          <el-button 
+                            size="small" 
+                            :type="currentViewingVersion === version.version ? 'success' : 'primary'"
+                            text 
+                            @click.stop="switchToVersion(version)"
+                          >
+                            <el-icon><View /></el-icon> 
+                            {{ currentViewingVersion === version.version ? '当前查看' : '切换预览' }}
+                          </el-button>
+                          <el-button size="small" text type="info" @click="viewVersionDetails(version)">
+                            <el-icon><Document /></el-icon> 详情
                           </el-button>
                           <el-button 
                             size="small" 
@@ -459,25 +477,16 @@
                             v-if="version.version !== knowledge.version"
                             @click="compareVersion(version)"
                           >
-                            <el-icon><Refresh /></el-icon> 与当前对比
-                          </el-button>
-                          <el-button 
-                            size="small" 
-                            text 
-                            type="info"
-                            v-if="index < versions.length - 1"
-                            @click="compareWithPrevious(version, index)"
-                          >
-                            <el-icon><TopRight /></el-icon> 与上一版本对比
+                            <el-icon><Refresh /></el-icon> 对比
                           </el-button>
                           <el-button 
                             size="small" 
                             text 
                             type="danger"
-                            v-if="isAdmin(userStore.userInfo) && version.version !== knowledge.version"
+                            v-if="isAdmin(userStore.userInfo) && !version.isPublished"
                             @click="revertToVersion(version)"
                           >
-                            <el-icon><RefreshLeft /></el-icon> 回退到此版本
+                            <el-icon><RefreshLeft /></el-icon> 回退
                           </el-button>
                         </div>
                       </div>
@@ -570,13 +579,32 @@
              <span class="label">创建时间</span>
              <span class="value">{{ formatTime(selectedVersion?.createTime) }}</span>
            </div>
+           <div class="version-info-item" v-if="selectedVersion?.fileId">
+             <span class="label">关联文件</span>
+             <span class="value">
+               <el-button size="small" type="primary" text @click="previewVersionFile(selectedVersion)">
+                 <el-icon><Document /></el-icon> 预览文件
+               </el-button>
+               <el-button size="small" type="success" text @click="downloadVersionFile(selectedVersion)">
+                 <el-icon><Download /></el-icon> 下载
+               </el-button>
+             </span>
+           </div>
          </div>
          <div class="version-message">
            <strong>变更说明：</strong>{{ selectedVersion?.commitMessage || selectedVersion?.changeDescription || '无' }}
          </div>
-         <el-divider>内容</el-divider>
+         
+         <!-- 操作按钮 -->
+         <div class="version-actions" style="margin-top: 16px; display: flex; gap: 12px;">
+           <el-button type="primary" @click="switchToVersionFromDialog(selectedVersion)">
+             <el-icon><View /></el-icon> 切换到此版本预览
+           </el-button>
+         </div>
+         
+         <el-divider>文本内容</el-divider>
          <div class="version-content-wrapper">
-           <pre class="version-content">{{ selectedVersion?.content || '(无内容)' }}</pre>
+           <pre class="version-content">{{ selectedVersion?.content || '(无文本内容，请查看文件预览)' }}</pre>
          </div>
        </div>
     </el-dialog>
@@ -635,7 +663,7 @@ import { sendMessageStream } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { hasRole, isAdmin, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft } from '@element-plus/icons-vue'
+import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const route = useRoute()
@@ -664,6 +692,8 @@ const versions = ref([])
 const showVersionViewDialog = ref(false)
 const selectedVersion = ref(null)
 const relationGraphRef = ref(null)
+const currentViewingVersion = ref(null)  // 当前查看的版本号
+const currentVersionContent = ref(null)  // 当前查看版本的内容
 
 // 版本对比相关状态
 const showCompareDialog = ref(false)
@@ -697,9 +727,32 @@ const quickQuestions = [
 
 // Computed
 const isEditMode = computed(() => route.query.edit === 'true')
+// 用于强制刷新 iframe 的时间戳
+const previewTimestamp = ref(Date.now())
+
 const previewUrl = computed(() => {
   if (!fileInfo.value) return ''
-  return `/api/file/preview/${fileInfo.value.id}`
+  return `/api/file/preview/${fileInfo.value.id}?t=${previewTimestamp.value}`
+})
+
+// 用于强制刷新 iframe 的 key（当文件 ID 变化或版本切换时更新）
+const previewKey = computed(() => {
+  const fileId = fileInfo.value?.id || currentFileId.value || 'none'
+  const version = currentViewingVersion.value || 'current'
+  return `${fileId}-${version}-${previewTimestamp.value}`
+})
+
+// kkFileView 预览 URL（计算属性，响应式更新）
+const kkFileViewUrl = computed(() => {
+  if (!fileInfo.value) return ''
+  const backendBase = 'http://host.docker.internal:8080' 
+  const fileDownloadUrl = `${backendBase}/api/file/download/${fileInfo.value.id}`
+  const fullFileName = fileInfo.value.fileName || ''
+  const version = currentViewingVersion.value || (knowledge.value ? knowledge.value.version : 'latest')
+  const versionPrefix = `v${version}_`
+  const finalDownloadUrl = `${fileDownloadUrl}?fullfilename=${encodeURIComponent(versionPrefix + fullFileName)}&t=${previewTimestamp.value}`
+  const kkBase = 'http://localhost:8012'
+  return `${kkBase}/onlinePreview?url=${encodeURIComponent(btoa(finalDownloadUrl))}`
 })
 
 // 预览版本内容（通过URL参数指定版本）
@@ -717,14 +770,17 @@ const canViewDraft = computed(() => {
   return hasDraft.value && canEdit(knowledge.value)
 })
 
-// 是否显示草稿横幅
+// 是否显示横幅
 const showDraftBanner = computed(() => {
-  // 如果是预览特定版本，或者有草稿，显示横幅
-  return hasDraft.value || (previewVersionContent.value && isViewingDraft.value)
+  // 查看历史版本、预览特定版本、或有草稿时显示横幅
+  return isViewingHistoryVersion.value || hasDraft.value || (previewVersionContent.value && isViewingDraft.value)
 })
 
-// 草稿横幅类型
+// 横幅类型
 const draftBannerType = computed(() => {
+  if (isViewingHistoryVersion.value) {
+    return 'banner-history'
+  }
   if (previewVersionContent.value && isViewingDraft.value) {
     return 'banner-draft'
   }
@@ -734,8 +790,16 @@ const draftBannerType = computed(() => {
   return 'banner-info'
 })
 
-// 草稿横幅消息
+// 横幅消息
 const draftBannerMessage = computed(() => {
+  // 如果正在查看历史版本
+  if (isViewingHistoryVersion.value && currentVersionContent.value) {
+    const versionStatus = currentVersionContent.value.status
+    const statusText = versionStatus === 'APPROVED' ? '已发布' : 
+                       versionStatus === 'PENDING' ? '待审核' : 
+                       versionStatus === 'REJECTED' ? '已驳回' : '历史'
+    return `您正在查看历史版本 v${currentViewingVersion.value}（${statusText}），点击"切换预览"可返回当前版本。`
+  }
   // 如果是通过URL参数预览特定版本
   if (previewVersionContent.value && isViewingDraft.value) {
     return `您正在预览版本 v${previewVersionContent.value.version}，这是待审核的版本。`
@@ -750,8 +814,12 @@ const draftBannerMessage = computed(() => {
   return '该文章有更新版本正在审核中，您当前查看的是已发布版本。'
 })
 
-// 当前显示的内容（根据isViewingDraft和previewVersionContent决定显示哪个版本）
+// 当前显示的内容（根据选择的版本决定）
 const displayContent = computed(() => {
+  // 如果选择了特定版本查看
+  if (currentVersionContent.value && currentViewingVersion.value) {
+    return currentVersionContent.value
+  }
   // 如果有通过URL参数指定的预览版本，优先显示
   if (previewVersionContent.value && isViewingDraft.value) {
     return previewVersionContent.value
@@ -762,6 +830,16 @@ const displayContent = computed(() => {
   }
   // 显示最新版本（草稿或无草稿时的当前版本）
   return knowledge.value || {}
+})
+
+// 当前应该显示的文件ID（根据显示的版本决定）
+const currentFileId = computed(() => {
+  return displayContent.value?.fileId || knowledge.value?.fileId
+})
+
+// 是否正在查看历史版本
+const isViewingHistoryVersion = computed(() => {
+  return currentViewingVersion.value && currentViewingVersion.value !== knowledge.value?.version
 })
 
 // Methods
@@ -802,11 +880,23 @@ const loadDetail = async () => {
       }
       
       // 判断默认显示哪个版本：
-      // 1. 如果有预览版本参数，显示预览版本
-      // 2. 作者/管理员默认看草稿
-      // 3. 普通用户看已发布版本
       if (!previewVersion) {
-        isViewingDraft.value = canEdit(knowledge.value)
+        // 如果有编辑权限，默认加载最新非发布版本（草稿）
+        if (canEdit(knowledge.value)) {
+            isViewingDraft.value = true
+            // 主动加载最新Draft版本的详细内容
+            const draftVersion = knowledge.value.version
+            if (draftVersion) {
+                 try {
+                    const draftRes = await api.get(`/knowledge/${route.params.id}/versions/${draftVersion}`)
+                    if (draftRes.code === 200 && draftRes.data) {
+                        previewVersionContent.value = draftRes.data
+                        currentVersionContent.value = draftRes.data // 设置为当前显示内容
+                        currentViewingVersion.value = draftVersion
+                    }
+                 } catch (e) {}
+            }
+        }
       }
     } else {
       publishedVersionContent.value = null
@@ -815,12 +905,8 @@ const loadDetail = async () => {
       }
     }
     
-    if (knowledge.value.fileId) {
-      try {
-        const fileRes = await api.get(`/file/${knowledge.value.fileId}`)
-        if (fileRes.code === 200) fileInfo.value = fileRes.data
-      } catch (e) { console.warn('文件信息加载失败', e) }
-    }
+    // 加载文件信息（根据当前显示版本的fileId）
+    await loadFileInfo()
     
     await Promise.all([
       loadComments(),
@@ -838,8 +924,34 @@ const loadDetail = async () => {
 }
 
 // 切换查看草稿/已发布版本
-const toggleViewMode = () => {
+const toggleViewMode = async () => {
   isViewingDraft.value = !isViewingDraft.value
+  // 切换版本后重新加载文件信息
+  await loadFileInfo()
+}
+
+// 加载文件信息（根据当前显示版本的fileId）
+const loadFileInfo = async () => {
+  const fileIdToLoad = currentFileId.value
+  console.log('loadFileInfo called, fileIdToLoad:', fileIdToLoad, 'currentViewingVersion:', currentViewingVersion.value)
+  
+  if (!fileIdToLoad) {
+    fileInfo.value = null
+    return
+  }
+  
+  try {
+    const fileRes = await api.get(`/file/${fileIdToLoad}`)
+    if (fileRes.code === 200) {
+      fileInfo.value = fileRes.data
+      // 更新时间戳以强制刷新 iframe
+      previewTimestamp.value = Date.now()
+      console.log('File info loaded:', fileRes.data, 'new previewTimestamp:', previewTimestamp.value)
+    }
+  } catch (e) { 
+    console.warn('文件信息加载失败', e)
+    fileInfo.value = null
+  }
 }
 
 const checkCollectStatus = async () => {
@@ -897,18 +1009,13 @@ const downloadFile = () => {
 }
 
 const openInNewWindow = () => {
-   if(fileInfo.value) window.open(getKkFileViewUrl())
+   if(fileInfo.value) window.open(kkFileViewUrl.value)
    else window.open(window.location.href)
 }
 
+// 保留函数版本用于特殊场景（如版本对话框中的预览）
 const getKkFileViewUrl = () => {
-  if (!fileInfo.value) return ''
-  const backendBase = 'http://host.docker.internal:8080' 
-  const fileDownloadUrl = `${backendBase}/api/file/download/${fileInfo.value.id}`
-  const fullFileName = fileInfo.value.fileName || ''
-  const finalDownloadUrl = `${fileDownloadUrl}?fullfilename=${encodeURIComponent(fullFileName)}`
-  const kkBase = 'http://localhost:8012'
-  return `${kkBase}/onlinePreview?url=${encodeURIComponent(btoa(finalDownloadUrl))}`
+  return kkFileViewUrl.value
 }
 
 const getFileExtension = (filename) => {
@@ -1161,6 +1268,7 @@ const saveEdit = async () => {
     const originalStatus = knowledge.value.status
     const res = await api.put(`/knowledge/${route.params.id}`, {
       ...editForm.value,
+      baseVersion: knowledge.value.version, // 传递当前版本号作为基准版本
       updateBy: userStore.userInfo?.username
     })
     
@@ -1240,14 +1348,80 @@ const loadVersions = async () => {
   try {
     const res = await api.get(`/knowledge/${route.params.id}/versions`)
     versions.value = res.data || []
+    // 调试：打印版本列表和每个版本的 fileId
+    console.log('加载版本列表:', versions.value.map(v => ({ version: v.version, fileId: v.fileId, title: v.title })))
   } catch (error) {
     console.error('加载版本列表失败', error)
   }
 }
 
-const viewVersion = (version) => {
+// 切换到指定版本预览
+const switchToVersion = async (version) => {
+  if (currentViewingVersion.value === version.version) {
+    return
+  }
+  
+  try {
+    // 加载版本内容（如果还没有完整内容）
+    const versionData = versions.value.find(v => v.version === version.version)
+    console.log('switchToVersion - version:', version.version, 'versionData:', versionData)
+    
+    if (versionData) {
+      currentVersionContent.value = versionData
+      currentViewingVersion.value = version.version
+      
+      console.log('After setting currentVersionContent - fileId:', versionData.fileId, 'currentFileId will be:', versionData.fileId || knowledge.value?.fileId)
+      
+      // 重新加载该版本的文件信息
+      await loadFileInfo()
+      ElMessage.success(`已切换到版本 v${version.version}`)
+    }
+  } catch (e) {
+    console.error('切换版本失败', e)
+    ElMessage.error('切换版本失败')
+  }
+}
+
+// 查看版本详情（弹窗）
+const viewVersionDetails = (version) => {
   selectedVersion.value = version
   showVersionViewDialog.value = true
+}
+
+// 原来的 viewVersion 方法保留为别名
+const viewVersion = (version) => {
+  viewVersionDetails(version)
+}
+
+// 从对话框中切换到版本预览
+const switchToVersionFromDialog = async (version) => {
+  showVersionViewDialog.value = false
+  await switchToVersion(version)
+}
+
+// 预览版本文件
+const previewVersionFile = (version) => {
+  if (!version?.fileId) {
+    ElMessage.warning('该版本没有关联文件')
+    return
+  }
+  // 使用 kkFileView 预览
+  const backendBase = 'http://host.docker.internal:8080'
+  const fullFileName = version.title || 'file.docx' // Fallback title
+  const versionPrefix = `v${version.version}_`
+  const fileDownloadUrl = `${backendBase}/api/file/download/${version.fileId}?fullfilename=${encodeURIComponent(versionPrefix + fullFileName)}&t=${Date.now()}`
+  const kkBase = 'http://localhost:8012'
+  const previewUrl = `${kkBase}/onlinePreview?url=${encodeURIComponent(btoa(fileDownloadUrl))}`
+  window.open(previewUrl, '_blank')
+}
+
+// 下载版本文件
+const downloadVersionFile = (version) => {
+  if (!version?.fileId) {
+    ElMessage.warning('该版本没有关联文件')
+    return
+  }
+  window.open(`/api/file/download/${version.fileId}`, '_blank')
 }
 
 // 获取版本状态消息
@@ -1259,16 +1433,20 @@ const getVersionStatusMessage = (version) => {
   return '此版本尚未发布，仅管理员和作者可见'
 }
 
-// 回退到指定版本（仅管理员）
+// 回退到指定版本（仅管理员）- 会删除该版本之后的所有历史记录
 const revertToVersion = async (version) => {
+  // 计算将要删除的版本数量
+  const versionsToDelete = versions.value.filter(v => v.version > version.version).length
+  
   try {
     await ElMessageBox.confirm(
-      `确定要回退到版本 v${version.version} 吗？\n\n这将创建一个新版本，内容与 v${version.version} 相同，并立即发布。`,
+      `确定要回退到版本 v${version.version} 吗？\n\n⚠️ 警告：这将永久删除 v${version.version} 之后的 ${versionsToDelete} 个版本历史记录，此操作不可恢复！`,
       '版本回退',
       {
         confirmButtonText: '确定回退',
         cancelButtonText: '取消',
-        type: 'warning'
+        type: 'warning',
+        dangerouslyUseHTMLString: false
       }
     )
     
@@ -1277,8 +1455,10 @@ const revertToVersion = async (version) => {
     })
     
     if (res.code === 200) {
-      const newVersion = res.data
-      ElMessage.success(`已成功回退并发布，新版本号: v${newVersion.version}`)
+      ElMessage.success(`已成功回退到版本 v${version.version}，删除了 ${versionsToDelete} 个后续版本`)
+      // 清除当前查看的版本状态
+      currentViewingVersion.value = null
+      currentVersionContent.value = null
       loadDetail()
     } else {
       ElMessage.error(res.message || '回退失败')
@@ -1409,6 +1589,12 @@ onMounted(() => {
   background: linear-gradient(135deg, #ecf5ff 0%, #e6f1fc 100%);
   color: #409eff;
   border: 1px solid #d9ecff;
+}
+
+.draft-banner.banner-history {
+  background: linear-gradient(135deg, #f0f9eb 0%, #e8f5e1 100%);
+  color: #67c23a;
+  border: 1px solid #c2e7b0;
 }
 
 .draft-banner .el-icon {
@@ -1905,6 +2091,7 @@ onMounted(() => {
   padding: 12px 8px;
   border-radius: 8px;
   transition: background 0.2s;
+  cursor: pointer;
 }
 
 .commit-item:hover {
@@ -1912,7 +2099,12 @@ onMounted(() => {
 }
 
 .commit-item.is-current {
-  background: #ecf5ff;
+  background: #f0f9eb; /* Greenish for current/published */
+}
+
+.commit-item.is-viewing {
+  background: #ecf5ff; /* Blue for viewing */
+  border-left: 3px solid #409eff;
 }
 
 .commit-graph {

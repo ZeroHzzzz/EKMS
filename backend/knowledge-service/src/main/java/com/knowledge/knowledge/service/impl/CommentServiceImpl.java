@@ -195,5 +195,29 @@ public class CommentServiceImpl implements CommentService {
         
         return rootComments;
     }
+    @Override
+    @Transactional
+    public void deleteByKnowledgeId(Long knowledgeId) {
+        // 1. 查找该知识下所有评论ID
+        LambdaQueryWrapper<KnowledgeComment> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(KnowledgeComment::getKnowledgeId, knowledgeId);
+        queryWrapper.select(KnowledgeComment::getId);
+        List<Object> commentIds = commentMapper.selectObjs(queryWrapper);
+        
+        if (commentIds != null && !commentIds.isEmpty()) {
+            List<Long> ids = commentIds.stream()
+                .map(id -> Long.valueOf(id.toString()))
+                .collect(Collectors.toList());
+                
+            // 2. 删除这些评论的点赞记录
+            LambdaQueryWrapper<CommentLike> likeWrapper = new LambdaQueryWrapper<>();
+            likeWrapper.in(CommentLike::getCommentId, ids);
+            likeMapper.delete(likeWrapper);
+            
+            // 3. 删除评论
+            commentMapper.deleteBatchIds(ids);
+            log.info("已删除知识 ID={} 关联的 {} 条评论及其点赞记录", knowledgeId, ids.size());
+        }
+    }
 }
 

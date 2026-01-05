@@ -39,5 +39,65 @@ public class KnowledgeVersion implements Serializable {
     // 发布状态字段
     private Boolean isPublished;      // 是否为已发布版本
     private String status;            // 版本状态：DRAFT(草稿)、PENDING(待审核)、APPROVED(已发布)、REJECTED(已驳回)
-}
 
+    // Manual Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public Long getKnowledgeId() { return knowledgeId; }
+    public void setKnowledgeId(Long knowledgeId) { this.knowledgeId = knowledgeId; }
+
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
+
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+
+    public String getSummary() { return summary; }
+    public void setSummary(String summary) { this.summary = summary; }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+
+    public String getKeywords() { return keywords; }
+    public void setKeywords(String keywords) { this.keywords = keywords; }
+
+    public String getAuthor() { return author; }
+    public void setAuthor(String author) { this.author = author; }
+
+    public String getDepartment() { return department; }
+    public void setDepartment(String department) { this.department = department; }
+
+    public Long getFileId() { return fileId; }
+    public void setFileId(Long fileId) { this.fileId = fileId; }
+
+    public String getChangeDescription() { return changeDescription; }
+    public void setChangeDescription(String changeDescription) { this.changeDescription = changeDescription; }
+
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+
+    public String getCommitHash() { return commitHash; }
+    public void setCommitHash(String commitHash) { this.commitHash = commitHash; }
+
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
+
+    public Long getParentCommitId() { return parentCommitId; }
+    public void setParentCommitId(Long parentCommitId) { this.parentCommitId = parentCommitId; }
+
+    public String getCommitMessage() { return commitMessage; }
+    public void setCommitMessage(String commitMessage) { this.commitMessage = commitMessage; }
+
+    public Boolean getIsPublished() { return isPublished; }
+    public void setIsPublished(Boolean isPublished) { this.isPublished = isPublished; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+}
