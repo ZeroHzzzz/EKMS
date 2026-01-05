@@ -4176,6 +4176,7 @@ watch(viewMode, (newMode) => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .page-header {
@@ -5680,7 +5681,7 @@ watch(viewMode, (newMode) => {
 
 /* 可视化模式节点操作工具栏 */
 .visual-node-toolbar {
-  position: fixed;
+  position: absolute;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
