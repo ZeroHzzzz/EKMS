@@ -155,6 +155,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         }
         
+        // 如果状态是已发布，则添加到搜索引擎索引
+        if (Constants.FILE_STATUS_APPROVED.equals(knowledge.getStatus())) {
+            try {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                searchService.indexKnowledge(dto);
+            } catch (Exception e) {
+                log.warn("创建知识后添加索引失败: knowledgeId={}", knowledge.getId(), e);
+            }
+        }
+        
         KnowledgeDTO result = new KnowledgeDTO();
         BeanUtils.copyProperties(knowledge, result);
         return result;
@@ -395,6 +406,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 log.warn("自动创建审核记录失败，但版本已保存: knowledgeId={}, version={}", 
                         knowledge.getId(), newVersion, e);
                 // 审核记录创建失败不影响主流程
+            }
+        }
+        
+        // 如果状态是已发布，则更新搜索引擎索引
+        if (Constants.FILE_STATUS_APPROVED.equals(knowledge.getStatus())) {
+            try {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                searchService.updateIndex(dto);
+            } catch (Exception e) {
+                log.warn("更新知识后更新索引失败: knowledgeId={}", knowledge.getId(), e);
             }
         }
         
@@ -752,9 +774,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             
             // 同步更新Elasticsearch索引
             try {
-                KnowledgeDTO dto = new KnowledgeDTO();
-                BeanUtils.copyProperties(knowledge, dto);
-                searchService.updateIndex(dto);
+                // 只有已发布的才更新索引
+                if (Constants.FILE_STATUS_APPROVED.equals(knowledge.getStatus())) {
+                    KnowledgeDTO dto = new KnowledgeDTO();
+                    BeanUtils.copyProperties(knowledge, dto);
+                    searchService.updateIndex(dto);
+                }
             } catch (Exception e) {
                 log.warn("同步更新索引失败: knowledgeId={}", id, e);
             }
@@ -1504,9 +1529,11 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         
         // 同步更新Elasticsearch索引
         try {
-            KnowledgeDTO dto = new KnowledgeDTO();
-            BeanUtils.copyProperties(knowledge, dto);
-            searchService.updateIndex(dto);
+            if (Constants.FILE_STATUS_APPROVED.equals(knowledge.getStatus())) {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                searchService.updateIndex(dto);
+            }
         } catch (Exception e) {
             log.warn("同步更新索引失败: knowledgeId={}", knowledgeId, e);
         }
@@ -1813,9 +1840,11 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         
         // 8. 更新搜索索引
         try {
-            KnowledgeDTO dto = new KnowledgeDTO();
-            BeanUtils.copyProperties(knowledge, dto);
-            searchService.updateIndex(dto);
+            if (Constants.FILE_STATUS_APPROVED.equals(knowledge.getStatus())) {
+                KnowledgeDTO dto = new KnowledgeDTO();
+                BeanUtils.copyProperties(knowledge, dto);
+                searchService.updateIndex(dto);
+            }
         } catch (Exception e) {
             log.warn("更新索引失败: knowledgeId={}", knowledgeId, e);
         }

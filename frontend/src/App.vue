@@ -64,10 +64,7 @@
             <el-icon><UserFilled /></el-icon>
             <span>个人中心</span>
           </el-menu-item>
-          <el-menu-item index="/my-collections">
-            <el-icon><Star /></el-icon>
-            <span>我的收藏</span>
-          </el-menu-item>
+
         </el-menu>
       </el-aside>
       <el-main class="app-main">

@@ -7,7 +7,7 @@ import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import OrganizationManagement from '../views/OrganizationManagement.vue'
 import UserCenter from '../views/UserCenter.vue'
-import MyCollections from '../views/MyCollections.vue'
+
 import KnowledgeTree from '../views/KnowledgeTree.vue'
 import KnowledgeManagement from '../views/KnowledgeManagement.vue'
 import OnlyOfficeEdit from '../views/OnlyOfficeEdit.vue'
@@ -65,11 +65,7 @@ const routes = [
     name: 'UserCenter',
     component: UserCenter
   },
-  {
-    path: '/my-collections',
-    name: 'MyCollections',
-    component: MyCollections
-  },
+
   {
     path: '/knowledge-tree',
     name: 'KnowledgeTree',

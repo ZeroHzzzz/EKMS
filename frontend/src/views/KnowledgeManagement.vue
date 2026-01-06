@@ -613,7 +613,7 @@ const loadData = async () => {
       // 过滤掉文件夹（只显示有fileId的文件）
       const results = (res.data.results || [])
 
-      knowledgeList.value = results
+      knowledgeList.value = sortKnowledgeList(results)
       total.value = results.length
     } else {
       // 使用列表接口
@@ -621,7 +621,7 @@ const loadData = async () => {
       // 过滤掉文件夹（只显示有fileId的文件）
       const results = (res.data || [])
 
-      knowledgeList.value = results
+      knowledgeList.value = sortKnowledgeList(results)
       total.value = results.length
     }
     
@@ -742,6 +742,27 @@ const getMatchLocation = (highlight) => {
     locations.push('内容')
   }
   return locations.length > 0 ? locations.join('、') : ''
+}
+
+// 排序知识列表：待审核优先，同状态按创建时间倒序（最新的在前）
+const sortKnowledgeList = (list) => {
+  if (!list || list.length === 0) return list
+  
+  return [...list].sort((a, b) => {
+    // 首先按状态排序：PENDING 优先
+    const statusOrder = { 'PENDING': 0, 'APPROVED': 1, 'REJECTED': 2 }
+    const statusA = statusOrder[a.status] ?? 3
+    const statusB = statusOrder[b.status] ?? 3
+    
+    if (statusA !== statusB) {
+      return statusA - statusB
+    }
+    
+    // 同状态下，按创建时间倒序（最新的在前）
+    const timeA = a.createTime ? new Date(a.createTime).getTime() : 0
+    const timeB = b.createTime ? new Date(b.createTime).getTime() : 0
+    return timeB - timeA
+  })
 }
 
 const formatTime = (time) => {
@@ -870,8 +891,13 @@ const canAudit = (row) => {
 
 const canDelete = (row) => {
   if (!userInfo.value) return false
-  // 只有管理员可以删除知识
-  return hasRole(userInfo.value, ROLE_ADMIN)
+  // 管理员可以删除所有知识
+  if (hasRole(userInfo.value, ROLE_ADMIN)) return true
+  // EDITOR可以删除自己创建的文档
+  if (hasRole(userInfo.value, ROLE_EDITOR) && row.author === userInfo.value.realName) {
+    return true
+  }
+  return false
 }
 
 // 状态显示

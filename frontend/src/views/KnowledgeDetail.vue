@@ -11,19 +11,32 @@
       </div>
       
       <!-- 头部信息 -->
-      <div class="detail-header">
+      <div class="detail-header" :class="{ 'edit-mode-header': isEditMode }">
         <div class="header-left">
           <el-button class="back-btn" @click="goBack" :icon="ArrowLeft" circle />
+          
+          <!-- 阅读模式标题 -->
           <h1 v-if="!isEditMode" class="title">
             {{ displayContent.title }}
             <el-tag v-if="isViewingDraft" size="small" type="warning" effect="dark" style="margin-left: 8px;">草稿</el-tag>
           </h1>
-          <el-input v-else v-model="editForm.title" placeholder="请输入标题" class="title-input" />
+          
+          <!-- 编辑模式：沉浸式标题输入 -->
+          <div v-else class="immersive-title-editor">
+             <el-input 
+               v-model="editForm.title" 
+               placeholder="请输入文档标题" 
+               class="title-input-immersive"
+               :input-style="{ fontSize: '24px', fontWeight: '600', padding: '0', border: 'none', boxShadow: 'none', background: 'transparent' }"
+             />
+          </div>
         </div>
+        
         <div class="header-actions">
           <template v-if="isEditMode">
+            <span class="unsaved-hint" v-if="editFormDirty">未保存</span>
             <el-button @click="cancelEdit">取消</el-button>
-            <el-button type="primary" @click="saveEdit">保存</el-button>
+            <el-button type="primary" @click="saveEdit" :loading="saving">保存</el-button>
           </template>
           <template v-else>
             <el-button 
@@ -41,26 +54,48 @@
       <!-- 主体内容：左右分栏 -->
       <div class="detail-body">
         <!-- 左侧：内容/预览 -->
-        <div class="left-panel">
+        <div class="left-panel" :class="{ 'is-editing': isEditMode }">
           <!-- 编辑模式表单 -->
-          <div v-if="isEditMode" class="edit-form-container">
-            <el-form :model="editForm" label-width="80px">
-               <el-form-item label="分类">
-                <el-input v-model="editForm.category" placeholder="请输入分类" />
-              </el-form-item>
-              <el-form-item label="摘要">
-                <el-input v-model="editForm.summary" type="textarea" :rows="3" placeholder="请输入摘要" />
-              </el-form-item>
-              <el-form-item label="关键词">
-                <el-input v-model="editForm.keywords" placeholder="请输入关键词，多个用逗号分隔" />
-              </el-form-item>
-              <el-form-item label="变更说明">
-                <el-input v-model="editForm.changeDescription" type="textarea" :rows="2" placeholder="请输入本次变更说明" />
-              </el-form-item>
-              <el-form-item label="内容">
-                <el-input v-model="editForm.content" type="textarea" :rows="15" placeholder="请输入内容" />
-              </el-form-item>
-            </el-form>
+          <div v-if="isEditMode" class="edit-canvas">
+            <div class="edit-card meta-info-card">
+              <div class="card-title">基本信息</div>
+              <el-form :model="editForm" label-position="top" class="edit-form-grid">
+                 <el-row :gutter="20">
+                   <el-col :span="12">
+                     <el-form-item label="分类">
+                        <el-input v-model="editForm.category" placeholder="选择或输入分类" />
+                      </el-form-item>
+                   </el-col>
+                   <el-col :span="12">
+                     <el-form-item label="关键词">
+                        <el-input v-model="editForm.keywords" placeholder="关键词，多个用逗号分隔" />
+                      </el-form-item>
+                   </el-col>
+                 </el-row>
+                 
+                <el-form-item label="摘要">
+                  <el-input 
+                    v-model="editForm.summary" 
+                    type="textarea" 
+                    :rows="3" 
+                    placeholder="文档内容的简要概述..." 
+                    resize="none"
+                  />
+                </el-form-item>
+                
+                <el-form-item label="变更说明" class="change-desc-item">
+                  <el-input 
+                    v-model="editForm.changeDescription" 
+                    type="textarea" 
+                    :rows="2" 
+                    placeholder="描述本次修改的内容（可选）..." 
+                    resize="none"
+                  />
+                </el-form-item>
+              </el-form>
+            </div>
+
+
           </div>
 
           <!-- 查看模式：文件预览/文本内容 -->
@@ -695,7 +730,18 @@ const commentsLoading = ref(false)
 const commentSubmitting = ref(false)
 const knowledgeRelations = ref([])
 const suggestedRelations = ref([])
+const editFormDirty = ref(false)
+const isEditingContent = ref(false) // Control content editor visibility
+const saving = ref(false) // Add saving state
 const showAddRelationDialog = ref(false)
+
+// Watch for changes in editForm to set dirty flag
+watch(editForm, (newVal) => {
+  if (!knowledge.value) return
+  // Simple check: if we have initial data and it differs
+  // In a real app, might want deep compare or ignore initial load
+  editFormDirty.value = true
+}, { deep: true })
 const addRelationForm = ref({ relatedKnowledgeId: null, relationType: 'RELATED' })
 const relationSearchResults = ref([])
 const searchLoading = ref(false)
@@ -738,6 +784,17 @@ const quickQuestions = [
 
 // Computed
 const isEditMode = computed(() => route.query.edit === 'true')
+
+watch(isEditMode, (val) => {
+  if (val) {
+    isEditingContent.value = false // Default to collapsed when entering edit mode
+    // Ensure editForm is synced if not already
+    if (!editForm.value.id && knowledge.value.id) {
+       editForm.value = { ...knowledge.value, changeDescription: '' }
+    }
+  }
+})
+
 // 用于强制刷新 iframe 的时间戳
 const previewTimestamp = ref(Date.now())
 
@@ -931,7 +988,13 @@ const loadDetail = async () => {
     const res = await api.get(`/knowledge/${route.params.id}`)
     knowledge.value = res.data || {}
     
-    editForm.value = { ...knowledge.value }
+    editForm.value = { 
+        ...knowledge.value,
+        changeDescription: '' // Reset change description for new edit
+    }
+    nextTick(() => {
+        editFormDirty.value = false
+    })
     
     // 检查是否有预览特定版本的请求
     const previewVersion = route.query.previewVersion
@@ -1346,6 +1409,7 @@ const addKnowledgeRelation = async () => {
 }
 
 const saveEdit = async () => {
+  saving.value = true
   try {
     const originalStatus = knowledge.value.status
     const res = await api.put(`/knowledge/${route.params.id}`, {
@@ -1374,6 +1438,8 @@ const saveEdit = async () => {
     loadDetail()
   } catch (e) {
     ElMessage.error('保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -2201,6 +2267,175 @@ onMounted(() => {
     padding: 24px;
     max-width: 800px;
     margin: 0 auto;
+}
+
+/* Edit Mode Styles */
+.edit-mode-header {
+  border-bottom: 1px solid #ebeef5;
+  box-shadow: none;
+}
+
+.immersive-title-editor {
+  flex: 1;
+  margin-right: 20px;
+}
+
+.title-input-immersive :deep(.el-input__wrapper) {
+  padding: 0;
+  box-shadow: none !important;
+  background-color: transparent;
+}
+
+.title-input-immersive :deep(.el-input__inner) {
+  height: 40px;
+  line-height: 40px;
+  color: #1f2329;
+}
+
+.unsaved-hint {
+  font-size: 12px;
+  color: #e6a23c;
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.unsaved-hint::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #e6a23c;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+/* Edit Canvas */
+.left-panel.is-editing {
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.edit-canvas {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px; /* Space for shadow */
+}
+
+/* Edit Cards */
+.edit-card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  padding: 24px;
+  transition: box-shadow 0.2s;
+}
+
+.edit-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.edit-form-grid {
+  /* Layout tweaks */
+}
+
+.edit-form-grid :deep(.el-form-item__label) {
+  padding-bottom: 8px;
+  color: #606266;
+  font-weight: 500;
+}
+
+/* Content Card Specifics */
+.content-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
+}
+
+.content-editor-input {
+  flex: 1;
+}
+
+.content-editor-input :deep(.el-textarea__inner) {
+  height: 100%;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  border-color: #dcdfe6;
+  border-radius: 4px;
+  resize: none; /* Disable manual resize */
+}
+
+.content-editor-input :deep(.el-textarea__inner):focus {
+  border-color: #409eff;
+  background-color: #fcfcfc;
+}
+
+/* File Edit Placeholder */
+.file-edit-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #f9f9fa;
+  border: 1px dashed #dcdfe6;
+  border-radius: 8px;
+  margin-top: 10px;
+  padding: 40px;
+}
+
+.file-icon-large {
+  font-size: 64px;
+  color: #409eff;
+  margin-bottom: 16px;
+}
+
+.file-info-text {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.file-info-text h3 {
+  margin: 0 0 8px 0;
+  color: #303133;
+}
+
+.file-info-text p {
+  margin: 0;
+  color: #909399;
+  font-size: 14px;
+}
+
+.file-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.file-info-tag {
+  font-size: 14px;
+  font-weight: normal;
+  color: #909399;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Git Log Style History */
