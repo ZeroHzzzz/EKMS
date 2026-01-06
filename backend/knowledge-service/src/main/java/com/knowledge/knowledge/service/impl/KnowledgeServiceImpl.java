@@ -230,48 +230,97 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         String versionStatus;
         boolean isPublished;
         
-        // 如果最新版本是PENDING状态，且当前不是管理员直接发布，则复用该版本进行更新
-        if (latestVersion != null && Constants.FILE_STATUS_PENDING.equals(latestVersion.getStatus()) && !isAdmin) {
-             isUpdateCurrentPending = true;
-             newVersion = latestVersion.getVersion();
-             versionStatus = Constants.FILE_STATUS_PENDING;
-             isPublished = false;
-             // 更新时保留hasDraft=true
-             knowledge.setHasDraft(true);
-             log.info("检测到已有待审核版本 v{}，执行覆盖更新", newVersion);
+        // 检查是否有已发布的版本
+        boolean hasPublishedVersion = originalPublishedVersion != null && originalPublishedVersion > 0;
+        
+        if (hasPublishedVersion) {
+            // ============ 已有发布版本的情况 ============
+            // 专门查询是否存在比发布版本更新的 PENDING 草稿（不仅仅是最新版本）
+            LambdaQueryWrapper<KnowledgeVersion> pendingDraftWrapper = new LambdaQueryWrapper<>();
+            pendingDraftWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledge.getId());
+            pendingDraftWrapper.eq(KnowledgeVersion::getStatus, Constants.FILE_STATUS_PENDING);
+            pendingDraftWrapper.gt(KnowledgeVersion::getVersion, originalPublishedVersion);
+            pendingDraftWrapper.orderByDesc(KnowledgeVersion::getVersion);
+            pendingDraftWrapper.last("LIMIT 1");
+            KnowledgeVersion pendingDraft = knowledgeVersionMapper.selectOne(pendingDraftWrapper);
+            
+            boolean hasPendingDraft = pendingDraft != null;
+            
+            log.info("草稿检测: publishedVersion={}, pendingDraft={}, hasPendingDraft={}", 
+                    originalPublishedVersion, 
+                    pendingDraft != null ? pendingDraft.getVersion() : "null",
+                    hasPendingDraft);
+            
+            if (hasPendingDraft && !isAdmin) {
+                // 存在草稿版本 → 覆盖它（无论用户当前编辑的是哪个版本）
+                isUpdateCurrentPending = true;
+                newVersion = pendingDraft.getVersion();  // 使用找到的草稿版本号
+                versionStatus = Constants.FILE_STATUS_PENDING;
+                isPublished = false;
+                knowledge.setHasDraft(true);
+                log.info("检测到已有待审核草稿 v{}（发布版本为 v{}），执行覆盖更新", newVersion, originalPublishedVersion);
+            } else {
+                // 没有草稿，或者管理员编辑 → 创建新版本
+                newVersion = (latestVersion != null ? latestVersion.getVersion() : currentVersion) + 1;
+                if (isAdmin) {
+                    // 管理员编辑：直接发布新版本
+                    versionStatus = Constants.FILE_STATUS_APPROVED;
+                    isPublished = true;
+                    knowledge.setPublishedVersion(newVersion);
+                    knowledge.setHasDraft(false);
+                    knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+                    log.info("管理员编辑已发布知识，创建新发布版本 v{}", newVersion);
+                } else {
+                    // 普通用户编辑：创建待审核草稿
+                    versionStatus = Constants.FILE_STATUS_PENDING;
+                    isPublished = false;
+                    knowledge.setHasDraft(true);
+                    log.info("用户编辑已发布知识，创建新草稿版本 v{}（发布版本为 v{}）", newVersion, originalPublishedVersion);
+                }
+            }
         } else {
-             // 否则创建新版本
-             newVersion = (latestVersion != null ? latestVersion.getVersion() : (knowledge.getVersion() != null ? knowledge.getVersion() : 0L)) + 1;
-             
-             // 判断新版本的状态
-             if (Constants.FILE_STATUS_APPROVED.equals(originalStatus) && originalPublishedVersion != null) {
-                 if (isAdmin) {
-                     // 管理员编辑：直接发布新版本
-                     versionStatus = Constants.FILE_STATUS_APPROVED;
-                     isPublished = true;
-                     knowledge.setPublishedVersion(newVersion);
-                     knowledge.setHasDraft(false);
-                     knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
-                 } else {
-                     // 普通用户编辑：创建待审核草稿
-                     versionStatus = Constants.FILE_STATUS_PENDING;
-                     isPublished = false;
-                     knowledge.setHasDraft(true);
-                 }
-             } else {
-                 if (isAdmin) {
-                     versionStatus = Constants.FILE_STATUS_APPROVED;
-                     isPublished = true;
-                     knowledge.setPublishedVersion(newVersion);
-                     knowledge.setHasDraft(false);
-                     knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
-                 } else {
-                     versionStatus = Constants.FILE_STATUS_PENDING;
-                     isPublished = false;
-                     knowledge.setHasDraft(true);
-                     knowledge.setStatus(Constants.FILE_STATUS_PENDING);
-                 }
-             }
+            // ============ 还没有发布版本（初始版本还在等待审核）============
+            // 需要保留 v1 作为初始版本，编辑应该创建/更新 v2
+            Long baseVersion = currentVersion; // v1
+            
+            if (isAdmin) {
+                // 管理员可以直接发布初始版本
+                isUpdateCurrentPending = true;
+                newVersion = currentVersion;
+                versionStatus = Constants.FILE_STATUS_APPROVED;
+                isPublished = true;
+                knowledge.setPublishedVersion(newVersion);
+                knowledge.setHasDraft(false);
+                knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+                log.info("管理员编辑初始 PENDING 版本 v{}，直接发布", newVersion);
+            } else {
+                // 普通用户编辑：检查是否已有比初始版本更新的草稿（v2）
+                LambdaQueryWrapper<KnowledgeVersion> draftWrapper = new LambdaQueryWrapper<>();
+                draftWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledge.getId());
+                draftWrapper.eq(KnowledgeVersion::getStatus, Constants.FILE_STATUS_PENDING);
+                draftWrapper.gt(KnowledgeVersion::getVersion, baseVersion);
+                draftWrapper.orderByDesc(KnowledgeVersion::getVersion);
+                draftWrapper.last("LIMIT 1");
+                KnowledgeVersion existingDraft = knowledgeVersionMapper.selectOne(draftWrapper);
+                
+                if (existingDraft != null) {
+                    // 已有 v2 草稿 → 更新它
+                    isUpdateCurrentPending = true;
+                    newVersion = existingDraft.getVersion();
+                    versionStatus = Constants.FILE_STATUS_PENDING;
+                    isPublished = false;
+                    knowledge.setHasDraft(true);
+                    log.info("检测到已有草稿 v{}（初始版本 v{}），执行覆盖更新", newVersion, baseVersion);
+                } else {
+                    // 没有 v2 草稿 → 创建 v2（保留 v1 作为初始版本）
+                    Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : baseVersion;
+                    newVersion = maxVersion + 1;
+                    versionStatus = Constants.FILE_STATUS_PENDING;
+                    isPublished = false;
+                    knowledge.setHasDraft(true);
+                    log.info("首次编辑初始版本，创建草稿 v{}（保留初始版本 v{}）", newVersion, baseVersion);
+                }
+            }
         }
         
         // 保存版本历史
@@ -359,17 +408,24 @@ public class KnowledgeServiceImpl implements KnowledgeService {
      */
     private void saveVersionHistoryWithStatus(Knowledge knowledge, KnowledgeDTO dto, Long newVersion, 
                                               String versionStatus, boolean isPublished, boolean isUpdate) {
+        log.info("saveVersionHistoryWithStatus 开始: knowledgeId={}, newVersion={}, isUpdate={}", 
+                knowledge.getId(), newVersion, isUpdate);
+        
         KnowledgeVersion version;
         
         if (isUpdate) {
+            // 查询要更新的版本
             LambdaQueryWrapper<KnowledgeVersion> wrapper = new LambdaQueryWrapper<>();
             wrapper.eq(KnowledgeVersion::getKnowledgeId, knowledge.getId());
             wrapper.eq(KnowledgeVersion::getVersion, newVersion);
             version = knowledgeVersionMapper.selectOne(wrapper);
+            
             if (version == null) {
-                // Should not happen, but fallback to insert
+                log.warn("期望更新版本 v{} 但未找到，回退到插入模式", newVersion);
                 version = new KnowledgeVersion();
                 isUpdate = false;
+            } else {
+                log.info("找到要更新的版本: id={}, version={}", version.getId(), version.getVersion());
             }
         } else {
             version = new KnowledgeVersion();
@@ -984,6 +1040,53 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
     
     @Override
+    public List<KnowledgeVersionDTO> getKnowledgeVersionsForUser(Long knowledgeId, String username, boolean isAdmin) {
+        List<KnowledgeVersionDTO> allVersions = getKnowledgeVersions(knowledgeId);
+        
+        // 管理员可以看到所有版本
+        if (isAdmin) {
+            return allVersions;
+        }
+        
+        // 获取知识信息，用于匹配作者
+        Knowledge knowledge = knowledgeMapper.selectById(knowledgeId);
+        
+        // 普通用户过滤逻辑：
+        // 1. 已发布的版本（isPublished=true）：所有人可见
+        // 2. 待审核的版本（status=PENDING）：只有作者可见
+        // 3. 其他状态（如 REJECTED）：只有创建者可见
+        return allVersions.stream()
+            .filter(v -> {
+                // 已发布的版本：所有人可见
+                if (Boolean.TRUE.equals(v.getIsPublished())) {
+                    return true;
+                }
+                // 待审核/未发布版本：只有作者可见
+                // 通过多种方式匹配作者身份
+                if (username != null) {
+                    // 1. 匹配版本的 createdBy
+                    if (username.equals(v.getCreatedBy())) {
+                        return true;
+                    }
+                    // 2. 匹配知识的 createBy（知识创建者）
+                    if (knowledge != null && username.equals(knowledge.getCreateBy())) {
+                        return true;
+                    }
+                    // 3. 匹配知识的 updateBy（最近更新者）
+                    if (knowledge != null && username.equals(knowledge.getUpdateBy())) {
+                        return true;
+                    }
+                    // 4. 匹配知识的 author 字段
+                    if (knowledge != null && username.equals(knowledge.getAuthor())) {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            .collect(Collectors.toList());
+    }
+    
+    @Override
     public KnowledgeVersionDTO getKnowledgeVersion(Long knowledgeId, Long version) {
         // 先获取当前知识的分支信息
         Knowledge knowledge = knowledgeMapper.selectById(knowledgeId);
@@ -1543,17 +1646,73 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         }
 
-        // 每次编辑都创建新版本，保留完整的版本历史
-        // 不再覆盖已有的 PENDING 版本
-        Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : (knowledge.getVersion() != null ? knowledge.getVersion() : 0L);
-        Long newVersion = maxVersion + 1;
+        // ============ 核心逻辑：检查是否应该复用现有的 PENDING 版本 ============
+        boolean hasPublishedVersion = originalPublishedVersion != null && originalPublishedVersion > 0;
+        boolean isUpdateExisting = false;
+        Long newVersion;
+        KnowledgeVersion version;
         
-        if (isAdmin) {
+        if (hasPublishedVersion && !isAdmin) {
+            // 已有发布版本的情况：检查是否存在 PENDING 草稿
+            LambdaQueryWrapper<KnowledgeVersion> pendingWrapper = new LambdaQueryWrapper<>();
+            pendingWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+            pendingWrapper.eq(KnowledgeVersion::getStatus, Constants.FILE_STATUS_PENDING);
+            pendingWrapper.gt(KnowledgeVersion::getVersion, originalPublishedVersion);
+            pendingWrapper.orderByDesc(KnowledgeVersion::getVersion);
+            pendingWrapper.last("LIMIT 1");
+            KnowledgeVersion pendingDraft = knowledgeVersionMapper.selectOne(pendingWrapper);
+            
+            if (pendingDraft != null) {
+                // 存在 PENDING 草稿 → 更新它
+                isUpdateExisting = true;
+                newVersion = pendingDraft.getVersion();
+                version = pendingDraft;
+                log.info("检测到已有 PENDING 草稿 v{}，执行覆盖更新", newVersion);
+            } else {
+                // 没有 PENDING 草稿 → 创建新版本
+                Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : 0L;
+                newVersion = maxVersion + 1;
+                version = new KnowledgeVersion();
+                log.info("创建新草稿版本 v{}", newVersion);
+            }
+        } else if (!hasPublishedVersion && !isAdmin) {
+            // 还没有发布版本（初始 PENDING 版本）
+            // 需要保留 v1 作为初始版本，编辑应该创建/更新 v2
+            Long baseVersion = knowledge.getVersion(); // v1
+            
+            // 检查是否已有比初始版本更新的 PENDING 草稿（v2）
+            LambdaQueryWrapper<KnowledgeVersion> draftWrapper = new LambdaQueryWrapper<>();
+            draftWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+            draftWrapper.eq(KnowledgeVersion::getStatus, Constants.FILE_STATUS_PENDING);
+            draftWrapper.gt(KnowledgeVersion::getVersion, baseVersion);
+            draftWrapper.orderByDesc(KnowledgeVersion::getVersion);
+            draftWrapper.last("LIMIT 1");
+            KnowledgeVersion existingDraft = knowledgeVersionMapper.selectOne(draftWrapper);
+            
+            if (existingDraft != null) {
+                // 已有 v2 草稿 → 更新它
+                isUpdateExisting = true;
+                newVersion = existingDraft.getVersion();
+                version = existingDraft;
+                log.info("检测到已有草稿 v{}（初始版本 v{}），执行覆盖更新", newVersion, baseVersion);
+            } else {
+                // 没有 v2 草稿 → 创建 v2（保留 v1 作为初始版本）
+                Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : baseVersion;
+                newVersion = maxVersion + 1;
+                version = new KnowledgeVersion();
+                knowledge.setHasDraft(true);
+                log.info("首次编辑初始版本，创建草稿 v{}（保留初始版本 v{}）", newVersion, baseVersion);
+            }
+        } else {
+            // 管理员：直接创建新发布版本
+            Long maxVersion = (latestVersion != null) ? latestVersion.getVersion() : 0L;
+            newVersion = maxVersion + 1;
+            version = new KnowledgeVersion();
             knowledge.setPublishedVersion(newVersion);
-            log.info("管理员直接发布新版本: v{}", newVersion);
+            log.info("管理员创建新发布版本 v{}", newVersion);
         }
 
-        KnowledgeVersion version = new KnowledgeVersion();
+        // 设置版本属性
         version.setKnowledgeId(knowledge.getId());
         version.setVersion(newVersion);
         version.setCreateTime(LocalDateTime.now());
@@ -1570,9 +1729,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         String commitMessage = (changeDescription != null && !changeDescription.trim().isEmpty()) 
             ? changeDescription : "通过OnlyOffice编辑更新";
         version.setChangeDescription(commitMessage);
-        
-        // 如果是更新待审核版本，追加commit message而不是覆盖，或者保持最新
-        // 这里选择更新为最新的
         version.setCommitMessage(commitMessage);
         
         version.setCreatedBy(operatorUsername);
@@ -1592,9 +1748,15 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         version.setStatus(versionStatus);
         version.setIsPublished(isPublished);
         
-        knowledgeVersionMapper.insert(version);
-        log.info("文件编辑创建新版本成功 - 知识ID: {}, 新版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
-            knowledgeId, newVersion, newFileId, versionStatus, operatorUsername);
+        if (isUpdateExisting) {
+            knowledgeVersionMapper.updateById(version);
+            log.info("文件编辑更新现有版本 - 知识ID: {}, 版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
+                knowledgeId, newVersion, newFileId, versionStatus, operatorUsername);
+        } else {
+            knowledgeVersionMapper.insert(version);
+            log.info("文件编辑创建新版本 - 知识ID: {}, 版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
+                knowledgeId, newVersion, newFileId, versionStatus, operatorUsername);
+        }
         
         // 6. 更新knowledge表
         knowledge.setFileId(newFileId);  // 更新到新文件

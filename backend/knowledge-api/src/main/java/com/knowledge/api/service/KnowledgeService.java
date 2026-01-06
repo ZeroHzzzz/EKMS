@@ -47,6 +47,18 @@ public interface KnowledgeService {
     
     // 版本相关方法
     List<KnowledgeVersionDTO> getKnowledgeVersions(Long knowledgeId);
+    
+    /**
+     * 根据用户权限获取知识版本列表
+     * - 管理员：显示所有版本
+     * - 普通用户：仅显示已发布版本 + 自己创建的未发布版本
+     * @param knowledgeId 知识ID
+     * @param username 当前用户名
+     * @param isAdmin 是否是管理员
+     * @return 过滤后的版本列表
+     */
+    List<KnowledgeVersionDTO> getKnowledgeVersionsForUser(Long knowledgeId, String username, boolean isAdmin);
+    
     KnowledgeVersionDTO getKnowledgeVersion(Long knowledgeId, Long version);
     KnowledgeVersionDTO.DiffResult compareVersions(Long knowledgeId, Long version1, Long version2);
     

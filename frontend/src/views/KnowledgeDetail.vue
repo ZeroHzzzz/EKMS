@@ -781,13 +781,26 @@ const canViewDraft = computed(() => {
   return hasDraft.value && canEdit(knowledge.value)
 })
 
-// 是否可以提交审核（有待审核状态或草稿，且有编辑权限）
+// 是否可以提交审核
+// 条件：1. 初始 PENDING 版本（还没发布过） 2. 已发布后有草稿
 const canSubmitForReview = computed(() => {
   if (!knowledge.value) return false
+  
   const isPending = knowledge.value?.status === 'PENDING'
   const hasDraftFlag = knowledge.value?.hasDraft === true
-  // 只要有待审核状态或草稿，且有编辑权限就可以提交
-  return (isPending || hasDraftFlag) && canEdit(knowledge.value)
+  const hasPublishedVersion = knowledge.value?.publishedVersion != null && knowledge.value?.publishedVersion > 0
+  
+  // 初始 PENDING 版本（还没有发布过）：可以提交
+  if (isPending && !hasPublishedVersion) {
+    return canEdit(knowledge.value)
+  }
+  
+  // 已发布后有草稿：可以提交
+  if (hasPublishedVersion && hasDraftFlag) {
+    return canEdit(knowledge.value)
+  }
+  
+  return false
 })
 
 // 是否显示横幅
@@ -865,27 +878,34 @@ const isViewingHistoryVersion = computed(() => {
 // 提交审核
 const submitForReview = async () => {
   try {
-    // 让用户输入提交信息（作为版本历史的标题）
-    const { value: commitMessage } = await ElMessageBox.prompt(
-      '请输入提交说明（将显示在版本历史中）：',
-      '提交审核',
-      {
-        confirmButtonText: '提交',
-        cancelButtonText: '取消',
-        inputPlaceholder: '例如：修复了格式问题，更新了第三章内容',
-        inputValidator: (val) => {
-          if (!val || val.trim().length === 0) {
-            return '请输入提交说明'
-          }
-          return true
+    // 让用户输入提交信息（选填，默认为"用户x更新知识内容"）
+    const defaultMessage = `${userStore.userInfo?.realName || userStore.userInfo?.username || '用户'}更新知识内容`
+    let commitMessage = defaultMessage
+    
+    try {
+      const { value } = await ElMessageBox.prompt(
+        '请输入提交说明（将显示在版本历史中）：',
+        '提交审核',
+        {
+          confirmButtonText: '提交',
+          cancelButtonText: '取消',
+          inputPlaceholder: '例如：修复了格式问题，更新了第三章内容',
+          inputValue: defaultMessage // 设置默认值
         }
+      )
+      if (value && value.trim().length > 0) {
+        commitMessage = value.trim()
       }
-    )
+    } catch (e) {
+      if (e === 'cancel') {
+        return // 用户取消
+      }
+    }
     
     const res = await api.post(`/knowledge/${knowledge.value.id}/submit-audit`, null, {
       params: { 
         userId: userStore.userInfo.id,
-        commitMessage: commitMessage.trim()
+        commitMessage: commitMessage
       }
     })
     
@@ -1426,10 +1446,16 @@ const getRelationTypeText = (type) => {
 
 const loadVersions = async () => {
   try {
-    const res = await api.get(`/knowledge/${route.params.id}/versions`)
+    // 传入用户信息实现版本权限过滤：普通用户只看到已发布版本+自己的草稿
+    const username = userStore.userInfo?.username
+    const admin = isAdmin(userStore.userInfo)
+    
+    const res = await api.get(`/knowledge/${route.params.id}/versions`, {
+      params: { username, isAdmin: admin }
+    })
     versions.value = res.data || []
     // 调试：打印版本列表和每个版本的 fileId
-    console.log('加载版本列表:', versions.value.map(v => ({ version: v.version, fileId: v.fileId, title: v.title })))
+    console.log('加载版本列表:', versions.value.map(v => ({ version: v.version, fileId: v.fileId, title: v.title, isPublished: v.isPublished })))
   } catch (error) {
     console.error('加载版本列表失败', error)
   }

@@ -294,8 +294,18 @@ public class KnowledgeController {
 
     // 版本相关接口
     @GetMapping("/{id:\\d+}/versions")
-    public Result<List<KnowledgeVersionDTO>> getKnowledgeVersions(@PathVariable Long id) {
-        List<KnowledgeVersionDTO> result = knowledgeService.getKnowledgeVersions(id);
+    public Result<List<KnowledgeVersionDTO>> getKnowledgeVersions(
+            @PathVariable Long id,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false, defaultValue = "false") boolean isAdmin) {
+        List<KnowledgeVersionDTO> result;
+        if (username != null) {
+            // 带权限过滤：普通用户只看到已发布版本+自己的草稿
+            result = knowledgeService.getKnowledgeVersionsForUser(id, username, isAdmin);
+        } else {
+            // 兼容旧调用方式（无权限过滤）
+            result = knowledgeService.getKnowledgeVersions(id);
+        }
         return Result.success(result);
     }
 
