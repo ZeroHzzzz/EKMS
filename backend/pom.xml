@@ -10,6 +10,19 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
 
+    <dependencies>
+        <!-- Spring Boot Actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Prometheus Metrics -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+    </dependencies>
+
     <name>Enterprise Knowledge Base Management System</name>
     <description>企业知识库管理系统 - 微服务架构</description>
 

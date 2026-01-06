@@ -13,6 +13,7 @@ import KnowledgeManagement from '../views/KnowledgeManagement.vue'
 import OnlyOfficeEdit from '../views/OnlyOfficeEdit.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
+import SystemMaintenance from '../views/SystemMaintenance.vue'
 
 const routes = [
   {
@@ -58,6 +59,12 @@ const routes = [
     path: '/organization',
     name: 'OrganizationManagement',
     component: OrganizationManagement,
+    meta: { permission: 'MANAGE_USER' }
+  },
+  {
+    path: '/system-maintenance',
+    name: 'SystemMaintenance',
+    component: SystemMaintenance,
     meta: { permission: 'MANAGE_USER' }
   },
   {

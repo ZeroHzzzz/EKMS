@@ -43,3 +43,23 @@ onlyoffice:
   file-download:
     url: http://host.docker.internal:8080
 
+management:
+  application: ${spring.application.name}
+
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+      cors:
+        allowed-origins: "http://localhost:3000"
+        allowed-methods: "*"
+        allowed-headers: "*"
+        allow-credentials: true
+        max-age: 3600
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+

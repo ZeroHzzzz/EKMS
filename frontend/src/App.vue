@@ -35,31 +35,43 @@
           router
           class="el-menu-vertical"
         >
-          <el-menu-item index="/">
-            <el-icon><Document /></el-icon>
-            <span>知识库</span>
-          </el-menu-item>
-          <el-menu-item v-if="hasPermission(userInfo, 'UPLOAD')" index="/file-upload">
-            <el-icon><Upload /></el-icon>
-            <span>文件上传</span>
-          </el-menu-item>
-          <el-menu-item v-if="hasPermission(userInfo, 'EDIT') || hasPermission(userInfo, 'AUDIT')" index="/knowledge-management">
-            <el-icon><Edit /></el-icon>
-            <span>知识管理</span>
-          </el-menu-item>
-          <el-menu-item index="/statistics">
-            <el-icon><DataAnalysis /></el-icon>
-            <span>统计分析</span>
-          </el-menu-item>
-          <el-menu-item v-if="hasPermission(userInfo, 'MANAGE_USER')" index="/organization">
-            <el-icon><OfficeBuilding /></el-icon>
-            <span>组织管理</span>
-          </el-menu-item>
-                <el-menu-item index="/knowledge-tree">
-                  <el-icon><FolderOpened /></el-icon>
-                  <span>知识结构</span>
-                </el-menu-item>
-                <el-divider />
+          <el-menu-item-group title="知识中心">
+            <el-menu-item index="/">
+              <el-icon><Document /></el-icon>
+              <span>知识库</span>
+            </el-menu-item>
+            <el-menu-item index="/knowledge-tree">
+              <el-icon><FolderOpened /></el-icon>
+              <span>知识结构</span>
+            </el-menu-item>
+            <el-menu-item index="/statistics">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>统计分析</span>
+            </el-menu-item>
+          </el-menu-item-group>
+
+          <el-menu-item-group title="内容管理">
+            <el-menu-item v-if="hasPermission(userInfo, 'EDIT') || hasPermission(userInfo, 'AUDIT')" index="/knowledge-management">
+              <el-icon><Edit /></el-icon>
+              <span>知识管理</span>
+            </el-menu-item>
+            <el-menu-item v-if="hasPermission(userInfo, 'UPLOAD')" index="/file-upload">
+              <el-icon><Upload /></el-icon>
+              <span>文件上传</span>
+            </el-menu-item>
+          </el-menu-item-group>
+
+          <el-menu-item-group title="系统管理" v-if="hasPermission(userInfo, 'MANAGE_USER')">
+            <el-menu-item index="/organization">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>组织管理</span>
+            </el-menu-item>
+            <el-menu-item index="/system-maintenance">
+              <el-icon><Monitor /></el-icon>
+              <span>系统运维</span>
+            </el-menu-item>
+          </el-menu-item-group>
+          <el-divider />
           <el-menu-item index="/user-center">
             <el-icon><UserFilled /></el-icon>
             <span>个人中心</span>
@@ -96,6 +108,8 @@ const logout = () => {
   userStore.logout()
   router.push('/login')
 }
+
+
 </script>
 
 <style scoped>
@@ -243,6 +257,13 @@ h1 {
 .app-sidebar::-webkit-scrollbar-thumb:hover,
 .app-main::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
+}
+
+:deep(.el-menu-item-group__title) {
+  padding: 8px 12px 0 12px !important;
+  font-size: 12px;
+  color: #909399;
+  letter-spacing: 0.5px;
 }
 </style>
 

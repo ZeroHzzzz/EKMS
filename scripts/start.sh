@@ -94,34 +94,28 @@ mkdir -p logs
 
 # 启动各个服务（后台运行）
 echo "启动 file-service..."
-cd file-service && nohup mvn spring-boot:run > ../logs/file-service.log 2>&1 &
+nohup java -Xms256m -Xmx512m -jar file-service/target/file-service-1.0.0.jar > logs/file-service.log 2>&1 &
 FILE_PID=$!
-cd "$PROJECT_ROOT/backend"
 
 echo "启动 knowledge-service..."
-cd knowledge-service && nohup mvn spring-boot:run > ../logs/knowledge-service.log 2>&1 &
+nohup java -Xms256m -Xmx512m -jar knowledge-service/target/knowledge-service-1.0.0.jar > logs/knowledge-service.log 2>&1 &
 KNOWLEDGE_PID=$!
-cd "$PROJECT_ROOT/backend"
 
 echo "启动 search-service..."
-cd search-service && nohup mvn spring-boot:run > ../logs/search-service.log 2>&1 &
+nohup java -Xms256m -Xmx512m -jar search-service/target/search-service-1.0.0.jar > logs/search-service.log 2>&1 &
 SEARCH_PID=$!
-cd "$PROJECT_ROOT/backend"
 
 echo "启动 audit-service..."
-cd audit-service && nohup mvn spring-boot:run > ../logs/audit-service.log 2>&1 &
+nohup java -Xms256m -Xmx512m -jar audit-service/target/audit-service-1.0.0.jar > logs/audit-service.log 2>&1 &
 AUDIT_PID=$!
-cd "$PROJECT_ROOT/backend"
 
 echo "启动 user-service..."
-cd user-service && nohup mvn spring-boot:run > ../logs/user-service.log 2>&1 &
+nohup java -Xms256m -Xmx512m -jar user-service/target/user-service-1.0.0.jar > logs/user-service.log 2>&1 &
 USER_PID=$!
-cd "$PROJECT_ROOT/backend"
 
 echo "启动 gateway-service..."
-cd gateway-service && nohup mvn spring-boot:run > ../logs/gateway-service.log 2>&1 &
+nohup java -Xms256m -Xmx512m -jar gateway-service/target/gateway-service-1.0.0.jar > logs/gateway-service.log 2>&1 &
 GATEWAY_PID=$!
-cd "$PROJECT_ROOT/backend"
 
 # 保存PID到文件
 echo $FILE_PID > logs/file-service.pid

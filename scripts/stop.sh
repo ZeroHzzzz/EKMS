@@ -28,11 +28,11 @@ if [ -d "logs" ]; then
     done
 fi
 
-# 查找并停止所有Spring Boot进程
-SPRING_PIDS=$(pgrep -f "spring-boot:run" 2>/dev/null || true)
+# 查找并停止所有 java -jar 进程 (作为后备方案)
+SPRING_PIDS=$(pgrep -f "java.*-jar.*-service.*.jar" 2>/dev/null || true)
 if [ -n "$SPRING_PIDS" ]; then
-    echo "停止 Spring Boot 进程..."
-    pkill -f "spring-boot:run" 2>/dev/null || true
+    echo "停止残留的 Java 服务进程..."
+    echo "$SPRING_PIDS" | xargs kill 2>/dev/null || true
     STOPPED_COUNT=$((STOPPED_COUNT + $(echo "$SPRING_PIDS" | wc -l)))
 fi
 
