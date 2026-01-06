@@ -48,3 +48,10 @@ management:
     tags:
       application: ${spring.application.name}
 
+# Flowable configuration
+flowable:
+  async-executor-activate: false
+  database-schema-update: true
+  process:
+    definition-location-prefix: classpath:/processes/
+

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS `user` (
     `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `create_by` VARCHAR(50),
     `update_by` VARCHAR(50),
+    `points` INT DEFAULT 0 COMMENT '积分',
+    INDEX `idx_points` (`points`),
     INDEX `idx_department_id` (`department_id`),
     CONSTRAINT `fk_user_department` FOREIGN KEY (`department_id`) REFERENCES `department` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
@@ -237,6 +239,18 @@ CREATE TABLE IF NOT EXISTS `user_knowledge_collection` (
     INDEX `idx_user_id` (`user_id`),
     INDEX `idx_knowledge_id` (`knowledge_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户收藏关系表';
+
+-- 用户积分日志表
+CREATE TABLE IF NOT EXISTS `user_point_log` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `points` INT NOT NULL COMMENT '变动积分（正数或负数）',
+    `type` VARCHAR(50) NOT NULL COMMENT '变动类型：UPLOAD, REVIEW, LIKE, COMMENT, PUNISH',
+    `description` VARCHAR(255) COMMENT '描述',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户积分日志表';
 
 -- 注意：此脚本仅创建表结构，不插入任何测试数据
 -- 如需测试数据，请使用 test_data.sql 脚本

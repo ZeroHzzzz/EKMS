@@ -48,6 +48,10 @@
               <el-icon><DataAnalysis /></el-icon>
               <span>统计分析</span>
             </el-menu-item>
+            <el-menu-item index="/leaderboard">
+              <el-icon><Trophy /></el-icon>
+              <span>贡献榜</span>
+            </el-menu-item>
           </el-menu-item-group>
 
           <el-menu-item-group title="内容管理">
@@ -91,6 +95,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/user'
 import { hasPermission } from './utils/permission'
+import { Document, FolderOpened, DataAnalysis, Menu, OfficeBuilding, Monitor, UserFilled, Close, Edit, Upload, Trophy, ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()

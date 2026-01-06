@@ -21,8 +21,15 @@ import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
+
+import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.task.api.Task;
 
 @Slf4j
 @Service
@@ -37,6 +44,12 @@ public class AuditServiceImpl implements AuditService {
     
     @DubboReference(check = false, timeout = 10000)
     private UserService userService;
+
+    @Resource
+    private RuntimeService runtimeService;
+    
+    @Resource
+    private TaskService taskService;
 
     // 敏感词列表（示例）
     private static final List<String> SENSITIVE_WORDS = Arrays.asList("敏感词1", "敏感词2");
@@ -87,6 +100,25 @@ public class AuditServiceImpl implements AuditService {
         
         log.info("创建审核记录: knowledgeId={}, version={}, auditId={}", knowledgeId, version, audit.getId());
         
+        // Start Flowable workflow process
+        try {
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("knowledgeId", knowledgeId);
+            variables.put("version", version);
+            variables.put("auditId", audit.getId());
+            variables.put("submitterId", userId);
+            
+            ProcessInstance processInstance = runtimeService.startProcessInstanceByKey(
+                "knowledgeAuditProcess", 
+                "audit-" + audit.getId(), 
+                variables
+            );
+            log.info("Started workflow process: processId={}, auditId={}", processInstance.getId(), audit.getId());
+        } catch (Exception e) {
+            log.warn("Failed to start workflow process (Flowable may not be configured): {}", e.getMessage());
+            // Continue without workflow - fallback to manual audit
+        }
+        
         AuditDTO dto = new AuditDTO();
         BeanUtils.copyProperties(audit, dto);
         dto.setSubmitTime(audit.getCreateTime());
@@ -106,6 +138,22 @@ public class AuditServiceImpl implements AuditService {
         audit.setComment(comment);
         audit.setUpdateTime(LocalDateTime.now());
         auditMapper.updateById(audit);
+        
+        // Complete Flowable task with approved=true
+        try {
+            Task task = taskService.createTaskQuery()
+                .processInstanceBusinessKey("audit-" + auditId)
+                .singleResult();
+            if (task != null) {
+                Map<String, Object> variables = new HashMap<>();
+                variables.put("approved", true);
+                variables.put("comment", comment);
+                taskService.complete(task.getId(), variables);
+                log.info("Completed workflow task: taskId={}, auditId={}, approved=true", task.getId(), auditId);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to complete workflow task (fallback to manual): {}", e.getMessage());
+        }
         
         // 审核通过后，发布对应版本
         if (audit.getKnowledgeId() != null) {
@@ -138,6 +186,22 @@ public class AuditServiceImpl implements AuditService {
         audit.setComment(comment);
         audit.setUpdateTime(LocalDateTime.now());
         auditMapper.updateById(audit);
+        
+        // Complete Flowable task with approved=false
+        try {
+            Task task = taskService.createTaskQuery()
+                .processInstanceBusinessKey("audit-" + auditId)
+                .singleResult();
+            if (task != null) {
+                Map<String, Object> variables = new HashMap<>();
+                variables.put("approved", false);
+                variables.put("comment", comment);
+                taskService.complete(task.getId(), variables);
+                log.info("Completed workflow task: taskId={}, auditId={}, approved=false", task.getId(), auditId);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to complete workflow task (fallback to manual): {}", e.getMessage());
+        }
         
         // 审核驳回后，更新版本状态
         if (audit.getKnowledgeId() != null) {

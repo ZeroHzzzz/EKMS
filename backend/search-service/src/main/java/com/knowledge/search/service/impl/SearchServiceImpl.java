@@ -28,6 +28,7 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortOrder;
+import org.elasticsearch.index.query.MoreLikeThisQueryBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -603,6 +604,117 @@ public class SearchServiceImpl implements SearchService {
             result.setSuggestions(new ArrayList<>());
             result.setPreviewResults(new ArrayList<>());
             return result;
+        }
+    }
+
+    /**
+     * 语义搜索实现 - 使用 Elasticsearch more_like_this 查询
+     * 该方法模拟语义搜索的效果，通过分析输入文本找到内容相似的文档
+     * 
+     * @param text 输入的自然语言查询文本
+     * @param limit 返回结果数量
+     * @return 相似知识列表
+     */
+    @Override
+    public List<KnowledgeDTO> semanticSearch(String text, int limit) {
+        if (text == null || text.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        log.info("执行语义搜索: text={}, limit={}", text.substring(0, Math.min(50, text.length())), limit);
+        
+        try {
+            SearchRequest searchRequest = new SearchRequest(INDEX_NAME);
+            SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+            
+            // 使用 more_like_this 查询模拟语义搜索
+            // 它会分析输入文本的词语，找到包含相似词语的文档
+            MoreLikeThisQueryBuilder mltQuery = QueryBuilders.moreLikeThisQuery(
+                new String[]{"title", "content", "contentText", "keywords"},  // 搜索字段
+                new String[]{text},  // 输入文本
+                null  // 不使用文档ID
+            );
+            
+            // 配置 more_like_this 参数
+            mltQuery.minTermFreq(1);        // 词语最低出现频率
+            mltQuery.minDocFreq(1);          // 文档最低出现频率
+            mltQuery.maxQueryTerms(25);      // 最大查询词数
+            mltQuery.minimumShouldMatch("30%"); // 至少匹配30%的词
+            
+            // 只搜索已发布的文件
+            BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+            boolQuery.must(mltQuery);
+            boolQuery.must(QueryBuilders.existsQuery("fileId"));
+            boolQuery.filter(QueryBuilders.matchQuery("status", "APPROVED"));
+            
+            sourceBuilder.query(boolQuery);
+            sourceBuilder.size(limit);
+            
+            // 配置高亮
+            HighlightBuilder highlightBuilder = new HighlightBuilder();
+            highlightBuilder.field(new HighlightBuilder.Field("title").fragmentSize(150).numOfFragments(1));
+            highlightBuilder.field(new HighlightBuilder.Field("content").fragmentSize(200).numOfFragments(2));
+            highlightBuilder.field(new HighlightBuilder.Field("contentText").fragmentSize(200).numOfFragments(2));
+            highlightBuilder.preTags("<mark>");
+            highlightBuilder.postTags("</mark>");
+            sourceBuilder.highlighter(highlightBuilder);
+            
+            searchRequest.source(sourceBuilder);
+            
+            SearchResponse response = elasticsearchClient.search(searchRequest, RequestOptions.DEFAULT);
+            
+            List<KnowledgeDTO> results = new ArrayList<>();
+            for (SearchHit hit : response.getHits().getHits()) {
+                Map<String, Object> source = hit.getSourceAsMap();
+                KnowledgeDTO dto = new KnowledgeDTO();
+                dto.setId(Long.valueOf(source.get("id").toString()));
+                dto.setTitle((String) source.get("title"));
+                dto.setContent((String) source.get("content"));
+                dto.setCategory((String) source.get("category"));
+                dto.setKeywords((String) source.get("keywords"));
+                dto.setClickCount(Long.valueOf(source.get("clickCount").toString()));
+                if (source.get("status") != null) {
+                    dto.setStatus((String) source.get("status"));
+                }
+                if (source.get("author") != null) {
+                    dto.setAuthor((String) source.get("author"));
+                }
+                if (source.get("fileId") != null) {
+                    dto.setFileId(Long.valueOf(source.get("fileId").toString()));
+                }
+                
+                // 提取高亮
+                if (hit.getHighlightFields() != null && !hit.getHighlightFields().isEmpty()) {
+                    HighlightDTO highlight = new HighlightDTO();
+                    Map<String, HighlightField> highlightFields = hit.getHighlightFields();
+                    
+                    if (highlightFields.containsKey("title")) {
+                        List<String> fragments = new ArrayList<>();
+                        for (org.elasticsearch.common.text.Text fragment : highlightFields.get("title").getFragments()) {
+                            fragments.add(fragment.string());
+                        }
+                        highlight.setTitle(fragments);
+                    }
+                    if (highlightFields.containsKey("content") || highlightFields.containsKey("contentText")) {
+                        List<String> fragments = new ArrayList<>();
+                        String fieldName = highlightFields.containsKey("content") ? "content" : "contentText";
+                        for (org.elasticsearch.common.text.Text fragment : highlightFields.get(fieldName).getFragments()) {
+                            fragments.add(fragment.string());
+                        }
+                        highlight.setContent(fragments);
+                    }
+                    dto.setHighlight(highlight);
+                }
+                
+                results.add(dto);
+            }
+            
+            log.info("语义搜索完成: 找到 {} 条相似结果", results.size());
+            return results;
+            
+        } catch (Exception e) {
+            log.error("语义搜索失败", e);
+            return new ArrayList<>();
         }
     }
 }

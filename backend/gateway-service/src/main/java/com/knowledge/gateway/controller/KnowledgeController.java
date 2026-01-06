@@ -17,10 +17,10 @@ import java.util.List;
 @RequestMapping("/api/knowledge")
 public class KnowledgeController {
 
-    @DubboReference(check = false, timeout = 10000)
+    @DubboReference(check = false, timeout = 60000)
     private KnowledgeService knowledgeService;
 
-    @DubboReference(check = false, timeout = 10000)
+    @DubboReference(check = false, timeout = 60000)
     private SearchService searchService;
 
     @DubboReference(check = false, timeout = 10000)
@@ -103,6 +103,19 @@ public class KnowledgeController {
             @RequestParam(defaultValue = "10") int limit) {
         com.knowledge.api.dto.SearchSuggestionDTO result = searchService.getSuggestions(keyword, limit);
         return Result.success(result);
+    }
+
+    /**
+     * 语义搜索 - 使用自然语言查询查找相似文档
+     * 基于 Elasticsearch more_like_this 实现
+     */
+    @GetMapping("/search/semantic")
+    public Result<List<KnowledgeDTO>> semanticSearch(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "10") int limit) {
+        log.info("语义搜索请求: query={}, limit={}", query, limit);
+        List<KnowledgeDTO> results = searchService.semanticSearch(query, limit);
+        return Result.success(results);
     }
 
     @GetMapping("/hot")

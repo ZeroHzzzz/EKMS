@@ -358,5 +358,34 @@ public class UserServiceImpl implements UserService {
         
         log.info("用户角色更新成功 - 用户ID: {}, 新角色: {}", userId, role);
     }
+    @Override
+    @Transactional
+    public void addPoints(Long userId, Integer points, String type, String description) {
+        log.info("Add points - userId: {}, points: {}, type: {}", userId, points, type);
+        User user = userMapper.selectById(userId);
+        if (user == null) return;
+        
+        int currentPoints = user.getPoints() == null ? 0 : user.getPoints();
+        user.setPoints(currentPoints + points);
+        userMapper.updateById(user);
+        
+        // Note: Ideally insert into user_point_log table here.
+        // For now we just update the user points tally.
+    }
+
+    @Override
+    public List<UserDTO> getLeaderboard(int limit) {
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        wrapper.orderByDesc(User::getPoints);
+        wrapper.last("LIMIT " + limit);
+        
+        List<User> users = userMapper.selectList(wrapper);
+        return users.stream().map(user -> {
+            UserDTO dto = UserDTOUtil.toDTO(user, departmentMapper);
+            dto.setPermissions(null); // No need for permissions in public leaderboard
+            dto.setPassword(null);
+            return dto;
+        }).collect(Collectors.toList());
+    }
 }
 

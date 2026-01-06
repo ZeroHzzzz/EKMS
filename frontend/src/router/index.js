@@ -14,6 +14,7 @@ import OnlyOfficeEdit from '../views/OnlyOfficeEdit.vue'
 import { useUserStore } from '../stores/user'
 import { hasPermission } from '../utils/permission'
 import SystemMaintenance from '../views/SystemMaintenance.vue'
+import Leaderboard from '../views/Leaderboard.vue'
 
 const routes = [
   {
@@ -90,6 +91,11 @@ const routes = [
     path: '/knowledge/:id/diff',
     name: 'VersionDiff',
     component: () => import('../views/VersionDiff.vue')
+  },
+  {
+    path: '/leaderboard',
+    name: 'Leaderboard',
+    component: Leaderboard
   }
 ]
 

@@ -15,5 +15,10 @@ public class User extends BaseEntity {
     private String email;
     private Long departmentId;  // 部门ID，系统管理员为null
     private String role;
+    
+    /**
+     * 积分
+     */
+    private Integer points;
 }
 

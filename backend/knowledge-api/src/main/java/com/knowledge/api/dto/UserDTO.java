@@ -16,6 +16,7 @@ public class UserDTO implements Serializable {
     private Long departmentId;  // 部门ID，系统管理员为null
     private String department;  // 部门名称（用于显示）
     private String role;
+    private Integer points;
     private List<String> permissions;
 }
 

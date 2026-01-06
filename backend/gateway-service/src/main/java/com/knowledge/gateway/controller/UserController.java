@@ -178,5 +178,17 @@ public class UserController {
     static class UpdateRoleRequest {
         private String role;
     }
+
+    @GetMapping("/leaderboard")
+    public Result<List<UserDTO>> getLeaderboard(@RequestParam(defaultValue = "10") int limit) {
+        log.info("Fetch leaderboard with limit: {}", limit);
+        try {
+            List<UserDTO> leaderboard = userService.getLeaderboard(limit);
+            return Result.success(leaderboard);
+        } catch (Exception e) {
+            log.error("获取排行榜失败: {}", e.getMessage(), e);
+            return Result.error(e.getMessage());
+        }
+    }
 }
 

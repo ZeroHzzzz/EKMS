@@ -17,5 +17,7 @@ public interface UserService {
     List<UserDTO> getAllUsers();
     void deleteUser(Long userId);
     void updateUserRole(Long userId, String role);
+    void addPoints(Long userId, Integer points, String type, String description);
+    List<UserDTO> getLeaderboard(int limit);
 }
 

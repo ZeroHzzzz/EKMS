@@ -28,5 +28,13 @@ public interface SearchService {
      * @return 成功索引的数量
      */
     int rebuildAllIndex(List<KnowledgeDTO> knowledgeList);
+    
+    /**
+     * 语义搜索 - 使用 more_like_this 查询查找相似文档
+     * @param text 输入文本（自然语言查询）
+     * @param limit 返回结果数量限制
+     * @return 相似知识列表
+     */
+    List<KnowledgeDTO> semanticSearch(String text, int limit);
 }
 

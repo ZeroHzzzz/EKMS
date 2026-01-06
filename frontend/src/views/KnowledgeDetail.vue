@@ -702,7 +702,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, computed, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { sendMessageStream } from '../api/ai'
@@ -711,6 +711,7 @@ import { useUserStore } from '../stores/user'
 import { hasRole, isAdmin, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download, Upload } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { watermark } from '../utils/watermark'
 
 const route = useRoute()
 const router = useRouter()
@@ -1342,6 +1343,9 @@ const initRelationGraph = () => {
   window.addEventListener('resize', () => myChart.resize())
 }
 
+// Watermark Lifecycle moved to top-level setup
+
+
 watch(activeRightTab, (val) => {
   if(val === 'relations') {
     nextTick(() => initRelationGraph())
@@ -1741,6 +1745,17 @@ watch(() => route.params.id, loadDetail)
 
 onMounted(() => {
     loadDetail()
+    
+    // Set watermark with current user name and date
+    const userInfo = userStore.userInfo
+    const userName = userInfo?.realName || userInfo?.username || 'User'
+    const date = new Date().toLocaleDateString()
+    watermark.set(`${userName} ${date}`)
+})
+
+onUnmounted(() => {
+    // Remove watermark when leaving the page
+    watermark.remove()
 })
 </script>
 

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://www.flowable.org/processdef">
+
+    <process id="knowledgeAuditProcess" name="Knowledge Audit Process" isExecutable="true">
+        
+        <startEvent id="startEvent" name="Start" />
+        
+        <sequenceFlow sourceRef="startEvent" targetRef="auditTask" />
+        
+        <userTask id="auditTask" name="Manager Audit" flowable:candidateGroups="EDITOR,ADMIN">
+            <documentation>First level audit by Department Manager or Knowledge Editor</documentation>
+        </userTask>
+        
+        <sequenceFlow sourceRef="auditTask" targetRef="auditDecision" />
+        
+        <exclusiveGateway id="auditDecision" name="Audit Decision" />
+        
+        <sequenceFlow sourceRef="auditDecision" targetRef="approveEnd">
+            <conditionExpression xsi:type="tFormalExpression">${approved}</conditionExpression>
+        </sequenceFlow>
+        
+        <sequenceFlow sourceRef="auditDecision" targetRef="rejectEnd">
+            <conditionExpression xsi:type="tFormalExpression">${!approved}</conditionExpression>
+        </sequenceFlow>
+        
+        <!-- Listeners are now in com.knowledge.audit.listener package -->
+        <endEvent id="approveEnd" name="Approved">
+            <extensionElements>
+                <flowable:executionListener event="start" class="com.knowledge.audit.listener.AuditApprovedListener" />
+            </extensionElements>
+        </endEvent>
+        
+        <endEvent id="rejectEnd" name="Rejected">
+            <extensionElements>
+                 <flowable:executionListener event="start" class="com.knowledge.audit.listener.AuditRejectedListener" />
+            </extensionElements>
+        </endEvent>
+
+    </process>
+
+</definitions>
