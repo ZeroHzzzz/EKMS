@@ -1,8 +1,12 @@
 <template>
   <div class="login-container">
-    <el-card class="login-card" shadow="hover">
+    <el-card class="login-card" shadow="always">
       <div class="login-header">
-        <h2>企业知识库管理系统</h2>
+        <div class="logo-wrapper">
+           <el-icon :size="40" color="#409eff"><Reading /></el-icon>
+        </div>
+        <h2>此间知识库</h2>
+        <p class="subtitle">企业级知识管理方案</p>
       </div>
       
       <el-form 
@@ -16,6 +20,7 @@
             v-model="loginForm.username" 
             placeholder="请输入用户名"
             size="large"
+            :prefix-icon="User"
             clearable
           />
         </el-form-item>
@@ -26,6 +31,7 @@
             type="password" 
             placeholder="请输入密码"
             size="large"
+            :prefix-icon="Lock"
             show-password
             @keyup.enter="handleLogin"
           />
@@ -37,7 +43,7 @@
             @click="handleLogin" 
             :loading="loading"
             size="large"
-            style="width: 100%"
+            class="login-button"
           >
             登录
           </el-button>
@@ -59,6 +65,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { ElMessage } from 'element-plus'
+import { User, Lock, Reading } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -114,37 +121,59 @@ const goToRegister = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #f5f7fa;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   padding: 20px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
-  border-radius: 4px;
+  max-width: 420px;
+  border-radius: 12px;
+  padding: 20px 10px;
+  border: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05); /* Softer shadow */
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: 40px;
+}
+
+.logo-wrapper {
+  margin-bottom: 16px;
+  display: inline-block;
+  padding: 12px;
+  background: rgba(64, 158, 255, 0.1);
+  border-radius: 12px;
 }
 
 .login-header h2 {
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 24px;
+  font-weight: 600;
   color: #303133;
   margin: 0;
+  letter-spacing: 1px;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: #909399;
 }
 
 .login-form {
+  padding: 0 10px;
+}
+
+.login-button {
   width: 100%;
+  font-weight: 500;
+  letter-spacing: 1px;
 }
 
 .login-footer {
   text-align: center;
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #ebeef5;
+  margin-top: 10px;
 }
 
 .footer-text {

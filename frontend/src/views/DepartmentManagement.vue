@@ -1,26 +1,39 @@
 <template>
   <div class="department-management-page">
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <span>部门管理</span>
-          <el-button type="primary" @click="showAddDialog">添加部门</el-button>
-        </div>
-      </template>
+    <div class="page-header">
+      <div class="header-left">
+        <h2>部门管理</h2>
+        <p class="subtitle">创建与管理企业组织架构中的部门信息</p>
+      </div>
+      <div class="header-right">
+        <el-button type="primary" @click="showAddDialog">
+          <el-icon class="el-icon--left"><Plus /></el-icon> 添加部门
+        </el-button>
+      </div>
+    </div>
 
+    <el-card class="table-card">
       <el-table :data="departmentList" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="部门名称" width="200" />
-        <el-table-column prop="description" label="部门描述" />
+        <el-table-column prop="name" label="部门名称" width="200">
+          <template #default="{ row }">
+            <span class="dept-name">{{ row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="description" label="部门描述" show-overflow-tooltip />
         <el-table-column prop="createTime" label="创建时间" width="180">
           <template #default="scope">
             {{ formatDate(scope.row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="scope">
-            <el-button size="small" @click="editDepartment(scope.row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="deleteDepartment(scope.row)">删除</el-button>
+            <el-button link type="primary" size="small" @click="editDepartment(scope.row)">
+              <el-icon><Edit /></el-icon> 编辑
+            </el-button>
+            <el-button link type="danger" size="small" @click="deleteDepartment(scope.row)">
+               <el-icon><Delete /></el-icon> 删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -31,6 +44,7 @@
       v-model="dialogVisible"
       :title="dialogTitle"
       width="500px"
+      class="dept-dialog"
     >
       <el-form :model="departmentForm" :rules="rules" ref="departmentFormRef" label-width="100px">
         <el-form-item label="部门名称" prop="name">
@@ -56,6 +70,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import api from '../api'
 
 const departmentList = ref([])
@@ -178,13 +193,44 @@ onMounted(() => {
 
 <style scoped>
 .department-management-page {
-  padding: 20px;
+  padding: 24px;
+  background-color: #f6f8fa;
+  min-height: 100vh;
 }
 
-.card-header {
+.page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.header-left h2 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1f2f3d;
+  margin: 0;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: #909399;
+  font-size: 14px;
+}
+
+.table-card {
+  border: none;
+  border-radius: 8px;
+}
+
+.dept-name {
+  font-weight: 500;
+  color: #303133;
+}
+
+:deep(.el-table) {
+  --el-table-header-bg-color: #f8f9fa;
+  --el-table-header-text-color: #606266;
 }
 </style>
 

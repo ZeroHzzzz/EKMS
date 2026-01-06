@@ -1,14 +1,17 @@
 <template>
   <div class="org-management-page">
     <div class="page-header">
-      <h2>组织管理</h2>
-      <div class="header-actions">
+      <div class="header-left">
+        <h2>组织管理</h2>
+        <p class="subtitle">可视化管理与维护企业组织架构与人员分配</p>
+      </div>
+      <div class="header-right">
         <el-button type="primary" @click="showAddDeptDialog">
-          <el-icon><Plus /></el-icon>
+          <el-icon class="el-icon--left"><Plus /></el-icon>
           添加部门
         </el-button>
         <el-button type="success" @click="showAddUserDialog">
-          <el-icon><User /></el-icon>
+           <el-icon class="el-icon--left"><User /></el-icon>
           添加用户
         </el-button>
       </div>
@@ -652,19 +655,26 @@ onMounted(() => {
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 24px;
 }
 
-.page-header h2 {
-  margin: 0;
-  font-size: 22px;
+.header-left h2 {
+  font-size: 24px;
   font-weight: 600;
-  color: #303133;
+  color: #1f2f3d;
+  margin: 0;
 }
 
-.header-actions {
+.subtitle {
+  margin: 8px 0 0;
+  color: #909399;
+  font-size: 14px;
+}
+
+.header-right {
   display: flex;
+  align-items: center;
   gap: 12px;
 }
 

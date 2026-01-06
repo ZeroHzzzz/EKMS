@@ -1,14 +1,17 @@
 <template>
   <div class="knowledge-tree-page">
     <div class="page-header">
-      <h2>知识结构管理</h2>
-      <div class="header-actions">
-        <el-radio-group v-model="viewMode" @change="handleViewModeChange">
+      <div class="header-left">
+        <h2>知识结构管理</h2>
+        <p class="subtitle">可视化展示与管理知识节点关联</p>
+      </div>
+      <div class="header-right">
+        <el-radio-group v-model="viewMode" @change="handleViewModeChange" class="mode-switch">
           <el-radio-button value="visual">图画模式</el-radio-button>
           <el-radio-button value="list">列表格式</el-radio-button>
         </el-radio-group>
-        <el-button type="primary" @click="showAddDialog = true">
-          添加知识节点
+        <el-button type="primary" @click="showAddDialog = true" class="add-btn">
+          <el-icon class="el-icon--left"><Plus /></el-icon> 添加节点
         </el-button>
       </div>
     </div>
@@ -4182,20 +4185,27 @@ watch(viewMode, (newMode) => {
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 24px;
 }
 
-.page-header h2 {
-  margin: 0;
-  font-size: 20px;
+.header-left h2 {
+  font-size: 24px;
   font-weight: 600;
-  color: #303133;
+  color: #1f2f3d;
+  margin: 0;
 }
 
-.header-actions {
+.subtitle {
+  margin: 8px 0 0;
+  color: #909399;
+  font-size: 14px;
+}
+
+.header-right {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 16px;
 }
 
 .tree-toolbar {

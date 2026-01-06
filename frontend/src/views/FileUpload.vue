@@ -763,7 +763,7 @@ const getFileTypeColor = (filename) => {
 .file-upload-page {
   min-height: 100%;
   padding: 24px;
-  background: #f5f7fa;
+  background: #f6f8fa;
 }
 
 .upload-wrapper {

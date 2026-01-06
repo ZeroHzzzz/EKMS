@@ -1,16 +1,25 @@
 <template>
   <div class="user-management-page">
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <span>用户管理</span>
-          <el-button type="primary" @click="showAddDialog">添加用户</el-button>
-        </div>
-      </template>
+    <div class="page-header">
+      <div class="header-left">
+        <h2>用户管理</h2>
+        <p class="subtitle">管理系统用户、角色及权限分配</p>
+      </div>
+      <div class="header-right">
+        <el-button type="primary" @click="showAddDialog">
+          <el-icon class="el-icon--left"><Plus /></el-icon> 添加用户
+        </el-button>
+      </div>
+    </div>
 
+    <el-card class="table-card">
       <el-table :data="userList" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="用户名" width="150" />
+        <el-table-column prop="username" label="用户名" width="150">
+          <template #default="{ row }">
+            <span class="username-text">{{ row.username }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="realName" label="真实姓名" width="150" />
         <el-table-column prop="email" label="邮箱" width="200" />
         <el-table-column prop="department" label="部门" width="150">
@@ -20,29 +29,34 @@
         </el-table-column>
         <el-table-column prop="role" label="角色" width="120">
           <template #default="scope">
-            <el-tag :type="getRoleType(scope.row.role)">
+            <el-tag :type="getRoleType(scope.row.role)" effect="plain">
               {{ getRoleText(scope.row.role) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="scope">
-            <el-button size="small" @click="editUser(scope.row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="deleteUser(scope.row)">删除</el-button>
+            <el-button link type="primary" size="small" @click="editUser(scope.row)">
+              <el-icon><Edit /></el-icon> 编辑
+            </el-button>
+            <el-button link type="danger" size="small" @click="deleteUser(scope.row)">
+              <el-icon><Delete /></el-icon> 删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="pageNum"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @size-change="handleSizeChange"
-        @current-change="handlePageChange"
-        style="margin-top: 20px"
-      />
+      <div class="pagination-wrapper">
+        <el-pagination
+          v-model:current-page="pageNum"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
 
     <!-- 添加/编辑用户对话框 -->
@@ -50,19 +64,20 @@
       v-model="dialogVisible"
       :title="dialogTitle"
       width="500px"
+      class="user-dialog"
     >
       <el-form :model="userForm" :rules="rules" ref="userFormRef" label-width="80px">
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="userForm.username" :disabled="isEdit" />
+          <el-input v-model="userForm.username" :disabled="isEdit" placeholder="请输入用户名" />
         </el-form-item>
         <el-form-item label="密码" prop="password" v-if="!isEdit">
-          <el-input v-model="userForm.password" type="password" />
+          <el-input v-model="userForm.password" type="password" show-password placeholder="请输入密码" />
         </el-form-item>
         <el-form-item label="真实姓名" prop="realName">
-          <el-input v-model="userForm.realName" />
+          <el-input v-model="userForm.realName" placeholder="请输入真实姓名" />
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
-          <el-input v-model="userForm.email" />
+          <el-input v-model="userForm.email" placeholder="请输入邮箱地址" />
         </el-form-item>
         <el-form-item label="角色" prop="role">
           <el-select v-model="userForm.role" style="width: 100%" @change="handleRoleChange">
@@ -82,7 +97,7 @@
           </el-select>
         </el-form-item>
         <el-form-item v-else>
-          <el-text type="info">系统管理员无需选择部门</el-text>
+          <el-alert title="系统管理员拥有所有权限，无需归属特定部门" type="info" :closable="false" show-icon />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -96,6 +111,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import api from '../api'
 
 const userList = ref([])
@@ -305,13 +321,50 @@ onMounted(() => {
 
 <style scoped>
 .user-management-page {
-  padding: 20px;
+  padding: 24px;
+  background-color: #f6f8fa;
+  min-height: 100vh;
 }
 
-.card-header {
+.page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.header-left h2 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1f2f3d;
+  margin: 0;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: #909399;
+  font-size: 14px;
+}
+
+.table-card {
+  border: none;
+  border-radius: 8px;
+}
+
+.pagination-wrapper {
+  padding: 20px 0 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.username-text {
+  font-weight: 500;
+  color: #303133;
+}
+
+:deep(.el-table) {
+  --el-table-header-bg-color: #f8f9fa;
+  --el-table-header-text-color: #606266;
 }
 </style>
 

@@ -1,86 +1,87 @@
 <template>
-  <div class="knowledge-list">
+  <div class="knowledge-management">
     <div class="page-header">
-      <h2>知识管理</h2>
-    </div>
-
-    <div class="search-bar">
-      <el-autocomplete
-        v-model="searchKeyword"
-        :fetch-suggestions="fetchSuggestions"
-        placeholder="请输入关键词搜索（支持全文、拼音、首字母、文件名）"
-        class="search-input"
-        :trigger-on-focus="false"
-        clearable
-        size="large"
-        @select="handleSelect"
-        @keyup.enter="handleSearch"
-        popper-class="search-suggestions"
-      >
-        <template #default="{ item }">
-          <div class="suggestion-item">
-            <div class="suggestion-title">{{ item.value }}</div>
-          </div>
-        </template>
-        <template #append>
-          <el-button @click="handleSearch" size="large">搜索</el-button>
-        </template>
-      </el-autocomplete>
-    </div>
-
-    <div class="filter-bar">
-      <div class="filter-left">
-      <!-- 知识管理页面默认显示全部状态 -->
-      <el-select 
-        v-model="filters.status" 
-        placeholder="全部状态" 
-        style="width: 150px"
-        @change="handleFilterChange"
-      >
-        <el-option label="全部状态" :value="null" />
-        <el-option label="待审核" value="PENDING" />
-        <el-option label="已发布" value="APPROVED" />
-        <el-option label="已驳回" value="REJECTED" />
-      </el-select>
-        <el-input
-          v-model="filters.author"
-          placeholder="作者筛选"
-          clearable
-          style="width: 150px; margin-left: 10px"
-          @clear="handleFilterChange"
-        >
-          <template #prefix>
-            <el-icon><User /></el-icon>
-          </template>
-        </el-input>
-        <el-date-picker
-          v-model="filters.dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          value-format="YYYY-MM-DD"
-          clearable
-          style="width: 240px; margin-left: 10px"
-          @change="handleFilterChange"
-        />
-        <el-button 
-          type="primary" 
-          style="margin-left: 10px"
-          @click="handleSearch"
-        >
-          搜索
-        </el-button>
-        <el-button 
-          @click="clearFilters"
-          style="margin-left: 10px"
-        >
-          清空筛选
+      <div class="header-left">
+        <h2>知识管理</h2>
+        <p class="subtitle">文档审核、维护与管理</p>
+      </div>
+      <div class="header-right">
+        <el-button type="primary" size="large" @click="showUploadDialog = true" class="add-btn">
+          <el-icon class="el-icon--left"><Upload /></el-icon> 上传文档
         </el-button>
       </div>
     </div>
 
-    <el-card class="table-card">
+    <el-card class="control-card" shadow="hover">
+      <div class="control-bar">
+        <div class="search-section">
+          <el-autocomplete
+            v-model="searchKeyword"
+            :fetch-suggestions="fetchSuggestions"
+            placeholder="全文/文件名/拼音搜索..."
+            class="search-input"
+            :trigger-on-focus="false"
+            clearable
+            size="default"
+            @select="handleSelect"
+            @keyup.enter="handleSearch"
+            popper-class="search-suggestions"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+            <template #default="{ item }">
+              <div class="suggestion-item">
+                <span class="suggestion-title">{{ item.value }}</span>
+                <el-tag v-if="item.type === 'knowledge'" size="small" type="info">文档</el-tag>
+              </div>
+            </template>
+          </el-autocomplete>
+        </div>
+
+        <div class="filter-section">
+          <el-select 
+            v-model="filters.status" 
+            placeholder="状态" 
+            style="width: 120px"
+            @change="handleFilterChange"
+            clearable
+          >
+            <el-option label="待审核" value="PENDING" />
+            <el-option label="已发布" value="APPROVED" />
+            <el-option label="已驳回" value="REJECTED" />
+          </el-select>
+          
+          <el-input
+            v-model="filters.author"
+            placeholder="作者"
+            clearable
+            style="width: 120px"
+            @clear="handleFilterChange"
+          >
+          </el-input>
+          
+          <el-date-picker
+            v-model="filters.dateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            value-format="YYYY-MM-DD"
+            clearable
+            style="width: 220px"
+            @change="handleFilterChange"
+          />
+          
+          <div class="filter-actions">
+            <el-button type="primary" @click="handleSearch">搜索</el-button>
+            <el-button @click="clearFilters" :icon="Refresh">重置</el-button>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
+    <el-card class="table-card" shadow="hover">
     <div class="table-toolbar">
       <div class="toolbar-left">
         <el-checkbox v-model="selectAll" @change="handleSelectAll">全选</el-checkbox>
@@ -492,7 +493,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Upload, UploadFilled, Search, Location, View, Star, Clock, User, ArrowDown, Check, Close, Folder, FolderOpened } from '@element-plus/icons-vue'
+import { Upload, UploadFilled, Search, Location, View, Star, Clock, User, ArrowDown, Check, Close, Folder, FolderOpened, Refresh } from '@element-plus/icons-vue'
 import api from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CryptoJS from 'crypto-js'
@@ -2016,9 +2017,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.knowledge-list {
+.knowledge-management {
   padding: 24px;
-  min-height: 100%;
+  background-color: #f6f8fa;
+  min-height: 100vh;
 }
 
 .page-header {
@@ -2029,67 +2031,61 @@ onMounted(() => {
 }
 
 .page-header h2 {
-  margin: 0;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 600;
-  color: #303133;
+  color: #1f2f3d;
+  margin: 0;
 }
 
-.search-bar {
-  margin-bottom: 16px;
+.subtitle {
+  margin: 8px 0 0;
+  color: #909399;
+  font-size: 14px;
+}
+
+.control-card {
+  margin-bottom: 20px;
+  border: none;
+}
+
+.control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search-section {
+  flex: 1;
+  min-width: 300px;
+  max-width: 500px;
 }
 
 .search-input {
   width: 100%;
 }
 
-.filter-bar {
+.filter-section {
   display: flex;
   align-items: center;
-  margin-bottom: 16px;
-  padding: 16px;
-  background-color: #fff;
-  border-radius: 4px;
-}
-
-.filter-left {
-  display: flex;
-  gap: 10px;
-  flex: 1;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .table-card {
-  margin-bottom: 16px;
+  border: none;
+  border-radius: 8px;
 }
 
-.table-card :deep(.el-card__body) {
-  padding: 0;
-}
-
-/* 表格行悬停效果 */
-.knowledge-list :deep(.el-table__row) {
-  transition: background-color 0.2s;
-}
-
-.knowledge-list :deep(.el-table__row:hover) {
-  background-color: #f5f7fa;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  padding: 16px;
-  background-color: #fff;
-  border-radius: 4px;
-}
-
+/* Table Toolbar */
 .table-toolbar {
+  padding: 16px;
+  border-bottom: 1px solid #ebeef5;
+  background-color: #fff;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background-color: #f5f7fa;
-  border-bottom: 1px solid #ebeef5;
 }
 
 .toolbar-left {
@@ -2099,8 +2095,8 @@ onMounted(() => {
 }
 
 .selected-count {
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  color: #909399;
 }
 
 .toolbar-right {
@@ -2108,6 +2104,31 @@ onMounted(() => {
   gap: 10px;
 }
 
+/* Adjust table styles */
+:deep(.el-table) {
+  --el-table-header-bg-color: #f8f9fa;
+  --el-table-header-text-color: #606266;
+}
+
+/* Pagination */
+.pagination-wrapper {
+  padding: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Suggestion Item */
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+.suggestion-title {
+  color: #303133;
+}
+
+/* Dialogs */
 .upload-form {
   margin-top: 20px;
 }
@@ -2116,325 +2137,54 @@ onMounted(() => {
   margin: 20px 0;
 }
 
-/* 搜索建议样式 */
-.suggestion-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-}
-
-.suggestion-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.suggestion-title {
-  flex: 1;
-  font-size: 14px;
-  color: #303133;
-}
-
-.history-icon {
-  color: #909399;
-  font-size: 14px;
-}
-
-/* 操作按钮布局 */
+/* Action Buttons */
 .action-buttons {
   display: flex;
-  align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.action-buttons .el-button {
-  margin: 0;
-}
-
-/* 审核单元格样式 */
+/* Audit Styles */
 .audit-cell {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.audit-cell .el-button {
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  font-size: 18px;
-}
-
-.audit-cell .audit-btn-disabled {
-  background: #e4e7ed !important;
-  border-color: #e4e7ed !important;
-  color: #c0c4cc !important;
-  cursor: not-allowed;
-}
-
-/* 操作单元格样式 */
 .ops-cell {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 8px;
 }
 
-/* 审核操作按钮样式（兼容旧代码） */
-.audit-action-buttons {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.audit-btn {
-  width: 48px;
-  height: 48px;
-  font-size: 20px;
-  font-weight: bold;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s;
-}
-
-.audit-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.approve-btn {
-  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
-  border: none;
-}
-
-.approve-btn:hover {
-  background: linear-gradient(135deg, #85ce61 0%, #67c23a 100%);
-}
-
-.reject-btn {
-  background: linear-gradient(135deg, #f56c6c 0%, #f78989 100%);
-  border: none;
-}
-
-.reject-btn:hover {
-  background: linear-gradient(135deg, #f78989 0%, #f56c6c 100%);
-}
-
-/* 已发布状态的灰色√按钮（不可点击） */
-.approved-btn-disabled {
-  background: #c0c4cc !important;
-  border-color: #c0c4cc !important;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.approved-btn-disabled:hover {
-  transform: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-/* 已驳回状态的灰色×按钮（不可点击） */
-.rejected-btn-disabled {
-  background: #c0c4cc !important;
-  border-color: #c0c4cc !important;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.rejected-btn-disabled:hover {
-  transform: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.withdraw-btn {
-  width: 100%;
-  font-weight: 500;
-}
-
-.no-audit-action {
-  color: #909399;
-  font-size: 14px;
-  text-align: center;
-  display: block;
-  width: 100%;
-}
-
-/* 审核操作按钮样式 */
-.audit-action-buttons {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.audit-btn {
-  width: 48px;
-  height: 48px;
-  font-size: 20px;
-  font-weight: bold;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s;
-}
-
-.audit-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.approve-btn {
-  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
-  border: none;
-}
-
-.approve-btn:hover {
-  background: linear-gradient(135deg, #85ce61 0%, #67c23a 100%);
-}
-
-.reject-btn {
-  background: linear-gradient(135deg, #f56c6c 0%, #f78989 100%);
-  border: none;
-}
-
-.reject-btn:hover {
-  background: linear-gradient(135deg, #f78989 0%, #f56c6c 100%);
-}
-
-.withdraw-btn {
-  width: 100%;
-  font-weight: 500;
-}
-
-.no-audit-action {
-  color: #909399;
-  font-size: 14px;
-  text-align: center;
-  display: block;
-  width: 100%;
-}
-
-.keyword-icon {
-  color: #409eff;
-  font-size: 14px;
-}
-
-.knowledge-icon {
-  color: #67c23a;
-  font-size: 14px;
-}
-
-.suggestion-meta {
-  margin-left: 10px;
-}
-
-/* 搜索建议下拉框样式 */
-:deep(.search-suggestions) {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-:deep(.search-suggestions .el-autocomplete-suggestion__list) {
-  padding: 0;
-}
-
-/* 知识条目样式 */
-.knowledge-item {
-  padding: 12px 0;
-}
-
+/* Knowledge Details */
 .knowledge-title-row {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .knowledge-title {
-  flex: 1;
-  font-size: 16px;
   font-weight: 600;
   color: #303133;
-  line-height: 1.5;
-  word-break: break-word;
 }
 
 .knowledge-meta-tags {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.match-tag {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  display: inline-flex;
 }
 
 .knowledge-summary {
-  margin-bottom: 8px;
-  line-height: 1.6;
-}
-
-.highlight-summary {
+  font-size: 13px;
   color: #606266;
-}
-
-.highlight-fragment {
-  margin-bottom: 4px;
-  padding: 4px 0;
-}
-
-.highlight-fragment :deep(mark) {
-  background-color: #fff566;
-  color: #303133;
-  padding: 2px 4px;
-  border-radius: 2px;
-  font-weight: 600;
-}
-
-.normal-summary {
-  color: #909399;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.text-muted {
-  color: #c0c4cc;
-  font-style: italic;
-}
-
-.match-info {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: #67c23a;
   margin-bottom: 8px;
-  padding: 4px 8px;
-  background-color: #f0f9ff;
-  border-radius: 4px;
-  width: fit-content;
-}
-
-.match-icon {
-  font-size: 14px;
+  line-height: 1.5;
 }
 
 .knowledge-footer {
   display: flex;
-  align-items: center;
   gap: 16px;
-  flex-wrap: wrap;
   font-size: 12px;
   color: #909399;
-  margin-top: 8px;
 }
 
 .footer-item {
@@ -2443,156 +2193,72 @@ onMounted(() => {
   gap: 4px;
 }
 
-.footer-item .el-icon {
-  font-size: 14px;
-}
-
-/* 文件夹选择器右键菜单样式 */
-.folder-context-menu {
-  position: fixed;
-  background-color: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  padding: 4px 0;
-  z-index: 3000;
-  min-width: 160px;
-}
-
-.folder-context-menu .context-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 14px;
-  color: #606266;
-  transition: background-color 0.2s;
-}
-
-.folder-context-menu .context-menu-item:hover {
-  background-color: #f5f7fa;
-}
-
-.folder-context-menu .context-menu-item .el-icon {
-  font-size: 16px;
-  color: #409eff;
-}
-
-/* 高亮标题样式 */
-.highlight-title :deep(mark) {
+/* Highlight */
+.highlight-title :deep(mark),
+.highlight-fragment :deep(mark) {
   background-color: #fff566;
   color: #303133;
-  padding: 2px 4px;
+  padding: 0 2px;
   border-radius: 2px;
-  font-weight: 700;
 }
 
-:deep(.search-suggestions .el-autocomplete-suggestion__list li) {
-  padding: 0 15px;
-  line-height: normal;
-}
-
-/* 高亮样式 */
-.highlight-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.highlight-content {
-  margin-bottom: 4px;
-  line-height: 1.6;
-}
-
-.match-location {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
-}
-
-/* 高亮标记样式 */
-:deep(mark) {
-  background-color: #ffeb3b;
-  color: #333;
-  padding: 2px 4px;
-  border-radius: 2px;
-  font-weight: 600;
-}
-
-/* 审核信息样式 */
-.audit-info {
-  font-size: 12px;
-  color: #606266;
-}
-
-.audit-info .meta-text {
-  color: #909399;
-  margin-top: 4px;
-}
-
-.audit-dialog-content {
-  padding: 10px 0;
-}
-
-.audit-dialog-content h4 {
-  margin: 0 0 16px 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.knowledge-preview {
-  margin-bottom: 20px;
-}
-
-/* 文件夹选择器样式 */
+/* Folder Select */
 .folder-select-container {
   border: 1px solid #dcdfe6;
   border-radius: 4px;
   padding: 12px;
-  background-color: #fff;
   max-height: 400px;
   overflow-y: auto;
-  margin-bottom: 12px;
-}
-
-.folder-select-tree {
-  margin: 0;
-}
-
-.folder-select-node {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  padding: 4px 0;
-}
-
-.folder-icon {
-  color: #409eff;
-  font-size: 16px;
-}
-
-.folder-title {
-  font-size: 14px;
-  color: #303133;
 }
 
 .selected-folder-info {
+  margin-top: 12px;
+  padding: 8px;
+  background-color: #f0f9ff;
+  border-radius: 4px;
+  color: #409eff;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  background-color: #f0f9ff;
-  border: 1px solid #b3d8ff;
-  border-radius: 4px;
-  font-size: 14px;
-  color: #409eff;
-  margin-top: 12px;
 }
 
-.selected-folder-info .el-icon {
-  font-size: 16px;
+/* Context Menu */
+.folder-context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #ebeef5;
+  box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1);
+  border-radius: 4px;
+  padding: 5px 0;
+  z-index: 3000;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.context-menu-item:hover {
+  background-color: #f5f7fa;
+  color: #409eff;
+}
+
+.match-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #67c23a;
+  margin-bottom: 4px;
+  background-color: #f0f9ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  width: fit-content;
 }
 </style>
 

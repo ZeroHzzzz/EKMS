@@ -1,35 +1,43 @@
 <template>
   <div class="version-diff-page">
     <!-- 顶部工具栏 -->
-    <div class="diff-header">
+    <!-- 顶部工具栏 -->
+    <div class="page-header">
       <div class="header-left">
-        <el-button :icon="ArrowLeft" @click="goBack">返回</el-button>
-        <h2 class="page-title">版本对比</h2>
+        <el-button link class="back-btn" @click="goBack">
+           <el-icon><ArrowLeft /></el-icon> 返回
+        </el-button>
+        <div class="title-section">
+          <h2>版本对比</h2>
+          <p class="subtitle">比较不同版本之间的差异与变更</p>
+        </div>
       </div>
-      <div class="version-selector">
-        <el-select v-model="selectedVersion1" placeholder="选择版本1" size="small" @change="loadDiff">
-          <el-option 
-            v-for="v in versions" 
-            :key="v.id" 
-            :label="`v${v.version} - ${v.commitMessage || '无说明'}`" 
-            :value="v.version"
-          />
-        </el-select>
-        <el-icon class="arrow-icon"><ArrowRight /></el-icon>
-        <el-select v-model="selectedVersion2" placeholder="选择版本2" size="small" @change="loadDiff">
-          <el-option 
-            v-for="v in versions" 
-            :key="v.id" 
-            :label="`v${v.version} - ${v.commitMessage || '无说明'}`" 
-            :value="v.version"
-          />
-        </el-select>
+      <div class="header-center">
+         <div class="version-selector-group">
+            <el-select v-model="selectedVersion1" placeholder="选择版本1" size="default" @change="loadDiff" class="version-select">
+              <el-option 
+                v-for="v in versions" 
+                :key="v.id" 
+                :label="`v${v.version} - ${v.commitMessage || '无说明'}`" 
+                :value="v.version"
+              />
+            </el-select>
+            <el-icon class="arrow-icon"><ArrowRight /></el-icon>
+            <el-select v-model="selectedVersion2" placeholder="选择版本2" size="default" @change="loadDiff" class="version-select">
+              <el-option 
+                v-for="v in versions" 
+                :key="v.id" 
+                :label="`v${v.version} - ${v.commitMessage || '无说明'}`" 
+                :value="v.version"
+              />
+            </el-select>
+         </div>
       </div>
       <div class="header-right">
-        <el-button-group>
-          <el-button :type="viewMode === 'unified' ? 'primary' : 'default'" size="small" @click="viewMode = 'unified'">统一视图</el-button>
-          <el-button :type="viewMode === 'split' ? 'primary' : 'default'" size="small" @click="viewMode = 'split'">并排视图</el-button>
-        </el-button-group>
+        <el-radio-group v-model="viewMode" size="small">
+          <el-radio-button label="unified">统一视图</el-radio-button>
+          <el-radio-button label="split">并排视图</el-radio-button>
+        </el-radio-group>
       </div>
     </div>
 
@@ -237,38 +245,70 @@ onMounted(async () => {
   min-height: 100vh;
 }
 
-.diff-header {
+.page-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  background: white;
-  padding: 16px 20px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  align-items: center;
+  margin-bottom: 24px;
+  background: #fff;
+  padding: 16px 24px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
 }
 
-.page-title {
-  margin: 0;
-  font-size: 18px;
+.back-btn {
+  font-size: 15px;
+  color: #606266;
+  font-weight: 500;
+}
+
+.back-btn:hover {
+  color: #409EFF;
+}
+
+.title-section h2 {
+  font-size: 20px;
   font-weight: 600;
+  color: #1f2f3d;
+  margin: 0;
+  line-height: 1.2;
 }
 
-.version-selector {
+.title-section .subtitle {
+  margin: 4px 0 0;
+  color: #909399;
+  font-size: 13px;
+}
+
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 0 40px;
+}
+
+.version-selector-group {
   display: flex;
   align-items: center;
   gap: 12px;
+  background: #f5f7fa;
+  padding: 6px 16px;
+  border-radius: 8px;
+}
+
+.version-select {
+  width: 220px;
 }
 
 .arrow-icon {
-  font-size: 18px;
-  color: #409eff;
+  font-size: 16px;
+  color: #909399;
 }
 
 .version-info {
