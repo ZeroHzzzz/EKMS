@@ -529,7 +529,7 @@
                             size="small" 
                             text 
                             type="danger"
-                            v-if="isAdmin(userStore.userInfo) && !version.isPublished"
+                            v-if="isAdmin(userStore.userInfo) && version.isPublished && version.version !== knowledge.version"
                             @click="revertToVersion(version)"
                           >
                             <el-icon><RefreshLeft /></el-icon> 回退
@@ -703,7 +703,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import api from '../api'
 import { sendMessageStream } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -736,13 +736,6 @@ const isEditingContent = ref(false) // Control content editor visibility
 const saving = ref(false) // Add saving state
 const showAddRelationDialog = ref(false)
 
-// Watch for changes in editForm to set dirty flag
-watch(editForm, (newVal) => {
-  if (!knowledge.value) return
-  // Simple check: if we have initial data and it differs
-  // In a real app, might want deep compare or ignore initial load
-  editFormDirty.value = true
-}, { deep: true })
 const addRelationForm = ref({ relatedKnowledgeId: null, relationType: 'RELATED' })
 const relationSearchResults = ref([])
 const searchLoading = ref(false)
@@ -785,6 +778,39 @@ const quickQuestions = [
 
 // Computed
 const isEditMode = computed(() => route.query.edit === 'true')
+
+// Watch for changes in editForm to set dirty flag
+watch(editForm, (newVal) => {
+  if (!knowledge.value) return
+  // 如果不在编辑模式，不设置脏标记
+  if (!isEditMode.value) return 
+  console.log('DEBUG: editForm changed', newVal)
+  editFormDirty.value = true
+  console.log('DEBUG: editFormDirty set to true')
+}, { deep: true })
+
+// Watch isEditMode to reload data when exiting edit mode
+watch(isEditMode, async (val) => {
+  if (!val) {
+    // Exiting edit mode
+    console.log('DEBUG: Exiting edit mode, reloading detail...')
+    editFormDirty.value = false // Reset dirty flag
+    await loadDetail()
+  } else {
+    // Entering edit mode
+    console.log('DEBUG: Entering edit mode, initializing form...')
+    if (knowledge.value) {
+        editForm.value = { 
+            ...knowledge.value,
+            changeDescription: '' 
+        }
+        nextTick(() => {
+            editFormDirty.value = false
+            console.log('DEBUG: editFormDirty reset to false')
+        })
+    }
+  }
+})
 
 watch(isEditMode, (val) => {
   if (val) {
@@ -933,6 +959,7 @@ const isViewingHistoryVersion = computed(() => {
   return currentViewingVersion.value && currentViewingVersion.value !== knowledge.value?.version
 })
 
+
 // 提交审核
 const submitForReview = async () => {
   try {
@@ -986,7 +1013,7 @@ const submitForReview = async () => {
 const loadDetail = async () => {
   loading.value = true
   try {
-    const res = await api.get(`/knowledge/${route.params.id}`)
+    const res = await api.get(`/knowledge/${route.params.id}?_t=${Date.now()}`)
     knowledge.value = res.data || {}
     
     editForm.value = { 
@@ -1001,7 +1028,7 @@ const loadDetail = async () => {
     const previewVersion = route.query.previewVersion
     if (previewVersion) {
       try {
-        const versionRes = await api.get(`/knowledge/${route.params.id}/versions/${previewVersion}`)
+        const versionRes = await api.get(`/knowledge/${route.params.id}/versions/${previewVersion}?_t=${Date.now()}`)
         if (versionRes.code === 200 && versionRes.data) {
           previewVersionContent.value = versionRes.data
           isViewingDraft.value = true  // 显示预览版本
@@ -1087,12 +1114,12 @@ const loadFileInfo = async () => {
   }
   
   try {
-    const fileRes = await api.get(`/file/${fileIdToLoad}`)
+    const fileRes = await api.get(`/file/${fileIdToLoad}?_t=${Date.now()}`)
     if (fileRes.code === 200) {
       fileInfo.value = fileRes.data
       // 更新时间戳以强制刷新 iframe
       previewTimestamp.value = Date.now()
-      console.log('File info loaded:', fileRes.data, 'new previewTimestamp:', previewTimestamp.value)
+    console.log('DEBUG: loadFileInfo success. ID:', fileRes.data.id, 'Hash:', fileRes.data.fileHash)
     }
   } catch (e) { 
     console.warn('文件信息加载失败', e)
@@ -1484,7 +1511,62 @@ const formatFileSize = (s) => {
 const canEdit = (k) => hasRole(userStore.userInfo, ROLE_ADMIN) || (hasRole(userStore.userInfo, ROLE_EDITOR) && k.author === userStore.userInfo.realName)
 const canDeleteComment = (c) => hasRole(userStore.userInfo, ROLE_ADMIN) || c.userId === userStore.userInfo.id
 const enterEditMode = () => router.push({ query: { ...route.query, edit: 'true' } })
-const cancelEdit = () => router.back()
+const cancelEdit = async () => {
+  console.log('DEBUG: cancelEdit called, dirty:', editFormDirty.value)
+  if (editFormDirty.value) {
+    try {
+      await ElMessageBox.confirm('有未保存的修改，确定要离开吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+      router.back()
+    } catch (e) {
+      // cancel
+    }
+  } else {
+    router.back()
+  }
+}
+
+// 路由守卫：未保存拦截 (离开组件/路由)
+onBeforeRouteLeave(async (to, from, next) => {
+  console.log('DEBUG: onBeforeRouteLeave, isEditMode:', isEditMode.value, 'dirty:', editFormDirty.value)
+  if (isEditMode.value && editFormDirty.value) {
+    try {
+      await ElMessageBox.confirm('有未保存的修改，确定要离开吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+      next()
+    } catch (e) {
+      next(false)
+    }
+  } else {
+    next()
+  }
+})
+
+// 路由守卫：未保存拦截 (同组件参数变更，如 query param)
+onBeforeRouteUpdate(async (to, from, next) => {
+  console.log('DEBUG: onBeforeRouteUpdate, isEditMode:', isEditMode.value, 'dirty:', editFormDirty.value)
+  // 如果是从编辑模式离开 (即当前是编辑模式，目标不是)
+  if (isEditMode.value && to.query.edit !== 'true' && editFormDirty.value) {
+    try {
+      await ElMessageBox.confirm('有未保存的修改，确定要离开吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+      next()
+    } catch (e) {
+      next(false) // 阻止跳转
+    }
+  } else {
+    next()
+  }
+})
 const goBack = () => router.back()
 const viewDetail = (id) => router.push(`/knowledge/${id}`)
 const stringToColor = (str) => {
@@ -1521,7 +1603,7 @@ const loadVersions = async () => {
     const admin = isAdmin(userStore.userInfo)
     
     const res = await api.get(`/knowledge/${route.params.id}/versions`, {
-      params: { username, isAdmin: admin }
+      params: { username, isAdmin: admin, _t: Date.now() }
     })
     versions.value = res.data || []
     // 调试：打印版本列表和每个版本的 fileId
@@ -1741,6 +1823,51 @@ const replyToComment = (comment) => {
     newCommentContent.value = `回复 @${comment.userRealName || comment.userName}: `
 }
 
+// 处理页面可见性变化（从编辑器返回时刷新预览）
+const handleVisibilityChange = async () => {
+  if (!document.hidden) {
+    console.log('页面重新获得焦点，开始轮询检查内容更新...')
+    
+    // 记录当前状态
+    const currentFileIdStr = String(knowledge.value.fileId)
+    const currentUpdateTime = knowledge.value.updateTime
+    
+    // 定义检查函数
+    const checkUpdate = async () => {
+      console.log('执行刷新检查...')
+      try {
+        await loadDetail()
+        
+        // 检查是否有变化
+        const newFileIdStr = String(knowledge.value.fileId)
+        const newUpdateTime = knowledge.value.updateTime
+        
+        if (newFileIdStr !== currentFileIdStr || newUpdateTime !== currentUpdateTime) {
+          console.log('检测到内容更新！停止轮询')
+          return true // 有变化
+        }
+      } catch (e) {
+        console.warn('刷新检查失败', e)
+      }
+      return false // 无变化
+    }
+    
+    // 立即执行一次
+    if (await checkUpdate()) return
+    
+    // 设置轮询策略：1.5s, 3s, 5s 后再检查，应对只有Office回调延迟
+    const delays = [1500, 3000, 5000]
+    
+    for (const delay of delays) {
+      setTimeout(async () => {
+        // 如果页面又不可见了，停止轮询
+        if (document.hidden) return
+        await checkUpdate()
+      }, delay)
+    }
+  }
+}
+
 watch(() => route.params.id, loadDetail)
 
 onMounted(() => {
@@ -1751,11 +1878,16 @@ onMounted(() => {
     const userName = userInfo?.realName || userInfo?.username || 'User'
     const date = new Date().toLocaleDateString()
     watermark.set(`${userName} ${date}`)
+    
+    // 监听页面可见性变化，用于从编辑器返回后刷新预览
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
     // Remove watermark when leaving the page
     watermark.remove()
+    // 移除可见性监听器
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

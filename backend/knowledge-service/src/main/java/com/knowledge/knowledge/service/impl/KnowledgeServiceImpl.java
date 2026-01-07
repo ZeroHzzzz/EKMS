@@ -1889,13 +1889,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new RuntimeException("目标版本不存在");
         }
         
-        // 4. 删除目标版本之后的所有版本历史记录
+        // 记录当前版本号，用于日志
+        Long currentVersion = knowledge.getVersion();
+        
+        // 4. 删除目标版本之后的所有版本历史记录（包括当前版本）
+        // 关键修复：使用 gt（大于）而不是 gte（大于等于），因为我们要保留目标版本
         LambdaQueryWrapper<KnowledgeVersion> deleteWrapper = new LambdaQueryWrapper<>();
         deleteWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
         deleteWrapper.gt(KnowledgeVersion::getVersion, targetVersion);
         int deletedCount = knowledgeVersionMapper.delete(deleteWrapper);
-        log.info("删除后续版本: knowledgeId={}, targetVersion={}, 删除数量={}", 
-                knowledgeId, targetVersion, deletedCount);
+        log.info("版本回退：删除版本范围 v{} 到 v{}，共删除 {} 个版本", 
+                targetVersion + 1, currentVersion, deletedCount);
         
         // 5. 删除目标版本之后的审核记录
         try {
@@ -1905,12 +1909,24 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             log.warn("删除后续审核记录失败: {}", e.getMessage());
         }
         
-        // 6. 将目标版本标记为已发布
+        // 6. 在标记目标版本为已发布之前，先取消所有其他版本的发布标记
+        // 这样确保只有目标版本的 isPublished = true
+        LambdaQueryWrapper<KnowledgeVersion> unpublishWrapper = new LambdaQueryWrapper<>();
+        unpublishWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
+        unpublishWrapper.eq(KnowledgeVersion::getIsPublished, true);
+        List<KnowledgeVersion> publishedVersions = knowledgeVersionMapper.selectList(unpublishWrapper);
+        for (KnowledgeVersion v : publishedVersions) {
+            v.setIsPublished(false);
+            knowledgeVersionMapper.updateById(v);
+        }
+        log.info("已取消 {} 个版本的发布标记", publishedVersions.size());
+        
+        // 7. 将目标版本标记为已发布
         targetVersionEntity.setIsPublished(true);
         targetVersionEntity.setStatus(Constants.FILE_STATUS_APPROVED);
         knowledgeVersionMapper.updateById(targetVersionEntity);
         
-        // 7. 更新knowledge表内容为目标版本的内容
+        // 8. 更新knowledge表内容为目标版本的内容
         knowledge.setTitle(targetVersionEntity.getTitle());
         knowledge.setContent(targetVersionEntity.getContent());
         knowledge.setSummary(targetVersionEntity.getSummary());

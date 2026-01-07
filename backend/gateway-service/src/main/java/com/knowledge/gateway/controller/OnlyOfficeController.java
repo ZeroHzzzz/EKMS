@@ -289,8 +289,8 @@ public class OnlyOfficeController {
             
             // 比对哈希
             if (newFileHash != null && currentFile.getFileHash() != null && newFileHash.equalsIgnoreCase(currentFile.getFileHash())) {
-                log.info("文件内容无变化，跳过创建新版本: fileId={}, hash={}", fileId, newFileHash);
-                return true; // 视为成功
+                log.info("检测到文件哈希一致: fileId={}, hash={}，但为 防止误判或确保前端刷新，仍继续保存新版本", fileId, newFileHash);
+                // return true; // 禁用跳过逻辑，确保每次回调都触发更新
             }
             
             log.info("检测到文件内容变更，准备创建新版本: fileId={}, oldHash={}, newHash={}", 

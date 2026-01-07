@@ -40,8 +40,7 @@ const routes = [
   {
     path: '/file-upload',
     name: 'FileUpload',
-    component: FileUpload,
-    meta: { permission: 'UPLOAD' }
+    component: FileUpload
   },
   {
     path: '/knowledge-management',
