@@ -115,3 +115,41 @@ sudo docker compose up -d
 1. 检查 MySQL 容器：`sudo docker ps | grep mysql`
 2. 重新初始化：`./scripts/init.sh`
 
+---
+
+## 知识库搜索问题修复
+
+如果知识库搜索页面无法搜索到任何内容，通常是因为 Elasticsearch 索引为空或与数据库不同步。
+
+### 修复步骤
+
+#### 方法一：使用修复脚本（推荐）
+
+1. **重启后端服务**（确保应用代码是最新的）：
+   ```bash
+   ./scripts/start.sh
+   ```
+
+2. **重建索引**：
+   运行修复脚本将数据库中的知识同步到 Elasticsearch。
+   ```bash
+   ./scripts/rebuild_index.sh
+   ```
+   如果脚本执行成功，您将看到 "Rebuild successful" 提示。
+
+#### 方法二：手动调用接口
+
+如果您无法运行脚本，可以使用 Postman 或 curl 手动调用接口：
+
+1. **登录获取 Token**
+   - URL: `http://localhost:8080/api/auth/login`
+   - Method: `POST`
+   - Body: `{"username": "admin", "password": "password123"}`
+
+2. **触发重建索引**
+   - URL: `http://localhost:8080/api/knowledge/search/reindex`
+   - Method: `POST`
+   - Headers: `Authorization: 您的Token`
+
+### 验证修复
+脚本执行成功后，等待几秒钟，刷新知识库搜索页面，尝试搜索关键词。
