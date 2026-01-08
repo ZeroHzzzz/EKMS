@@ -64,14 +64,20 @@
               </div>
               <div class="file-action">
                 <el-tag v-if="uploadedFiles.includes(file.uid)" type="success" size="small" effect="light">
-                  <el-icon><Check /></el-icon> 已完成
+                  <el-icon v-if="instantUploadFiles.includes(file.uid)"><Lightning /></el-icon>
+                  <el-icon v-else><Check /></el-icon> 
+                  {{ instantUploadFiles.includes(file.uid) ? '秒传成功' : '已完成' }}
                 </el-tag>
-                <el-progress 
-                  v-else-if="uploadingIndex === index" 
-                  :percentage="uploadProgress" 
-                  :stroke-width="6"
-                  style="width: 80px"
-                />
+                <div v-else-if="uploadingIndex === index" class="uploading-status">
+                  <el-progress 
+                    :percentage="uploadProgress" 
+                    :stroke-width="6"
+                    style="width: 80px"
+                  />
+                  <span class="chunk-info" v-if="uploadChunkInfo[file.uid]">
+                    {{ uploadChunkInfo[file.uid].current }}/{{ uploadChunkInfo[file.uid].total }}
+                  </span>
+                </div>
                 <el-button v-else type="danger" text circle size="small" @click="removeFile(index)">
                   <el-icon><Close /></el-icon>
                 </el-button>
@@ -282,7 +288,7 @@ import api from '../api'
 import CryptoJS from 'crypto-js'
 import { 
   Upload, UploadFilled, Folder, FolderOpened, Close, EditPen, Check,
-  InfoFilled, CircleCheckFilled, Plus, FolderAdd
+  InfoFilled, CircleCheckFilled, Plus, FolderAdd, Lightning
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -293,6 +299,8 @@ const folderTreeRef = ref(null)
 // 文件列表
 const fileList = ref([])
 const uploadedFiles = ref([])
+const instantUploadFiles = ref([])
+const uploadChunkInfo = ref({})
 const uploadingIndex = ref(-1)
 const uploadProgress = ref(0)
 const uploading = ref(false)
@@ -563,6 +571,8 @@ const removeFile = (index) => {
 const clearAllFiles = () => {
   fileList.value = []
   uploadedFiles.value = []
+  instantUploadFiles.value = []
+  uploadChunkInfo.value = {}
 }
 
 const resetForm = () => {
@@ -602,13 +612,15 @@ const startUpload = async () => {
   uploading.value = true
   successCount.value = 0
   uploadedFiles.value = []
+  instantUploadFiles.value = []
+  uploadChunkInfo.value = {}
 
   for (let i = 0; i < fileList.value.length; i++) {
     if (uploadedFiles.value.includes(fileList.value[i].uid)) continue
     uploadingIndex.value = i
     uploadProgress.value = 0
     try {
-      await uploadFile(fileList.value[i].raw)
+      await uploadFile(fileList.value[i].raw, fileList.value[i].uid)
       uploadedFiles.value.push(fileList.value[i].uid)
       successCount.value++
     } catch (error) {
@@ -624,7 +636,7 @@ const startUpload = async () => {
   }
 }
 
-const uploadFile = async (file) => {
+const uploadFile = async (file, uid) => {
   const fileHash = await calculateFileHash(file)
   
   const initRes = await api.post('/file/init', {
@@ -646,11 +658,28 @@ const uploadFile = async (file) => {
   if (initRes.data.completed) {
     fileDTO = initRes.data.file
     uploadProgress.value = 100
+    ElMessage.success({
+      message: '检测到文件已存在，秒传成功！',
+      grouping: true
+    })
+    if (uid) {
+      instantUploadFiles.value.push(uid)
+    }
   } else {
     const uploadId = initRes.data.uploadId
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+    
+    if (uid) {
+      uploadChunkInfo.value[uid] = {
+        current: 0,
+        total: totalChunks
+      }
+    }
 
     for (let i = 0; i < totalChunks; i++) {
+      if (uid && uploadChunkInfo.value[uid]) {
+        uploadChunkInfo.value[uid].current = i + 1
+      }
       const start = i * CHUNK_SIZE
       const end = Math.min(start + CHUNK_SIZE, file.size)
       const chunk = file.slice(start, end)
@@ -957,7 +986,26 @@ const getFileTypeColor = (filename) => {
 }
 
 .file-action {
+  margin-left: 16px;
+  min-width: 100px;
+  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
   flex-shrink: 0;
+}
+
+.uploading-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.chunk-info {
+  font-size: 12px;
+  color: #909399;
+  transform: scale(0.9);
 }
 
 /* 表单区域 */

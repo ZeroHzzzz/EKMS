@@ -39,6 +39,10 @@ public class KnowledgeVersion implements Serializable {
     // 发布状态字段
     private Boolean isPublished;      // 是否为已发布版本
     private String status;            // 版本状态：DRAFT(草稿)、PENDING(待审核)、APPROVED(已发布)、REJECTED(已驳回)
+    private Long mergeFromVersion;    // 来源版本（如果是合并产生的版本，记录来源草稿版本），用于图形化历史
+    
+    // 冲突检测字段
+    private Long baseVersion;         // 基于哪个已发布版本创建（用于检测并发冲突）
 
     // Manual Getters and Setters
     public Long getId() { return id; }
@@ -100,4 +104,11 @@ public class KnowledgeVersion implements Serializable {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public Long getMergeFromVersion() { return mergeFromVersion; }
+    public void setMergeFromVersion(Long mergeFromVersion) { this.mergeFromVersion = mergeFromVersion; }
+
+    public Long getBaseVersion() { return baseVersion; }
+    public void setBaseVersion(Long baseVersion) { this.baseVersion = baseVersion; }
 }
+

@@ -33,6 +33,11 @@ public class KnowledgeVersionDTO implements Serializable {
     // 发布状态字段
     private Boolean isPublished;      // 是否为已发布版本
     private String status;            // 版本状态：DRAFT(草稿)、PENDING(待审核)、APPROVED(已发布)、REJECTED(已驳回)
+    private Long mergeFromVersion;    // 来源版本
+    
+    // 冲突检测字段
+    private Long baseVersion;         // 基于哪个已发布版本创建（用于检测并发冲突）
+
     
     /**
      * 差异结果

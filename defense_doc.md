@@ -20,7 +20,7 @@
     *   **Alibaba Nacos 2.2**: 担任"服务注册中心"与"动态配置中心"，实现服务自动发现与配置热更新。
     *   **核心微服务**: `user-service`, `knowledge-service`, `file-service`, `search-service`, `audit-service`.
 4.  **基础设施层 (Infrastructure Layer)**:
-    *   **数据存储**: MySQL 8.0 (业务数据), MinIO/Local (非结构化文件).
+    *   **数据存储**: MySQL 8.0 (业务数据), Local File System (非结构化文件，支持扩展 MinIO).
     *   **检索引擎**: ElasticSearch 7.17 (倒排索引 + 向量/语义支持).
     *   **缓存中间件**: Redis (热点数据、分布式锁、文件上传进度).
     *   **运维监控**: Prometheus (指标) + Grafana (大盘) + Loki (日志).
@@ -32,12 +32,13 @@
 | **RPC 框架** | Apache Dubbo | 3.2.0 | 高性能二进制传输，优于 HTTP/REST |
 | **服务治理** | Alibaba Nacos | 2.2.3 | CAP理论中的 AP 模型，适合高可用场景 |
 | **搜索引擎** | ElasticSearch | 7.17.9 | 强大的全文检索与中文分词支持 |
+| **工作流引擎** | Flowable | 6.8.0 | 支持 BPMN 2.0 标准的流程编排引擎 |
 | **拼音工具** | Pinyin4j | 2.5.1 | 将中文转换为拼音，支持多音字处理 |
 | **持久层** | MyBatis Plus | 3.5.3.1 | 简化 SQL 编写，内置分页与性能分析 |
 | **前端框架** | Vue 3 (Setup) | 3.3.4 | 组合式 API (Composition API) 逻辑复用性强 |
 | **构建工具** | Vite | 5.0.8 | 基于 ESBuild 的极速冷启动 |
 | **文件预览** | kkFileView | 4.x | 支持 Office/PDF/CAD 等 50+ 种格式预览 |
-| **在线协同** | OnlyOffice | 7.x | 支持 Word/Excel/PPT 多人实时协同编辑 |
+| **在线编辑** | OnlyOffice | 7.x | 支持 Word/Excel/PPT 在线编辑与预览 |
 
 ---
 
@@ -174,7 +175,7 @@
 *   **图片预览**: 使用 `el-image-viewer` 组件，支持放大、缩小、旋转、切换。
 *   **视频播放**: 使用 HTML5 `<video>` 标签，支持播放控制、全屏播放。
 
-#### 3.3.4 在线协同编辑 (Online Collaborative Editing)
+#### 3.3.4 在线集成编辑 (Online Integrated Editing)
 **功能描述**：集成 OnlyOffice 实现 Word/Excel/PPT 的在线编辑与自动保存。
 *   **核心原理**:
     *   **编辑器配置**: `OnlyOfficeController.getEditorConfig` 生成编辑器配置对象，包含：
@@ -191,7 +192,6 @@
         *   下载文档到临时文件，计算新文件的哈希值，与旧文件比对。
         *   如果内容有变化，保存为新文件，调用 `knowledgeService.createVersionFromFileEdit` 自动生成新版本。
         *   更新知识关联的文件ID，在审计日志中标记为 "在线编辑更新"。
-    *   **多人协同**: OnlyOffice 原生支持多人实时协同编辑，多个用户可同时编辑同一文档，实时同步。
 
 ### 3.4 智能混合搜索引擎 (Hybrid Search Engine)
 **功能描述**：支持拼音、首字母、全文、语义四种模式的混合检索。
@@ -234,9 +234,10 @@
     *   **APPROVED（已通过）**: 审核通过，知识已发布，用户可见。
     *   **REJECTED（已驳回）**: 审核被驳回，需要修改后重新提交。
 *   **审核流程**:
+    *   **技术实现**: 引入 **Flowable** 工作流引擎，定义标准 BPMN 流程图。每个审核申请启动一个流程实例 (`ProcessInstance`)。
     *   **提交审核**: 
         *   知识管理员（EDITOR）编辑知识后，点击"提交审核"按钮。
-        *   调用 `/knowledge/{id}/submit-audit` 接口，创建审核记录。
+        *   调用 `/knowledge/{id}/submit-audit` 接口，启动 Flowable 流程实例。
         *   审核记录包含：知识ID、版本号、提交人、提交时间、状态（PENDING）。
         *   知识状态更新为 PENDING，`has_draft` 字段标记为 true。
     *   **审核通过**:
@@ -320,47 +321,6 @@
 *   **收藏量排行**: 按收藏量降序排列，展示最受关注的知识。
 *   **支持筛选**: 按部门、分类、时间范围筛选排行榜。
 
-### 3.2 智能混合搜索引擎 (Hybrid Search Engine)
-**功能描述**：支持拼音、首字母、全文、语义四种模式的混合检索。
-*   **核心原理**:
-    *   **预处理 (EtL)**: 文档入库时，利用 `PinyinUtil` (Pinyin4j) 提取标题的"全拼" (`titlePinyin`) 和"首字母" (`titleInitial`) 存入 ES 索引。
-    *   **查询 (Query)**: 使用 `BoolQuery` 组合多字段权重查询。拼音搜索时：标题拼音(Boost 3.0) > 文件名拼音(Boost 2.5) > 关键词(Boost 2.0) > 内容拼音(Boost 1.0)；首字母搜索时：标题首字母(Boost 3.0) > 文件名首字母(Boost 2.5) > 内容首字母(Boost 1.0)；全文搜索时：标题(Boost 3.0) > 文件名(Boost 2.5) > 关键词(Boost 2.0) > 内容(Boost 1.0)。
-    *   **语义推荐**: 详情页侧边栏调用 `semanticSearch`，利用 ES `MoreLikeThis` 算法分析文档 Term Vector，推荐相似文档。
-
-### 3.3 可靠文件传输系统 (File Transport System)
-**功能描述**：支持大文件分片上传、断点续传和秒传。
-*   **核心原理**:
-    *   **秒传**: 上传前计算文件 Hash 发送后端。后端查 `file_info` 表，若 Hash 存在则直接关联，实现 0 秒上传。
-    *   **分片 (Chunking)**: 前端将文件切为 5MB 块并发上传。Redis 记录 `Set<Integer> uploadedChunks`，利用 Set 特性自动去重。
-    *   **分片合并**: 所有分片到位后，后端按顺序读取各分片文件并写入最终文件。使用 `Files.readAllBytes()` 读取分片，通过 `FileOutputStream.write()` 顺序写入，确保文件完整性。合并后验证文件哈希，确保数据一致性。
-
-### 3.4 在线协同编辑 (Online Collaborative Editing)
-**功能描述**：集成 OnlyOffice 实现 Word/Excel/PPT 的在线编辑与自动保存。
-*   **核心原理**:
-    *   **Token 鉴权**: `OnlyOfficeController.getEditorConfig` 生成带签名的 Config 对象，包含 `callbackUrl`。
-    *   **回调机制**: 文档编辑时，OnlyOffice Document Server 自动调用后端 `/api/onlyoffice/callback` 接口。
-    *   **强制保存**: 收到状态码 `6` (Force Save) 或 `2` (Ready for Saving) 时，后端通过 URL 下载流获取最新文档，并调用 `knowledgeService.createVersionFromFileEdit` 自动生成新版本。
-
-### 3.5 RBAC 权限控制 (Role-Based Access Control)
-**功能描述**：基于角色的精细化权限管理（按钮级控制）。
-*   **核心原理**:
-    *   **数据模型**: User -> Role (Enum: ADMIN, EDITOR, USER)。
-    *   **前端控制**: `permission.js` 封装指令 `v-permission`。渲染时检查 `userInfo.role`，若不匹配则移除 DOM。
-    *   **后端控制**: 关键接口 (如 `updateKnowledge`) 通过 Service 层 `checkPermission` 方法校验当前用户 ID 是否为文档 `createBy` 或拥有 `ADMIN` 角色。
-
-### 3.6 数据统计分析 (Data Analytics)
-**功能描述**：可视化展示知识库运行状态。
-*   **核心原理**:
-    *   **聚合查询**: `KnowledgeMapper` 使用 SQL 聚合函数。
-        *   趋势图: `SELECT DATE(create_time), SUM(click_count) ... GROUP BY DATE`。
-        *   热榜: `ORDER BY click_count DESC LIMIT 10`。
-    *   **可视化**: 前端使用 **ECharts** 接收 JSON 数据渲染 Line/Bar/Pie 图表。
-
-### 3.7 交互式组织架构 (Interactive Organization)
-**功能描述**：拖拽式调整部门与人员。
-*   **核心原理**:
-    *   利用 HTML5 Drag API。左侧部门树作为 `drop-zone`，右侧用户卡片 `draggable`。
-    *   拖放结束时获取 `dataTransfer` 中的 `userId`，异步调用后端更新部门 ID。
 
 ---
 
@@ -561,14 +521,14 @@ Hash = SHA256(
 2. **存储效率**: 秒传机制避免重复存储，节省 99% 的存储空间（对于重复文件）。
 3. **用户体验**: 秒传和断点续传大幅提升用户体验，减少等待时间。
 
-### 4.4 深度集成的文档协同生态
+### 4.4 深度集成的文档编辑生态
 > **解决痛点**: 知识库不仅是存文件的，更是生产知识的。传统系统需要 "下载->编辑->上传"，割裂了工作流。
 
 #### 4.4.1 创新背景
 传统知识库系统的工作流问题：
 1. **工作流割裂**: 用户需要下载文件 → 本地编辑 → 重新上传，流程繁琐。
 2. **版本管理缺失**: 在线编辑后无法自动生成版本记录，版本追溯困难。
-3. **协同能力弱**: 无法支持多人实时协同编辑。
+3. **版本控制混乱**: 多人离线编辑后难以合并，容易覆盖彼此的工作。
 
 #### 4.4.2 技术实现深度解析
 
@@ -609,17 +569,6 @@ Hash = SHA256(
         *   在审计日志中标记为 "在线编辑更新"。
     5.  如果内容无变化，跳过保存（避免重复版本）。
 
-**多人实时协同编辑**:
-*   OnlyOffice 原生支持多人实时协同编辑。
-*   **协同机制**:
-    *   多个用户同时打开同一文档时，OnlyOffice Document Server 建立 WebSocket 连接。
-    *   用户的编辑操作（输入、删除、格式化等）实时同步到其他用户。
-    *   每个用户用不同颜色的光标标识，避免冲突。
-    *   支持评论、批注等协同功能。
-*   **冲突处理**:
-    *   OnlyOffice 使用操作转换（OT）算法处理并发编辑冲突。
-    *   确保所有用户看到一致的文档状态。
-
 **所见即所得 (WYSIWYG) 管理**:
 *   **组织架构拖拽管理**:
     *   在组织架构管理页面，创新性地使用 HTML5 Drag & Drop API。
@@ -635,7 +584,7 @@ Hash = SHA256(
 
 #### 4.4.3 创新价值
 1. **工作流闭环**: 在线编辑 → 自动保存 → 自动版本生成，形成完整的工作流闭环。
-2. **协同能力**: 支持多人实时协同编辑，提升团队协作效率。
+2. **严谨的变更控制**: 结合线性版本与草稿审核，确保知识发布的权威性。
 3. **用户体验**: 所见即所得的拖拽管理，降低系统学习成本，提升操作效率。
 
 ### 4.5 知识树结构创新
@@ -688,7 +637,7 @@ Hash = SHA256(
 ## 5. 项目难点攻克 (Challenges Solved)
 
 *   **Q: 如何处理多人同时编辑同一文档？**
-    *   **A**: 采用了乐观锁 (`version` 字段) 配合 **3-way Merge** 算法。系统检测版本冲突后，自动合并非冲突区域的修改，最大限度保留各方贡献。
+    *   **A**: 系统采用**线性版本控制**机制。用户的编辑操作基于最新发布版本生成独立的**草稿版本 (Draft)**。所有草稿必须经由 **Flowable 审核工作流** 批准后，才能合并为主分支的正式版本，通过强制的顺序审核流避免并发冲突。
 *   **Q: 在线编辑如何防止数据丢失？**
     *   **A**: 实现 OnlyOffice 的 `ForceSave` 策略。在用户关闭浏览器窗口前或每隔 N 分钟，前端发送指令触发 OnlyOffice 强制回调后端保存接口。
 *   **Q: 搜索结果如何保证实时性？**

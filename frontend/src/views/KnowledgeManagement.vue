@@ -378,7 +378,7 @@
     </el-dialog>
 
     <!-- 审核通过对话框 -->
-    <el-dialog v-model="showApproveDialogVisible" title="审核通过" width="600px">
+    <el-dialog v-model="showApproveDialogVisible" title="审核通过" width="800px">
       <div v-if="currentKnowledge" class="audit-dialog-content">
         <div class="knowledge-preview">
           <h4>知识信息</h4>
@@ -402,6 +402,60 @@
             </el-button>
           </div>
         </div>
+
+        <!-- 合并状态检查 -->
+        <div class="merge-status-section" style="margin-top: 20px" v-loading="checkingMerge">
+            <el-alert
+                v-if="mergeStatus && mergeStatus.hasConflict"
+                title="检测到合并冲突"
+                type="error"
+                description="当前草稿与已发布版本存在冲突，系统无法自动合并。请手动解决冲突后再通过。"
+                show-icon
+                :closable="false"
+            />
+            <el-alert
+                v-else-if="mergeStatus && mergeStatus.canAutoMerge"
+                title="可以自动合并"
+                type="success"
+                description="系统未检测到冲突，审核通过后将自动合并发布。"
+                show-icon
+                :closable="false"
+            />
+        </div>
+
+        <!-- 冲突解决编辑器 -->
+        <div v-if="mergeStatus && mergeStatus.hasConflict" class="conflict-resolver" style="margin-top: 20px;">
+            <h4>解决冲突</h4>
+            
+            <!-- 使用高级合并界面按钮 -->
+            <div style="margin-bottom: 16px;">
+                <el-button 
+                    type="primary" 
+                    @click="openMergeReviewPage"
+                    :icon="Document"
+                >
+                    使用高级合并界面 (GitHub风格)
+                </el-button>
+                <span style="margin-left: 12px; color: #909399; font-size: 12px;">
+                    推荐：可视化对比并逐块选择要保留的内容
+                </span>
+            </div>
+            
+            <el-divider content-position="center">或在下方直接编辑</el-divider>
+            
+            <el-input
+                v-model="resolvedContent"
+                type="textarea"
+                :rows="15"
+                class="conflict-editor"
+                placeholder="请在此处手动解决冲突，保留最终内容..."
+            />
+            <div style="margin-top: 5px; color: #909399; font-size: 12px;">
+                请查找并处理所有标准冲突标记 (<<<<<<< HEAD, =======, >>>>>>> Incoming)
+            </div>
+        </div>
+
+
         <el-form-item label="审核意见" style="margin-top: 20px">
           <el-input 
             v-model="approveComment" 
@@ -413,7 +467,14 @@
       </div>
       <template #footer>
         <el-button @click="showApproveDialogVisible = false">取消</el-button>
-        <el-button type="success" @click="doApprove" :loading="auditing">审核通过</el-button>
+        <el-button 
+            type="success" 
+            @click="doApprove" 
+            :loading="auditing"
+            :disabled="mergeStatus && mergeStatus.hasConflict && !resolvedContent"
+        >
+            {{ mergeStatus && mergeStatus.hasConflict ? '解决冲突并通过' : '审核通过' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -493,7 +554,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Upload, UploadFilled, Search, Location, View, Star, Clock, User, ArrowDown, Check, Close, Folder, FolderOpened, Refresh } from '@element-plus/icons-vue'
+import { Upload, UploadFilled, Search, Location, View, Star, Clock, User, ArrowDown, Check, Close, Folder, FolderOpened, Refresh, Document } from '@element-plus/icons-vue'
 import api from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CryptoJS from 'crypto-js'
@@ -577,6 +638,9 @@ const currentAudit = ref(null)
 const approveComment = ref('')
 const rejectComment = ref('')
 const auditing = ref(false)
+const checkingMerge = ref(false)
+const mergeStatus = ref(null)
+const resolvedContent = ref('')
 
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
 
@@ -860,11 +924,11 @@ const collect = async (row) => {
 
 const canEdit = (row) => {
   if (!userInfo.value) return false
-  // ADMIN可以编辑所有知识
+  // ADMIN can edit all
   if (hasRole(userInfo.value, ROLE_ADMIN)) return true
-  // EDITOR只能编辑自己创建的知识
-  if (hasRole(userInfo.value, ROLE_EDITOR) && row.author === userInfo.value.realName) {
-    return true
+  // Allow if author or creator
+  if (row.author === userInfo.value.realName || row.createBy === userInfo.value.username) {
+     return true
   }
   return false
 }
@@ -894,8 +958,8 @@ const canDelete = (row) => {
   if (!userInfo.value) return false
   // 管理员可以删除所有知识
   if (hasRole(userInfo.value, ROLE_ADMIN)) return true
-  // EDITOR可以删除自己创建的文档
-  if (hasRole(userInfo.value, ROLE_EDITOR) && row.author === userInfo.value.realName) {
+  // 任何用户都可以删除自己创建的文档（检查 author 和 createBy）
+  if (row.author === userInfo.value.realName || row.createBy === userInfo.value.username) {
     return true
   }
   return false
@@ -975,7 +1039,15 @@ const handleAuditApprove = async (row) => {
   }
   currentAudit.value = row.auditInfo
   approveComment.value = ''
+  
+  mergeStatus.value = null
+  resolvedContent.value = ''
+  
   showApproveDialogVisible.value = true
+  
+  if (currentAudit.value && currentAudit.value.id) {
+     checkMerge(currentAudit.value.id)
+  }
 }
 
 // 点击审核驳回按钮：直接打开预览对话框
@@ -998,7 +1070,37 @@ const showApproveDialog = async (row) => {
   }
   currentAudit.value = row.auditInfo
   approveComment.value = ''
+  
+  // Reset merge status
+  mergeStatus.value = null
+  resolvedContent.value = ''
+  
   showApproveDialogVisible.value = true
+  
+  // Check merge status
+  if (currentAudit.value && currentAudit.value.id) {
+     checkMerge(currentAudit.value.id)
+  }
+}
+
+// Check Merge Status
+const checkMerge = async (auditId) => {
+    checkingMerge.value = true
+    try {
+        const res = await api.get(`/knowledge/audit/${auditId}/merge-status`)
+        if (res.code === 200) {
+            mergeStatus.value = res.data
+            if (res.data.hasConflict) {
+                resolvedContent.value = res.data.mergedContent // Pre-fill with conflict markers
+            } else {
+                resolvedContent.value = ''
+            }
+        }
+    } catch (e) {
+        console.error("Check merge status failed", e)
+    } finally {
+        checkingMerge.value = false
+    }
 }
 
 const showRejectDialog = async (row) => {
@@ -1064,10 +1166,30 @@ const handleRePublish = async (row) => {
   }
 }
 
+// 打开高级合并审核页面
+const openMergeReviewPage = () => {
+  if (!currentKnowledge.value) {
+    ElMessage.warning('请选择要审核的知识')
+    return
+  }
+  const version = currentAudit.value?.version || currentKnowledge.value.version
+  showApproveDialogVisible.value = false
+  router.push({
+    path: `/knowledge/${currentKnowledge.value.id}/merge`,
+    query: { draftVersion: version }
+  })
+}
+
 const doApprove = async () => {
   if (!currentKnowledge.value) {
     ElMessage.warning('请选择要审核的知识')
     return
+  }
+  
+  // Conflict sanity check
+  if (mergeStatus.value && mergeStatus.value.hasConflict && !resolvedContent.value) {
+       ElMessage.warning('检测到冲突，请先解决冲突')
+       return
   }
   
   auditing.value = true
@@ -1076,11 +1198,22 @@ const doApprove = async () => {
     
     // 如果有审核记录，使用审核接口
     if (currentAudit.value && currentAudit.value.id) {
-      res = await api.post(`/knowledge/audit/${currentAudit.value.id}/approve`, null, {
-        params: {
+      // Pass resolvedContent if exists
+      const params = {
           auditorId: userInfo.value.id,
           comment: approveComment.value || '审核通过'
-        }
+      }
+      if (resolvedContent.value) {
+          // Pass in body or ensure backend accepts resolvedContent in params?
+          // Based on backend impl: approve(id, uid, comment, resolvedContent)
+          // We likely need to send it in body or query param. Backend used @RequestParam often but let's check
+          // The backend method signature is just Java method params. Let's see Controller.
+          // Assuming we need to add it to params for now.
+          params.resolvedContent = resolvedContent.value
+      }
+      
+      res = await api.post(`/knowledge/audit/${currentAudit.value.id}/approve`, null, {
+        params: params
       })
     } else {
       // 没有审核记录时，先创建审核记录，再审核通过

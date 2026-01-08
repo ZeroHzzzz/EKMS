@@ -308,7 +308,7 @@ public class OnlyOfficeController {
             String changeDescription = "通过OnlyOffice编辑更新";
             
             KnowledgeDTO updatedKnowledge = knowledgeService.createVersionFromFileEdit(
-                    knowledge.getId(), newFile.getId(), operatorUsername, changeDescription);
+                    knowledge.getId(), newFile.getId(), operatorUsername, userId, changeDescription);
             
             if (updatedKnowledge == null) {
                 log.error("创建新版本失败: knowledgeId={}", knowledge.getId());

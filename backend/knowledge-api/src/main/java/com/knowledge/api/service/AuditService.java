@@ -13,7 +13,19 @@ public interface AuditService {
      */
     AuditDTO submitForAudit(Long knowledgeId, Long version, Long userId);
     
+    /**
+     * Check merge status for an audit record
+     */
+    com.knowledge.api.dto.MergeStatusDTO checkMergeStatus(Long auditId);
+
+    
     AuditDTO approve(Long auditId, Long auditorId, String comment);
+    
+    /**
+     * Approve with resolved content (for merge conflicts)
+     */
+    AuditDTO approve(Long auditId, Long auditorId, String comment, String resolvedContent);
+
     AuditDTO reject(Long auditId, Long auditorId, String comment);
     List<AuditDTO> getPendingAudits();
     List<AuditDTO> getAllAudits(); // 获取所有审核记录

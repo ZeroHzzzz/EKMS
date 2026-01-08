@@ -83,8 +83,7 @@ const routes = [
   {
     path: '/office-edit/:fileId',
     name: 'OnlyOfficeEdit',
-    component: OnlyOfficeEdit,
-    meta: { permission: 'EDIT' }
+    component: OnlyOfficeEdit
   },
   {
     path: '/knowledge/:id/diff',
@@ -95,8 +94,15 @@ const routes = [
     path: '/leaderboard',
     name: 'Leaderboard',
     component: Leaderboard
+  },
+  {
+    path: '/knowledge/:id/merge',
+    name: 'MergeReview',
+    component: () => import('../views/MergeReview.vue'),
+    meta: { permission: 'EDIT' }
   }
 ]
+
 
 const router = createRouter({
   history: createWebHistory(),

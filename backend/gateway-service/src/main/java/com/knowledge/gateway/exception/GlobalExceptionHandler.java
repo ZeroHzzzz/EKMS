@@ -145,6 +145,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handle client disconnection (e.g. video stream interrupted)
+     */
+    @ExceptionHandler(org.apache.catalina.connector.ClientAbortException.class)
+    public void handleClientAbortException(org.apache.catalina.connector.ClientAbortException e) {
+        // Do nothing or just log simple message
+        log.warn("客户端断开连接: {}", e.getMessage());
+    }
+
+    /**
      * 处理其他异常
      */
     @ExceptionHandler(Exception.class)

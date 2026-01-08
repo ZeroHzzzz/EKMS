@@ -146,13 +146,13 @@
 
                 <!-- 视频 -->
                 <div v-else-if="isVideoFile(fileInfo.fileType)" class="video-preview-box">
-                  <!-- 使用 kkFileView 预览视频 (iframe) -->
-                  <iframe 
-                    :src="kkFileViewUrl" 
+                  <video 
+                    :src="previewUrl" 
                     :key="'video-' + previewKey"
                     class="preview-frame"
-                    allowfullscreen
-                  ></iframe>
+                    controls
+                    style="background: #000; object-fit: contain;"
+                  ></video>
                 </div>
 
                  <!-- 音频 -->
@@ -456,7 +456,12 @@
 
              <el-tab-pane label="历史" name="history">
                <div class="history-panel">
-                 <!-- Git风格的commit列表 -->
+                 <!-- 简化的线性版本列表 -->
+                 <div class="version-list-header" style="margin-bottom: 12px; color: #909399; font-size: 12px;">
+                   共 {{ versions.length }} 个版本
+                 </div>
+                 
+                 <!-- 版本列表 -->
                  <div class="git-log">
                     <div 
                       v-for="(version, index) in versions" 
@@ -480,11 +485,12 @@
                           <span class="commit-hash" :title="version.commitHash">
                             {{ version.commitHash ? version.commitHash.substring(0, 8) : '无hash' }}
                           </span>
-                          <el-tag v-if="version.isPublished" size="small" type="success" effect="dark">当前版本</el-tag>
+                          <!-- 状态标签：优先级 当前发布 > 待审核 > 已驳回 > 历史版本 -->
+                          <el-tag v-if="version.isPublished && version.version === knowledge.publishedVersion" size="small" type="success" effect="dark">当前发布</el-tag>
                           <el-tag v-else-if="version.status === 'PENDING'" size="small" type="warning" effect="dark">待审核</el-tag>
                           <el-tag v-else-if="version.status === 'REJECTED'" size="small" type="danger" effect="plain">已驳回</el-tag>
-                          <el-tag v-else size="small" type="info" effect="plain">未发布</el-tag>
-                          <el-tag v-if="version.branch" size="small" effect="plain">{{ version.branch }}</el-tag>
+                          <el-tag v-else-if="version.status === 'APPROVED'" size="small" type="info" effect="plain">历史版本</el-tag>
+                          <el-tag v-else size="small" type="info" effect="plain">草稿</el-tag>
                         </div>
                           <span class="commit-time">{{ formatTimeFriendly(version.createTime) }}</span>
                         </div>
@@ -712,6 +718,7 @@ import { hasRole, isAdmin, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
 import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download, Upload } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { watermark } from '../utils/watermark'
+
 
 const route = useRoute()
 const router = useRouter()
@@ -1051,32 +1058,57 @@ const loadDetail = async () => {
       } catch (e) { 
         console.warn('加载已发布版本失败', e) 
       }
+    }
       
-      // 判断默认显示哪个版本：
-      if (!previewVersion) {
-        // 如果有编辑权限，默认加载最新非发布版本（草稿）
-        if (canEdit(knowledge.value)) {
-            isViewingDraft.value = true
-            // 主动加载最新Draft版本的详细内容
-            const draftVersion = knowledge.value.version
-            if (draftVersion) {
-                 try {
-                    const draftRes = await api.get(`/knowledge/${route.params.id}/versions/${draftVersion}`)
-                    if (draftRes.code === 200 && draftRes.data) {
-                        previewVersionContent.value = draftRes.data
-                        currentVersionContent.value = draftRes.data // 设置为当前显示内容
-                        currentViewingVersion.value = draftVersion
-                    }
-                 } catch (e) {}
-            }
-        }
-      }
-    } else {
-      publishedVersionContent.value = null
-      if (!previewVersion) {
+    // 关键修正：确保获取最新的版本列表，以便知道真正的草稿版本号
+    await loadVersions()
+
+    // 判断默认显示哪个版本：
+    if (!previewVersion) {
+      // 检查是否真的有待审核草稿（不只是有编辑权限）
+      const hasActualDraft = knowledge.value.hasDraft === true || 
+                             knowledge.value.status === 'PENDING' ||
+                             (versions.value && versions.value.some(v => 
+                               v.status === 'PENDING' || v.status === 'DRAFT'))
+      
+      if (canEdit(knowledge.value) && hasActualDraft) {
+          // 有编辑权限且确实有草稿，加载最新非发布版本
+          isViewingDraft.value = true
+          
+          // 从版本列表中查找最新的待审核版本
+          let draftVersion = knowledge.value.version
+          if (versions.value && versions.value.length > 0) {
+              // 找到最新的 PENDING 或非已发布版本
+              const pendingVersions = versions.value.filter(v => 
+                v.status === 'PENDING' || v.status === 'DRAFT' || !v.isPublished)
+              if (pendingVersions.length > 0) {
+                draftVersion = pendingVersions[0].version
+                console.log('DEBUG: 找到待审核版本:', draftVersion)
+              }
+          }
+          
+          // 主动加载草稿版本的详细内容
+          if (draftVersion) {
+               try {
+                  const draftRes = await api.get(`/knowledge/${route.params.id}/versions/${draftVersion}`)
+                  if (draftRes.code === 200 && draftRes.data) {
+                      previewVersionContent.value = draftRes.data
+                      currentVersionContent.value = draftRes.data
+                      currentViewingVersion.value = draftVersion
+                      console.log('DEBUG: 已加载草稿预览, fileId:', draftRes.data.fileId)
+                  }
+               } catch (e) {
+                   console.warn('加载草稿详情失败', e)
+               }
+          }
+      } else {
+        // 没有草稿或无权限编辑，显示已发布/默认内容
         isViewingDraft.value = false
+        currentVersionContent.value = null
+        currentViewingVersion.value = knowledge.value.publishedVersion || knowledge.value.version
       }
     }
+
     
     // 加载文件信息（根据当前显示版本的fileId）
     await loadFileInfo()
@@ -1508,7 +1540,11 @@ const formatFileSize = (s) => {
     const i = Math.floor(Math.log(s) / Math.log(1024))
     return (s / Math.pow(1024, i)).toFixed(2) + ' ' + ['B','KB','MB','GB'][i]
 }
-const canEdit = (k) => hasRole(userStore.userInfo, ROLE_ADMIN) || (hasRole(userStore.userInfo, ROLE_EDITOR) && k.author === userStore.userInfo.realName)
+const canEdit = (k) => {
+    if (!userStore.userInfo) return false
+    // 允许任何登录用户编辑（将创建待审核草稿）
+    return true
+}
 const canDeleteComment = (c) => hasRole(userStore.userInfo, ROLE_ADMIN) || c.userId === userStore.userInfo.id
 const enterEditMode = () => router.push({ query: { ...route.query, edit: 'true' } })
 const cancelEdit = async () => {
@@ -1828,9 +1864,10 @@ const handleVisibilityChange = async () => {
   if (!document.hidden) {
     console.log('页面重新获得焦点，开始轮询检查内容更新...')
     
-    // 记录当前状态
-    const currentFileIdStr = String(knowledge.value.fileId)
-    const currentUpdateTime = knowledge.value.updateTime
+    // 记录当前状态 (优先使用当前显示的版本内容的ID和时间，因为它可能是草稿版本)
+    const currentFileIdStr = displayContent.value ? String(displayContent.value.fileId) : String(knowledge.value.fileId)
+    // 如果是草稿，关注版本的 updateTime；否则关注主知识的 updateTime
+    const currentUpdateTime = displayContent.value ? displayContent.value.createTime : knowledge.value.updateTime // Version entity usually has createTime as 'update time' for that immutable version record? Or updateTime. Let's start with tracking change.
     
     // 定义检查函数
     const checkUpdate = async () => {
@@ -1839,11 +1876,12 @@ const handleVisibilityChange = async () => {
         await loadDetail()
         
         // 检查是否有变化
-        const newFileIdStr = String(knowledge.value.fileId)
-        const newUpdateTime = knowledge.value.updateTime
+        // 重新获取 displayContent (loadDetail 会更新它)
+        const newFileIdStr = displayContent.value ? String(displayContent.value.fileId) : String(knowledge.value.fileId)
         
-        if (newFileIdStr !== currentFileIdStr || newUpdateTime !== currentUpdateTime) {
-          console.log('检测到内容更新！停止轮询')
+        // 比较逻辑：如果 fileId 变了，或者 (如果是草稿) 重新获取的版本信息有更新
+        if (newFileIdStr !== currentFileIdStr) {
+          console.log('检测到内容更新！FileID Changed. 停止轮询')
           return true // 有变化
         }
       } catch (e) {
@@ -2030,6 +2068,7 @@ onUnmounted(() => {
   justify-content: center;
   align-items: center;
   overflow: hidden;
+  position: relative; /* Add positioning context */
 }
 .preview-frame {
   width: 100%;
@@ -2043,6 +2082,13 @@ onUnmounted(() => {
     object-fit: contain; 
 }
 .office-preview-box {
+    width: 100%;
+    height: 100%;
+}
+.video-preview-box {
+    position: absolute; /* Force fill */
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
 }
@@ -2593,6 +2639,30 @@ onUnmounted(() => {
 .git-log {
   display: flex;
   flex-direction: column;
+  max-height: 450px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  padding-bottom: 16px;
+}
+
+/* 自定义滚动条样式 */
+.git-log::-webkit-scrollbar {
+  width: 6px;
+}
+
+.git-log::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.git-log::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+.git-log::-webkit-scrollbar-thumb:hover {
+  background: #909399;
 }
 
 .commit-item {

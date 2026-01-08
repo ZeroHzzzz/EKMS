@@ -82,11 +82,12 @@ public interface KnowledgeService {
      * 从文件编辑创建新版本（用于OnlyOffice编辑后保存）
      * @param knowledgeId 知识ID
      * @param newFileId 新文件ID
-     * @param operatorUsername 操作人用户名
+     * @param operatorUsername 操作用户ID
+     * @param operatorId 操作用户ID (可选)
      * @param changeDescription 变更说明
      * @return 更新后的知识DTO
      */
-    KnowledgeDTO createVersionFromFileEdit(Long knowledgeId, Long newFileId, String operatorUsername, String changeDescription);
+    KnowledgeDTO createVersionFromFileEdit(Long knowledgeId, Long newFileId, String operatorUsername, Long operatorId, String changeDescription);
     
     /**
      * 驳回指定版本（将版本状态更新为已驳回）
@@ -96,6 +97,23 @@ public interface KnowledgeService {
      */
     boolean rejectVersion(Long knowledgeId, Long version);
     
+    /**
+     * 检查版本合并状态
+     * @param knowledgeId 知识ID
+     * @param draftVersion 草稿版本号
+     * @return 合并状态DTO
+     */
+    com.knowledge.api.dto.MergeStatusDTO checkMergeStatus(Long knowledgeId, Long draftVersion);
+
+    /**
+     * 合并并发布草稿（支持传入解决冲突后的内容）
+     * @param knowledgeId 知识ID
+     * @param draftVersion 草稿版本号
+     * @param resolvedContent 解决冲突后的内容（如果为null，尝试自动合并）
+     * @return 发布后的 KnowledgeDTO
+     */
+    KnowledgeDTO mergeAndPublish(Long knowledgeId, Long draftVersion, String resolvedContent);
+
     /**
      * 更新知识的整体状态（不创建新版本，仅更新状态标记）
      * @param knowledgeId 知识ID
@@ -112,5 +130,23 @@ public interface KnowledgeService {
      * @param commitMessage 提交信息
      */
     void updateVersionCommitMessage(Long knowledgeId, Long version, String commitMessage);
+    
+    /**
+     * 获取合并预览（GitHub风格的块级差异）
+     * @param knowledgeId 知识ID
+     * @param baseVersion 基础版本号
+     * @param currentVersion 当前发布版本号
+     * @param draftVersion 草稿版本号
+     * @return 合并预览DTO，包含块级差异信息
+     */
+    com.knowledge.api.dto.MergePreviewDTO getMergePreview(Long knowledgeId, Long baseVersion, Long currentVersion, Long draftVersion);
+    
+    /**
+     * 解决合并冲突并发布
+     * @param request 合并解决请求
+     * @return 发布后的知识DTO
+     */
+    KnowledgeDTO resolveMerge(com.knowledge.api.dto.MergeResolveRequest request);
 }
+
 

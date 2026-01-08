@@ -141,14 +141,18 @@ CREATE TABLE IF NOT EXISTS `knowledge_version` (
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `is_published` TINYINT(1) DEFAULT 0 COMMENT '是否为已发布版本',
     `status` VARCHAR(20) DEFAULT 'DRAFT' COMMENT '版本状态：DRAFT(草稿)、PENDING(待审核)、APPROVED(已发布)、REJECTED(已驳回)',
+    `merge_from_version` BIGINT COMMENT '来源版本（如果是合并产生的版本，记录来源草稿版本）',
+    `base_version` BIGINT COMMENT '基于哪个已发布版本创建（用于检测并发冲突）',
     INDEX `idx_knowledge_id` (`knowledge_id`),
     INDEX `idx_version` (`knowledge_id`, `version`),
     INDEX `idx_create_time` (`create_time`),
     INDEX `idx_commit_hash` (`commit_hash`),
     INDEX `idx_branch` (`knowledge_id`, `branch`),
     INDEX `idx_parent_commit` (`parent_commit_id`),
-    INDEX `idx_is_published` (`knowledge_id`, `is_published`)
+    INDEX `idx_is_published` (`knowledge_id`, `is_published`),
+    INDEX `idx_base_version` (`knowledge_id`, `base_version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识版本历史表';
+
 
 -- 知识分支表
 CREATE TABLE IF NOT EXISTS `knowledge_branch` (

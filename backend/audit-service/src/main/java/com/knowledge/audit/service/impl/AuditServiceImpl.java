@@ -124,15 +124,67 @@ public class AuditServiceImpl implements AuditService {
         dto.setSubmitTime(audit.getCreateTime());
         return dto;
     }
-
+    
     @Override
-    @Transactional
-    public AuditDTO approve(Long auditId, Long auditorId, String comment) {
+    public com.knowledge.api.dto.MergeStatusDTO checkMergeStatus(Long auditId) {
         Audit audit = auditMapper.selectById(auditId);
         if (audit == null) {
             throw new RuntimeException("审核记录不存在");
         }
         
+        if (audit.getStatus().equals(Constants.AUDIT_STATUS_APPROVED)) {
+            // 已通过的，认为无冲突（已合并）
+            com.knowledge.api.dto.MergeStatusDTO status = new com.knowledge.api.dto.MergeStatusDTO();
+            status.setCanAutoMerge(true);
+            status.setHasConflict(false);
+            return status;
+        }
+        
+        if (audit.getKnowledgeId() != null && audit.getVersion() != null) {
+            return knowledgeService.checkMergeStatus(audit.getKnowledgeId(), audit.getVersion());
+        }
+        
+        // 如果没有详细信息，返回默认
+        return new com.knowledge.api.dto.MergeStatusDTO();
+    }
+
+    @Override
+    @Transactional
+    public AuditDTO approve(Long auditId, Long auditorId, String comment) {
+        return approve(auditId, auditorId, comment, null);
+    }
+
+    @Override
+    @Transactional
+    public AuditDTO approve(Long auditId, Long auditorId, String comment, String resolvedContent) {
+        Audit audit = auditMapper.selectById(auditId);
+        if (audit == null) {
+            throw new RuntimeException("审核记录不存在");
+        }
+        
+        // 核心更新：使用 KnowledgeService 的合并并发布逻辑
+        if (audit.getKnowledgeId() != null) {
+            try {
+                // 如果指定了版本，则进行合并发布（可能是草稿合并）
+                if (audit.getVersion() != null) {
+                    com.knowledge.api.dto.KnowledgeDTO result = knowledgeService.mergeAndPublish(
+                        audit.getKnowledgeId(), 
+                        audit.getVersion(), 
+                        resolvedContent
+                    );
+                    log.info("审核通过并完成合并发布: knowledgeId={}, incomingVersion={}, newVersion={}", 
+                            audit.getKnowledgeId(), audit.getVersion(), result.getVersion());
+                } else {
+                    // 兼容旧数据，没有版本号时发布当前版本
+                    knowledgeService.publishKnowledge(audit.getKnowledgeId());
+                    log.info("审核通过，发布当前版本: knowledgeId={}", audit.getKnowledgeId());
+                }
+            } catch (Exception e) {
+                log.error("审核通过但在合并/发布时失败: {}", e.getMessage(), e);
+                throw new RuntimeException("审核通过失败: " + e.getMessage());
+            }
+        }
+
         audit.setStatus(Constants.AUDIT_STATUS_APPROVED);
         audit.setAuditorId(auditorId);
         audit.setComment(comment);
@@ -153,19 +205,6 @@ public class AuditServiceImpl implements AuditService {
             }
         } catch (Exception e) {
             log.warn("Failed to complete workflow task (fallback to manual): {}", e.getMessage());
-        }
-        
-        // 审核通过后，发布对应版本
-        if (audit.getKnowledgeId() != null) {
-            if (audit.getVersion() != null) {
-                // 有版本号时，发布指定版本
-                knowledgeService.publishVersion(audit.getKnowledgeId(), audit.getVersion());
-                log.info("审核通过，发布指定版本: knowledgeId={}, version={}", audit.getKnowledgeId(), audit.getVersion());
-            } else {
-                // 兼容旧数据，没有版本号时发布当前版本
-                knowledgeService.publishKnowledge(audit.getKnowledgeId());
-                log.info("审核通过，发布当前版本: knowledgeId={}", audit.getKnowledgeId());
-            }
         }
         
         AuditDTO dto = new AuditDTO();

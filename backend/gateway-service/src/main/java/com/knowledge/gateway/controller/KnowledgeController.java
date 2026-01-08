@@ -498,5 +498,127 @@ public class KnowledgeController {
             return Result.error("提取文档内容失败: " + e.getMessage());
         }
     }
+    
+    // ==================== 合并相关接口 ====================
+    
+    /**
+     * 检查合并状态
+     * @param id 知识ID
+     * @param draftVersion 草稿版本号
+     */
+    @GetMapping("/{id:\\d+}/merge/status")
+    public Result<MergeStatusDTO> checkMergeStatus(
+            @PathVariable Long id,
+            @RequestParam Long draftVersion) {
+        try {
+            MergeStatusDTO result = knowledgeService.checkMergeStatus(id, draftVersion);
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("检查合并状态失败: knowledgeId={}, draftVersion={}", id, draftVersion, e);
+            return Result.error("检查合并状态失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 获取合并预览（GitHub风格块级差异）
+     * @param id 知识ID
+     * @param baseVersion 基础版本号
+     * @param currentVersion 当前发布版本号
+     * @param draftVersion 草稿版本号
+     */
+    @GetMapping("/{id:\\d+}/merge/preview")
+    public Result<MergePreviewDTO> getMergePreview(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long baseVersion,
+            @RequestParam(required = false) Long currentVersion,
+            @RequestParam Long draftVersion) {
+        try {
+            // 如果未提供 baseVersion 和 currentVersion，从草稿版本获取
+            if (baseVersion == null || currentVersion == null) {
+                KnowledgeVersionDTO draftVer = knowledgeService.getKnowledgeVersion(id, draftVersion);
+                if (draftVer != null) {
+                    if (baseVersion == null) {
+                        baseVersion = draftVer.getBaseVersion();
+                    }
+                    if (currentVersion == null) {
+                        KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
+                        currentVersion = knowledge.getPublishedVersion();
+                    }
+                }
+            }
+            
+            MergePreviewDTO result = knowledgeService.getMergePreview(id, baseVersion, currentVersion, draftVersion);
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("获取合并预览失败: knowledgeId={}, draftVersion={}", id, draftVersion, e);
+            return Result.error("获取合并预览失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 解决合并冲突并发布
+     */
+    @PostMapping("/{id:\\d+}/merge/resolve")
+    public Result<KnowledgeDTO> resolveMerge(
+            @PathVariable Long id,
+            @RequestBody MergeResolveRequest request) {
+        try {
+            request.setKnowledgeId(id);
+            KnowledgeDTO result = knowledgeService.resolveMerge(request);
+            
+            // 更新搜索索引
+            if (result != null) {
+                try {
+                    searchService.updateIndex(result);
+                } catch (Exception e) {
+                    log.warn("合并后更新索引失败: knowledgeId={}", id, e);
+                }
+            }
+            
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("解决合并冲突失败: knowledgeId={}", id, e);
+            return Result.error("解决合并冲突失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 发布指定版本（支持强制发布）
+     * @param id 知识ID
+     * @param version 版本号
+     * @param force 是否强制发布（忽略冲突）
+     */
+    @PostMapping("/{id:\\d+}/versions/{version:\\d+}/publish")
+    public Result<Boolean> publishVersion(
+            @PathVariable Long id,
+            @PathVariable Long version,
+            @RequestParam(required = false, defaultValue = "false") boolean force) {
+        try {
+            // 如果不是强制发布，先检查冲突
+            if (!force) {
+                MergeStatusDTO status = knowledgeService.checkMergeStatus(id, version);
+                if (status.isHasConflict()) {
+                    return Result.error("存在冲突，请先解决冲突或使用强制发布。" + status.getConflictDetails());
+                }
+            }
+            
+            boolean result = knowledgeService.publishVersion(id, version);
+            
+            // 更新搜索索引
+            if (result) {
+                try {
+                    KnowledgeDTO knowledge = knowledgeService.getKnowledgeById(id);
+                    searchService.updateIndex(knowledge);
+                } catch (Exception e) {
+                    log.warn("发布后更新索引失败: knowledgeId={}", id, e);
+                }
+            }
+            
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("发布版本失败: knowledgeId={}, version={}", id, version, e);
+            return Result.error("发布版本失败: " + e.getMessage());
+        }
+    }
 }
 
