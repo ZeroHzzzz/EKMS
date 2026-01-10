@@ -147,6 +147,14 @@ public interface KnowledgeService {
      * @return 发布后的知识DTO
      */
     KnowledgeDTO resolveMerge(com.knowledge.api.dto.MergeResolveRequest request);
+
+    /**
+     * 手动归档当前版本
+     * @param knowledgeId
+     * @param versionName
+     * @param operatorUsername
+     */
+    void archiveVersion(Long knowledgeId, String versionName, String operatorUsername);
 }
 
 

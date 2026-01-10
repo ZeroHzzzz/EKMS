@@ -66,7 +66,7 @@
       width="500px"
       class="user-dialog"
     >
-      <el-form :model="userForm" :rules="rules" ref="userFormRef" label-width="80px">
+      <el-form :model="userForm" :rules="rules" ref="userFormRef" label-width="80px" @submit.prevent="saveUser">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="userForm.username" :disabled="isEdit" placeholder="请输入用户名" />
         </el-form-item>

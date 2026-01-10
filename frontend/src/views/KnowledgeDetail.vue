@@ -1,14 +1,7 @@
 <template>
   <div class="knowledge-detail-container" v-loading="loading">
     <div v-if="knowledge" class="detail-wrapper">
-      <!-- 草稿/版本状态提示横幅 -->
-      <div v-if="showDraftBanner" class="draft-banner" :class="draftBannerType">
-        <el-icon><Warning /></el-icon>
-        <span>{{ draftBannerMessage }}</span>
-        <el-button v-if="canViewDraft" size="small" type="primary" text @click="toggleViewMode">
-          {{ isViewingDraft ? '查看已发布版本' : '查看待审核草稿' }}
-        </el-button>
-      </div>
+      <!-- 头部信息 -->
       
       <!-- 头部信息 -->
       <div class="detail-header" :class="{ 'edit-mode-header': isEditMode }">
@@ -18,7 +11,7 @@
           <!-- 阅读模式标题 -->
           <h1 v-if="!isEditMode" class="title">
             {{ displayContent.title }}
-            <el-tag v-if="isViewingDraft" size="small" type="warning" effect="dark" style="margin-left: 8px;">草稿</el-tag>
+            <el-tag v-if="knowledge.isPrivate" size="small" type="danger" effect="plain" style="margin-left: 8px;">私有</el-tag>
           </h1>
           
           <!-- 编辑模式：沉浸式标题输入 -->
@@ -47,6 +40,10 @@
               :title="isCollected ? '取消收藏' : '收藏'"
             />
             <el-button v-if="canEdit(knowledge)" type="primary" icon="Edit" circle @click="enterEditMode" title="编辑" />
+            
+            <!-- 新增操作按钮 -->
+            <el-button v-if="canManagePermissions" type="info" icon="User" circle @click="showPermissionDialog = true" title="权限设置" />
+            <el-button v-if="isAdmin(userStore.userInfo)" type="warning" icon="Folder" circle @click="handleArchive" title="管理员留档" />
           </template>
         </div>
       </div>
@@ -112,19 +109,11 @@
                   <el-icon><Document /></el-icon> {{ fileInfo.fileName }}
                 </span>
                 <div class="preview-actions">
-                  <!-- 提交审核按钮：有未提交的草稿时显示 -->
-                  <el-button 
-                    v-if="canSubmitForReview" 
-                    type="warning" 
-                    size="small" 
-                    @click="submitForReview"
-                  >
-                    <el-icon><Upload /></el-icon> 提交审核
+                  <!-- 只有查看最新版本时才显示在线编辑按钮 -->
+                  <el-button v-if="canEditOffice(fileInfo.fileType) && canEdit(knowledge)" type="primary" size="small" @click="goToOfficeEdit('edit')">
+                    <el-icon><EditPen /></el-icon> 在线编辑
                   </el-button>
-                  <!-- 只有查看最新版本（草稿）时才显示在线编辑按钮 -->
-                  <el-button v-if="canEditOffice(fileInfo.fileType) && (isViewingDraft || !hasDraft)" type="primary" size="small" @click="goToOfficeEdit('edit')">
-                    <el-icon><Edit /></el-icon> 在线编辑
-                  </el-button>
+
                   <el-button text type="primary" @click="downloadFile">下载</el-button>
                   <el-button text type="primary" @click="openInNewWindow">新窗口打开</el-button>
                 </div>
@@ -454,98 +443,90 @@
               </div>
             </el-tab-pane>
 
-             <el-tab-pane label="历史" name="history">
+             <el-tab-pane label="版本历史" name="history">
                <div class="history-panel">
-                 <!-- 简化的线性版本列表 -->
-                 <div class="version-list-header" style="margin-bottom: 12px; color: #909399; font-size: 12px;">
-                   共 {{ versions.length }} 个版本
-                 </div>
-                 
-                 <!-- 版本列表 -->
-                 <div class="git-log">
-                    <div 
-                      v-for="(version, index) in versions" 
-                      :key="version.id"
-                      class="commit-item"
-                      :class="{ 'is-current': version.version === knowledge.version, 'is-viewing': currentViewingVersion === version.version }"
-                      @click.stop="switchToVersion(version)"
-                    >
-                      <!-- Commit线和节点 -->
-                      <div class="commit-graph">
-                        <div class="commit-line" v-if="index < versions.length - 1"></div>
-                        <div class="commit-node" :class="{ 'is-current': version.version === knowledge.version }">
-                          <el-icon v-if="version.version === knowledge.version"><CircleCheckFilled /></el-icon>
+                 <el-tabs type="border-card" class="history-sub-tabs" v-model="activeHistoryTab">
+                    <!-- Tab 1: 留档版本 (Official/Archived) -->
+                    <el-tab-pane label="留档版本" name="official">
+                        <div class="version-list-header">
+                            共 {{ publishedVersions.length }} 个留档版本
                         </div>
-                      </div>
-                      
-                      <!-- Commit内容 -->
-                      <div class="commit-content">
-                        <div class="commit-header">
-                        <div class="commit-hash-row">
-                          <span class="commit-hash" :title="version.commitHash">
-                            {{ version.commitHash ? version.commitHash.substring(0, 8) : '无hash' }}
-                          </span>
-                          <!-- 状态标签：优先级 当前发布 > 待审核 > 已驳回 > 历史版本 -->
-                          <el-tag v-if="version.isPublished && version.version === knowledge.publishedVersion" size="small" type="success" effect="dark">当前发布</el-tag>
-                          <el-tag v-else-if="version.status === 'PENDING'" size="small" type="warning" effect="dark">待审核</el-tag>
-                          <el-tag v-else-if="version.status === 'REJECTED'" size="small" type="danger" effect="plain">已驳回</el-tag>
-                          <el-tag v-else-if="version.status === 'APPROVED'" size="small" type="info" effect="plain">历史版本</el-tag>
-                          <el-tag v-else size="small" type="info" effect="plain">草稿</el-tag>
+                        <div class="git-log">
+                             <div 
+                               v-for="(version, index) in publishedVersions" 
+                               :key="version.id"
+                               class="commit-item"
+                               :class="{ 'is-current': version.version === knowledge.publishedVersion, 'is-viewing': currentViewingVersion === version.version }"
+                               @click.stop="switchToVersion(version)"
+                             >
+                               <!-- Simplified Item for Official -->
+                               <div class="commit-content">
+                                 <div class="commit-header">
+                                    <span class="commit-hash" :title="version.commitHash">v{{ version.version }}</span>
+                                    <el-tag size="small" type="success" effect="dark">已发布</el-tag>
+                                    <span class="commit-time">{{ formatTimeFriendly(version.createTime) }}</span>
+                                 </div>
+                                 <div class="commit-message">{{ version.commitMessage || '无说明' }}</div>
+                                 <div class="commit-meta">
+                                    <span>发布人: {{ version.createdBy }}</span>
+                                 </div>
+                                 <div class="commit-actions">
+                                   <el-button size="small" :type="currentViewingVersion === version.version ? 'success' : 'primary'" text @click.stop="switchToVersion(version)">
+                                     <el-icon><View /></el-icon> 查看
+                                   </el-button>
+                                 </div>
+                               </div>
+                             </div>
+                             <el-empty v-if="publishedVersions.length === 0" description="暂无正式发布版本" :image-size="60" />
                         </div>
-                          <span class="commit-time">{{ formatTimeFriendly(version.createTime) }}</span>
-                        </div>
-                        
-                        <div class="commit-message">
-                          {{ version.commitMessage || version.changeDescription || '无变更说明' }}
-                        </div>
-                        
-                        <div class="commit-meta">
-                          <span class="commit-author" :style="{ color: getUserColor(version.createdBy) }">
-                            <span class="author-avatar" :style="{ background: getUserColor(version.createdBy) }">
-                              {{ getAuthorInitial(version.createdBy) }}
-                            </span>
-                            {{ version.createdBy || '未知' }}
-                          </span>
-                          <span class="commit-version">v{{ version.version }}</span>
-                        </div>
-                        
-                        <div class="commit-actions">
-                          <el-button 
-                            size="small" 
-                            :type="currentViewingVersion === version.version ? 'success' : 'primary'"
-                            text 
-                            @click.stop="switchToVersion(version)"
-                          >
-                            <el-icon><View /></el-icon> 
-                            {{ currentViewingVersion === version.version ? '当前查看' : '切换预览' }}
-                          </el-button>
-                          <el-button size="small" text type="info" @click="viewVersionDetails(version)">
-                            <el-icon><Document /></el-icon> 详情
-                          </el-button>
-                          <el-button 
-                            size="small" 
-                            text 
-                            type="warning"
-                            v-if="version.version !== knowledge.version"
-                            @click="compareVersion(version)"
-                          >
-                            <el-icon><Refresh /></el-icon> 对比
-                          </el-button>
-                          <el-button 
-                            size="small" 
-                            text 
-                            type="danger"
-                            v-if="isAdmin(userStore.userInfo) && version.isPublished && version.version !== knowledge.version"
-                            @click="revertToVersion(version)"
-                          >
-                            <el-icon><RefreshLeft /></el-icon> 回退
-                          </el-button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <el-empty v-if="versions.length === 0" description="暂无版本历史" :image-size="60" />
-                 </div>
+                    </el-tab-pane>
+
+                    <!-- Tab 2: 编辑历史 (Drafts/History) -->
+                    <el-tab-pane label="编辑历史" name="drafts">
+                         <div class="version-list-header">
+                           共 {{ versions.length }} 条编辑记录
+                         </div>
+                         <div class="git-log">
+                            <div 
+                              v-for="(version, index) in versions" 
+                              :key="version.id"
+                              class="commit-item"
+                              :class="{ 'is-current': version.version === knowledge.version, 'is-viewing': currentViewingVersion === version.version }"
+                              @click.stop="switchToVersion(version)"
+                            >
+                              <div class="commit-graph">
+                                <div class="commit-line" v-if="index < versions.length - 1"></div>
+                                <div class="commit-node" :class="{ 'is-current': version.version === knowledge.version }">
+                                  <el-icon v-if="version.version === knowledge.version"><CircleCheckFilled /></el-icon>
+                                </div>
+                              </div>
+                              
+                              <div class="commit-content">
+                                <div class="commit-header">
+                                  <span class="commit-hash">v{{ version.version }}</span>
+                                  <el-tag v-if="version.isPublished" size="small" type="success">已发布</el-tag>
+                                  <el-tag v-else size="small" type="info">草稿</el-tag>
+                                </div>
+                                
+                                <div class="commit-message" style="margin: 8px 0; font-size: 14px;">
+                                    用户 <span style="font-weight: bold; color: #409EFF;">{{ version.createdBy || 'Unknown' }}</span> 在 {{ formatTimeFriendly(version.createTime) }} 编辑
+                                </div>
+                                
+                                <div class="commit-meta" v-if="version.commitMessage && version.commitMessage !== '通过OnlyOffice编辑更新'" style="font-size: 12px; color: #909399;">
+                                  说明: {{ version.commitMessage }}
+                                </div>
+                                
+                                <div class="commit-actions">
+                                  <el-button size="small" :type="currentViewingVersion === version.version ? 'success' : 'primary'" text @click.stop="switchToVersion(version)">
+                                    <el-icon><View /></el-icon> 预览
+                                  </el-button>
+                                  <!-- Publish Button -->
+                                </div>
+                              </div>
+                            </div>
+                         </div>
+                    </el-tab-pane>
+                 </el-tabs>
                </div>
              </el-tab-pane>
           </el-tabs>
@@ -704,6 +685,14 @@
          </div>
        </div>
     </el-dialog>
+    
+    <!-- 权限设置弹窗 -->
+    <PermissionDialog 
+      v-model="showPermissionDialog"
+      :knowledge-id="knowledge.id"
+      :current-is-private="knowledge.isPrivate"
+      @privacy-changed="(val) => knowledge.isPrivate = val"
+    />
   </div>
 </template>
 
@@ -715,9 +704,10 @@ import { sendMessageStream } from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { hasRole, isAdmin, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download, Upload } from '@element-plus/icons-vue'
+import { Star, StarFilled, Edit, Document, Link, Delete, ArrowLeft, User, View, ChatDotRound, CircleCheckFilled, Refresh, TopRight, ArrowRight, Plus, Minus, Warning, RefreshLeft, Download, Upload, Files, Folder } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { watermark } from '../utils/watermark'
+import PermissionDialog from './PermissionDialog.vue'
 
 
 const route = useRoute()
@@ -754,6 +744,7 @@ const currentViewingVersion = ref(null)  // 当前查看的版本号
 const currentVersionContent = ref(null)  // 当前查看版本的内容
 
 // 版本对比相关状态
+const activeHistoryTab = ref('drafts')
 const showCompareDialog = ref(false)
 const compareLoading = ref(false)
 const compareData = ref({
@@ -765,9 +756,7 @@ const compareData = ref({
   stats: null
 })
 
-// 草稿/发布版本相关状态
-const publishedVersionContent = ref(null)  // 已发布版本的内容
-const isViewingDraft = ref(false)          // 是否正在查看草稿版本
+const showPermissionDialog = ref(false)
 
 // AI Chat State
 const aiMessages = ref([])
@@ -796,36 +785,138 @@ watch(editForm, (newVal) => {
   console.log('DEBUG: editFormDirty set to true')
 }, { deep: true })
 
-// Watch isEditMode to reload data when exiting edit mode
-watch(isEditMode, async (val) => {
-  if (!val) {
-    // Exiting edit mode
-    console.log('DEBUG: Exiting edit mode, reloading detail...')
-    editFormDirty.value = false // Reset dirty flag
-    await loadDetail()
-  } else {
-    // Entering edit mode
-    console.log('DEBUG: Entering edit mode, initializing form...')
-    if (knowledge.value) {
-        editForm.value = { 
-            ...knowledge.value,
-            changeDescription: '' 
-        }
-        nextTick(() => {
-            editFormDirty.value = false
-            console.log('DEBUG: editFormDirty reset to false')
-        })
-    }
-  }
+// 权限判断
+const canManagePermissions = computed(() => {
+  if (!knowledge.value) return false
+  const uid = userStore.userInfo?.id
+  const uname = userStore.userInfo?.username
+  // Admin or Creator or Author
+  if (isAdmin(userStore.userInfo)) return true
+  if (knowledge.value.createBy === uname) return true
+  if (knowledge.value.author === uname) return true
+  return false
 })
 
-watch(isEditMode, (val) => {
-  if (val) {
-    isEditingContent.value = false // Default to collapsed when entering edit mode
-    // Ensure editForm is synced if not already
-    if (!editForm.value.id && knowledge.value.id) {
-       editForm.value = { ...knowledge.value, changeDescription: '' }
+const publishedVersions = computed(() => {
+  return (versions.value || []).filter(v => v.isPublished)
+})
+
+const canEdit = (k) => {
+    if (!k) return false
+    const userInfo = userStore.userInfo
+    if (!userInfo) return false
+    
+    // Find the latest version number from the loaded versions list
+    // Fallback to k.version if list is empty (e.g. not loaded yet)
+    let latestVer = k.version
+    if (versions.value && versions.value.length > 0) {
+        // Robustly calculate Max Version instead of relying on sort order
+        latestVer = Math.max(...versions.value.map(v => Number(v.version)))
     }
+    
+    // Determine currently viewing version
+    // If currentViewingVersion is null, we are viewing the default 'knowledge' object version
+    // BUT we must ensure we compare types correctly.
+    let viewingVer = currentViewingVersion.value
+    if (!viewingVer) {
+        viewingVer = k.version
+    }
+    
+    // Debug logging
+    // console.log('DEBUG: canEdit check', { 
+    //    viewingVer,
+    //    latestVer,
+    //    knowledgeVer: k.version
+    // })
+    
+    // Allow edit only if we are viewing the latest version
+    // Use != for loose equality (handle string/number mismatch)
+    if (viewingVer != latestVer) {
+         return false
+    }
+    
+    return true
+}
+
+const canPublish = (version) => {
+    // Only editors/admins can publish
+    if (!canEdit(knowledge.value)) return false
+    return !version.isPublished // Only publish unpublished drafts
+}
+
+const displayContent = computed(() => {
+  // 如果选择了特定版本查看
+  if (currentVersionContent.value && currentViewingVersion.value) {
+    return currentVersionContent.value
+  }
+  // 默认显示当前主版本（实时协作模式）
+  return knowledge.value || {}
+})
+
+// === RESTORED DRAFT LOGIC FOR FILE AUDIT ===
+
+// 是否有待审核草稿 (Has Draft if status is PENDING or hasDraft flag is true)
+const hasDraft = computed(() => {
+  if (!knowledge.value) return false
+  return knowledge.value.status === 'PENDING' || knowledge.value.hasDraft === true
+})
+
+// 是否可以查看草稿（作者或管理员）
+const canViewDraft = computed(() => {
+  return hasDraft.value && canEdit(knowledge.value)
+})
+
+// 是否显示横幅
+const showDraftBanner = computed(() => {
+  return isViewingHistoryVersion.value || hasDraft.value 
+})
+
+// 横幅类型
+const draftBannerType = computed(() => {
+  if (isViewingHistoryVersion.value) {
+    return 'banner-history'
+  }
+  if (hasDraft.value) {
+    return 'banner-warning' // Use warning style for pending audit
+  }
+  return 'banner-info'
+})
+
+// 横幅消息
+const draftBannerMessage = computed(() => {
+  if (isViewingHistoryVersion.value && currentVersionContent.value) {
+     return `您正在查看历史版本 v${currentViewingVersion.value}`
+  }
+  if (hasDraft.value) {
+    if (knowledge.value.status === 'PENDING') {
+        return '当前文档包含待审核的新文件，审核通过后将正式发布。'
+    } else {
+        return '该文档有新的文件正在审核中，当前显示的是旧版本文件。'
+    }
+  }
+  return ''
+})
+
+// Watch isEditMode to handle both entry and exit
+watch(isEditMode, async (val) => {
+  if (val) {
+    // Entering edit mode
+    console.log('DEBUG: Entering edit mode')
+    isEditingContent.value = false 
+    if (!editForm.value.id && knowledge.value.id) {
+       editForm.value = { 
+           ...knowledge.value,
+           changeDescription: '' 
+       }
+       nextTick(() => {
+           editFormDirty.value = false
+       })
+    }
+  } else {
+    // Exiting edit mode
+    console.log('DEBUG: Exiting edit mode, reloading detail...')
+    editFormDirty.value = false
+    await loadDetail()
   }
 })
 
@@ -834,14 +925,17 @@ const previewTimestamp = ref(Date.now())
 
 const previewUrl = computed(() => {
   if (!fileInfo.value) return ''
-  return `/api/file/preview/${fileInfo.value.id}?t=${previewTimestamp.value}`
+  // 使用 fileHash 作为缓存破坏参数
+  const hashSuffix = fileInfo.value.fileHash ? fileInfo.value.fileHash.substring(0, 8) : previewTimestamp.value
+  return `/api/file/preview/${fileInfo.value.id}?h=${hashSuffix}`
 })
 
-// 用于强制刷新 iframe 的 key（当文件 ID 变化或版本切换时更新）
+// 用于强制刷新 iframe 的 key（当文件 ID、hash 或版本变化时更新）
 const previewKey = computed(() => {
   const fileId = fileInfo.value?.id || currentFileId.value || 'none'
+  const fileHash = fileInfo.value?.fileHash || ''
   const version = currentViewingVersion.value || 'current'
-  return `${fileId}-${version}-${previewTimestamp.value}`
+  return `${fileId}-${version}-${fileHash.substring(0, 8) || previewTimestamp.value}`
 })
 
 // kkFileView 预览 URL（计算属性，响应式更新）
@@ -851,114 +945,21 @@ const kkFileViewUrl = computed(() => {
   const fileDownloadUrl = `${backendBase}/api/file/download/${fileInfo.value.id}`
   const fullFileName = fileInfo.value.fileName || ''
   const version = currentViewingVersion.value || (knowledge.value ? knowledge.value.version : 'latest')
-  const versionPrefix = `v${version}_`
-  const finalDownloadUrl = `${fileDownloadUrl}?fullfilename=${encodeURIComponent(versionPrefix + fullFileName)}&t=${previewTimestamp.value}`
+  // Ensure unique filename for kkFileView caching by including fileId
+  const versionPrefix = `f${fileInfo.value.id}_v${version}_`
+  // 使用 fileHash 作为缓存破坏参数，确保文件内容变更时 kkFileView 缓存失效
+  const fileHash = fileInfo.value.fileHash || ''
+  const hashSuffix = fileHash ? fileHash.substring(0, 8) : String(previewTimestamp.value)
+  const finalDownloadUrl = `${fileDownloadUrl}?fullfilename=${encodeURIComponent(versionPrefix + fullFileName)}&h=${hashSuffix}`
   const kkBase = 'http://localhost:8012'
   return `${kkBase}/onlinePreview?url=${encodeURIComponent(btoa(finalDownloadUrl))}`
 })
 
-// 预览版本内容（通过URL参数指定版本）
-const previewVersionContent = ref(null)
-
-// 是否有待审核草稿
-const hasDraft = computed(() => {
-  return knowledge.value?.hasDraft === true && 
-         knowledge.value?.publishedVersion != null &&
-         knowledge.value?.version !== knowledge.value?.publishedVersion
-})
-
-// 是否可以查看草稿（作者或管理员）
-const canViewDraft = computed(() => {
-  return hasDraft.value && canEdit(knowledge.value)
-})
-
-// 是否可以提交审核
-// 条件：1. 初始 PENDING 版本（还没发布过） 2. 已发布后有草稿
-const canSubmitForReview = computed(() => {
-  if (!knowledge.value) return false
-  
-  const isPending = knowledge.value?.status === 'PENDING'
-  const hasDraftFlag = knowledge.value?.hasDraft === true
-  const hasPublishedVersion = knowledge.value?.publishedVersion != null && knowledge.value?.publishedVersion > 0
-  
-  // 初始 PENDING 版本（还没有发布过）：可以提交
-  if (isPending && !hasPublishedVersion) {
-    return canEdit(knowledge.value)
-  }
-  
-  // 已发布后有草稿：可以提交
-  if (hasPublishedVersion && hasDraftFlag) {
-    return canEdit(knowledge.value)
-  }
-  
-  return false
-})
-
-// 是否显示横幅
-const showDraftBanner = computed(() => {
-  // 查看历史版本、预览特定版本、或有草稿时显示横幅
-  return isViewingHistoryVersion.value || hasDraft.value || (previewVersionContent.value && isViewingDraft.value)
-})
-
-// 横幅类型
-const draftBannerType = computed(() => {
-  if (isViewingHistoryVersion.value) {
-    return 'banner-history'
-  }
-  if (previewVersionContent.value && isViewingDraft.value) {
-    return 'banner-draft'
-  }
-  if (canViewDraft.value) {
-    return isViewingDraft.value ? 'banner-draft' : 'banner-info'
-  }
-  return 'banner-info'
-})
-
-// 横幅消息
-const draftBannerMessage = computed(() => {
-  // 如果正在查看历史版本
-  if (isViewingHistoryVersion.value && currentVersionContent.value) {
-    const versionStatus = currentVersionContent.value.status
-    const statusText = versionStatus === 'APPROVED' ? '已发布' : 
-                       versionStatus === 'PENDING' ? '待审核' : 
-                       versionStatus === 'REJECTED' ? '已驳回' : '历史'
-    return `您正在查看历史版本 v${currentViewingVersion.value}（${statusText}），点击"切换预览"可返回当前版本。`
-  }
-  // 如果是通过URL参数预览特定版本
-  if (previewVersionContent.value && isViewingDraft.value) {
-    return `您正在预览版本 v${previewVersionContent.value.version}，这是待审核的版本。`
-  }
-  if (canViewDraft.value) {
-    if (isViewingDraft.value) {
-      return '您正在查看待审核的草稿版本，审核通过后将发布。'
-    } else {
-      return '该文章有待审核的新版本，您当前查看的是已发布版本。'
-    }
-  }
-  return '该文章有更新版本正在审核中，您当前查看的是已发布版本。'
-})
-
-// 当前显示的内容（根据选择的版本决定）
-const displayContent = computed(() => {
-  // 如果选择了特定版本查看
-  if (currentVersionContent.value && currentViewingVersion.value) {
-    return currentVersionContent.value
-  }
-  // 如果有通过URL参数指定的预览版本，优先显示
-  if (previewVersionContent.value && isViewingDraft.value) {
-    return previewVersionContent.value
-  }
-  if (hasDraft.value && !isViewingDraft.value && publishedVersionContent.value) {
-    // 显示已发布版本
-    return publishedVersionContent.value
-  }
-  // 显示最新版本（草稿或无草稿时的当前版本）
-  return knowledge.value || {}
-})
-
 // 当前应该显示的文件ID（根据显示的版本决定）
 const currentFileId = computed(() => {
-  return displayContent.value?.fileId || knowledge.value?.fileId
+  // Directly use displayContent's fileId. 
+  // displayContent already handles the logic of returning either the specific version or the current knowledge.
+  return displayContent.value?.fileId
 })
 
 // 是否正在查看历史版本
@@ -966,61 +967,76 @@ const isViewingHistoryVersion = computed(() => {
   return currentViewingVersion.value && currentViewingVersion.value !== knowledge.value?.version
 })
 
-
-// 提交审核
-const submitForReview = async () => {
+// 发布指定版本
+const handlePublishVersion = async (version) => {
   try {
-    // 让用户输入提交信息（选填，默认为"用户x更新知识内容"）
-    const defaultMessage = `${userStore.userInfo?.realName || userStore.userInfo?.username || '用户'}更新知识内容`
-    let commitMessage = defaultMessage
-    
-    try {
-      const { value } = await ElMessageBox.prompt(
-        '请输入提交说明（将显示在版本历史中）：',
-        '提交审核',
-        {
-          confirmButtonText: '提交',
+    const { value: isConfirmed } = await ElMessageBox.confirm(
+       `确定要发布版本 v${version.version} 吗？\n这是将草稿转为正式版本的操作。`, 
+       '发布版本', 
+       {
+          confirmButtonText: '确定发布',
           cancelButtonText: '取消',
-          inputPlaceholder: '例如：修复了格式问题，更新了第三章内容',
-          inputValue: defaultMessage // 设置默认值
-        }
-      )
-      if (value && value.trim().length > 0) {
-        commitMessage = value.trim()
-      }
-    } catch (e) {
-      if (e === 'cancel') {
-        return // 用户取消
-      }
-    }
+          type: 'warning'
+       }
+    )
     
-    const res = await api.post(`/knowledge/${knowledge.value.id}/submit-audit`, null, {
-      params: { 
-        userId: userStore.userInfo.id,
-        commitMessage: commitMessage
-      }
-    })
-    
+    if (isConfirmed !== 'confirm') return // Should not happen with catch
+
+    const res = await api.post(`/knowledge/${knowledge.value.id}/versions/${version.version}/publish`)
     if (res.code === 200) {
-      ElMessage.success('提交审核成功，请等待审核')
-      loadDetail() // 重新加载详情
-      loadVersions() // 刷新版本列表
+        ElMessage.success('发布成功')
+        await loadDetail() // Reload to update status
     } else {
-      ElMessage.error(res.message || '提交审核失败')
+        // Handle Conflict / Error
+        if (res.msg && res.msg.includes('冲突')) {
+            try {
+                 await ElMessageBox.confirm(
+                     `发布失败: ${res.msg}\n\n检测到版本冲突。是否强制发布？(将覆盖当前主版本内容)`, 
+                     '版本冲突', 
+                     {
+                        confirmButtonText: '强制发布',
+                        cancelButtonText: '取消',
+                        type: 'error'
+                     }
+                 )
+                 // Force Publish
+                 const forceRes = await api.post(`/knowledge/${knowledge.value.id}/versions/${version.version}/publish?force=true`)
+                 if (forceRes.code === 200) {
+                     ElMessage.success('强制发布成功')
+                     await loadDetail()
+                 } else {
+                     ElMessage.error(forceRes.msg || '强制发布失败')
+                 }
+            } catch (forceErr) {
+                // User cancelled force
+            }
+        } else {
+            ElMessage.error(res.msg || '发布失败')
+        }
     }
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('提交审核失败', error)
-      ElMessage.error('提交审核失败')
-    }
+  } catch (e) {
+      if (e !== 'cancel') {
+          console.error('发布失败', e)
+          if (e.response && e.response.data && e.response.data.msg) {
+              ElMessage.error(e.response.data.msg)
+          }
+      }
   }
 }
 
-// Methods
 const loadDetail = async () => {
   loading.value = true
   try {
-    const res = await api.get(`/knowledge/${route.params.id}?_t=${Date.now()}`)
+    const userId = userStore.userInfo?.id
+    console.log('DEBUG: loadDetail - userInfo:', userStore.userInfo)
+    console.log('DEBUG: loadDetail - Sending userId:', userId)
+    
+    const res = await api.get(`/knowledge/${route.params.id}`, {
+        params: {
+            userId: userId,
+            _t: Date.now()
+        }
+    })
     knowledge.value = res.data || {}
     
     editForm.value = { 
@@ -1037,79 +1053,18 @@ const loadDetail = async () => {
       try {
         const versionRes = await api.get(`/knowledge/${route.params.id}/versions/${previewVersion}?_t=${Date.now()}`)
         if (versionRes.code === 200 && versionRes.data) {
-          previewVersionContent.value = versionRes.data
-          isViewingDraft.value = true  // 显示预览版本
+          currentVersionContent.value = versionRes.data
+          currentViewingVersion.value = versionRes.data.version
         }
       } catch (e) { 
         console.warn('加载预览版本失败', e) 
-        previewVersionContent.value = null
+        currentVersionContent.value = null
       }
     } else {
-      previewVersionContent.value = null
-    }
-    
-    // 如果有草稿，加载已发布版本的内容
-    if (knowledge.value.hasDraft && knowledge.value.publishedVersion) {
-      try {
-        const publishedRes = await api.get(`/knowledge/${route.params.id}/versions/${knowledge.value.publishedVersion}`)
-        if (publishedRes.code === 200 && publishedRes.data) {
-          publishedVersionContent.value = publishedRes.data
-        }
-      } catch (e) { 
-        console.warn('加载已发布版本失败', e) 
-      }
-    }
-      
-    // 关键修正：确保获取最新的版本列表，以便知道真正的草稿版本号
-    await loadVersions()
-
-    // 判断默认显示哪个版本：
-    if (!previewVersion) {
-      // 检查是否真的有待审核草稿（不只是有编辑权限）
-      const hasActualDraft = knowledge.value.hasDraft === true || 
-                             knowledge.value.status === 'PENDING' ||
-                             (versions.value && versions.value.some(v => 
-                               v.status === 'PENDING' || v.status === 'DRAFT'))
-      
-      if (canEdit(knowledge.value) && hasActualDraft) {
-          // 有编辑权限且确实有草稿，加载最新非发布版本
-          isViewingDraft.value = true
-          
-          // 从版本列表中查找最新的待审核版本
-          let draftVersion = knowledge.value.version
-          if (versions.value && versions.value.length > 0) {
-              // 找到最新的 PENDING 或非已发布版本
-              const pendingVersions = versions.value.filter(v => 
-                v.status === 'PENDING' || v.status === 'DRAFT' || !v.isPublished)
-              if (pendingVersions.length > 0) {
-                draftVersion = pendingVersions[0].version
-                console.log('DEBUG: 找到待审核版本:', draftVersion)
-              }
-          }
-          
-          // 主动加载草稿版本的详细内容
-          if (draftVersion) {
-               try {
-                  const draftRes = await api.get(`/knowledge/${route.params.id}/versions/${draftVersion}`)
-                  if (draftRes.code === 200 && draftRes.data) {
-                      previewVersionContent.value = draftRes.data
-                      currentVersionContent.value = draftRes.data
-                      currentViewingVersion.value = draftVersion
-                      console.log('DEBUG: 已加载草稿预览, fileId:', draftRes.data.fileId)
-                  }
-               } catch (e) {
-                   console.warn('加载草稿详情失败', e)
-               }
-          }
-      } else {
-        // 没有草稿或无权限编辑，显示已发布/默认内容
-        isViewingDraft.value = false
-        currentVersionContent.value = null
-        currentViewingVersion.value = knowledge.value.publishedVersion || knowledge.value.version
-      }
+      currentVersionContent.value = null
+      currentViewingVersion.value = null
     }
 
-    
     // 加载文件信息（根据当前显示版本的fileId）
     await loadFileInfo()
     
@@ -1120,6 +1075,17 @@ const loadDetail = async () => {
       checkCollectStatus()
     ])
     
+    // Auto-switch to Draft if available and user can edit
+    // This solves the confusion where user edits but sees old published content
+    if (!currentViewingVersion.value && hasDraft.value && canEdit(knowledge.value)) {
+        const latestDraft = versions.value.find(v => !v.isPublished)
+        if (latestDraft) {
+            console.log('Found draft, auto-switching preview to version:', latestDraft.version)
+            await switchToVersion(latestDraft)
+            ElMessage.info('已为您切换到最新草稿版本')
+        }
+    }
+    
   } catch (error) {
     console.error('加载详情失败', error)
     ElMessage.error('加载失败')
@@ -1128,12 +1094,10 @@ const loadDetail = async () => {
   }
 }
 
-// 切换查看草稿/已发布版本
-const toggleViewMode = async () => {
-  isViewingDraft.value = !isViewingDraft.value
-  // 切换版本后重新加载文件信息
-  await loadFileInfo()
-}
+
+// 切换 draft/published 视图 (已移除)
+// const toggleViewMode = async () => ...
+
 
 // 加载文件信息（根据当前显示版本的fileId）
 const loadFileInfo = async () => {
@@ -1249,18 +1213,37 @@ const canEditOffice = (type) => {
 }
 
 // 跳转到 OnlyOffice 编辑页面
-const goToOfficeEdit = (mode = 'edit') => {
-  if (!fileInfo.value?.id) {
-    ElMessage.warning('文件信息不完整')
-    return
-  }
-  router.push({
-    path: `/office-edit/${fileInfo.value.id}`,
-    query: {
-      mode: mode,
-      fileName: fileInfo.value.fileName
+const goToOfficeEdit = async (mode = 'edit') => {
+  // 先刷新获取最新的知识和文件信息，确保使用最新的 fileId
+  // 这避免了用户不刷新页面时使用旧 fileId 编辑的问题
+  try {
+    const res = await api.get(`/knowledge/${route.params.id}`, {
+      params: { _t: Date.now() }
+    })
+    if (res.code === 200 && res.data) {
+      const latestFileId = res.data.fileId
+      const latestFileName = fileInfo.value?.fileName || res.data.title
+      
+      if (!latestFileId) {
+        ElMessage.warning('该知识没有关联文件')
+        return
+      }
+      
+      console.log('goToOfficeEdit: Using latest fileId:', latestFileId)
+      router.push({
+        path: `/office-edit/${latestFileId}`,
+        query: {
+          mode: mode,
+          fileName: latestFileName
+        }
+      })
+    } else {
+      ElMessage.error('获取最新知识信息失败')
     }
-  })
+  } catch (e) {
+    console.error('获取知识信息失败:', e)
+    ElMessage.error('获取知识信息失败')
+  }
 }
 
 // AI Chat Methods
@@ -1471,6 +1454,33 @@ const addKnowledgeRelation = async () => {
     } catch(e) { ElMessage.error('失败') }
 }
 
+
+const handleArchive = async () => {
+    try {
+        const { value: versionName } = await ElMessageBox.prompt('请输入留档版本名称', '管理员留档', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputPattern: /\S+/,
+          inputErrorMessage: '版本名称不能为空'
+        })
+        
+        await api.post(`/knowledge/${route.params.id}/archive`, null, {
+            params: {
+                versionName: versionName,
+                operatorUsername: userStore.userInfo?.username
+            }
+        })
+        
+        ElMessage.success('留档成功')
+        loadVersions()
+    } catch (e) {
+        if (e !== 'cancel') {
+            console.error('留档失败', e)
+            ElMessage.error('留档失败')
+        }
+    }
+}
+
 const saveEdit = async () => {
   saving.value = true
   try {
@@ -1540,11 +1550,7 @@ const formatFileSize = (s) => {
     const i = Math.floor(Math.log(s) / Math.log(1024))
     return (s / Math.pow(1024, i)).toFixed(2) + ' ' + ['B','KB','MB','GB'][i]
 }
-const canEdit = (k) => {
-    if (!userStore.userInfo) return false
-    // 允许任何登录用户编辑（将创建待审核草稿）
-    return true
-}
+
 const canDeleteComment = (c) => hasRole(userStore.userInfo, ROLE_ADMIN) || c.userId === userStore.userInfo.id
 const enterEditMode = () => router.push({ query: { ...route.query, edit: 'true' } })
 const cancelEdit = async () => {
@@ -2639,11 +2645,13 @@ onUnmounted(() => {
 .git-log {
   display: flex;
   flex-direction: column;
-  max-height: 450px;
+  height: 500px; /* Fixed height to ensure scrollbar appears */
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 4px;
+  padding-right: 8px;
   padding-bottom: 16px;
+  border: 1px solid #f2f2f2;
+  border-radius: 4px;
 }
 
 /* 自定义滚动条样式 */
@@ -2667,10 +2675,15 @@ onUnmounted(() => {
 
 .commit-item {
   display: flex;
-  padding: 12px 8px;
-  border-radius: 8px;
+  padding: 16px;
+  border-bottom: 1px solid #ebeef5;
   transition: background 0.2s;
   cursor: pointer;
+  background: white;
+}
+
+.commit-item:last-child {
+  border-bottom: none;
 }
 
 .commit-item:hover {

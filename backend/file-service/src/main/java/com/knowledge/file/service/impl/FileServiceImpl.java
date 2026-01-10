@@ -22,9 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.io.*;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -164,7 +166,11 @@ public class FileServiceImpl implements FileService {
         // 检查文件是否已存在（秒传）
         LambdaQueryWrapper<FileInfo> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileInfo::getFileHash, fileHash);
+        // 由于现在允许多个文件拥有相同的hash（因为我们进行复制），所以这里可能会查出多条记录
+        // 我们只需要找到任意一个有效的文件即可
+        wrapper.last("LIMIT 1");
         FileInfo existingFile = fileInfoMapper.selectOne(wrapper);
+        
         if (existingFile != null) {
             // 检查文件是否真的存在
             String filePath = existingFile.getFilePath();
@@ -172,13 +178,8 @@ public class FileServiceImpl implements FileService {
             
             // 如果是相对路径，转换为绝对路径
             if (filePath.startsWith("./") || (!Paths.get(filePath).isAbsolute())) {
-                // 移除开头的 ./
                 String relativePath = filePath.replaceFirst("^\\./", "");
-                // uploadPath 已经是绝对路径，比如 /mnt/c/.../uploads/files
-                // 我们需要找到项目根目录，然后拼接相对路径
-                // 如果 relativePath 是 uploads/files/xxx.txt，我们需要项目根目录/uploads/files/xxx.txt
                 Path uploadPathObj = Paths.get(uploadPath);
-                // uploadPath 是 uploads/files，所以项目根目录是 uploadPath 的父目录的父目录
                 Path projectRoot = uploadPathObj.getParent().getParent();
                 filePathObj = projectRoot.resolve(relativePath);
             } else {
@@ -186,30 +187,63 @@ public class FileServiceImpl implements FileService {
             }
             
             boolean fileExists = Files.exists(filePathObj);
-            log.info("文件已存在（秒传）: fileId={}, fileName={}, dbPath={}, actualPath={}, 文件存在={}", 
-                    existingFile.getId(), existingFile.getFileName(), filePath, 
-                    filePathObj.toAbsolutePath(), fileExists);
+            log.info("发现相同哈希的文件记录: fileId={}, fileName={}, 文件存在={}", 
+                    existingFile.getId(), existingFile.getFileName(), fileExists);
             
-            if (!fileExists) {
-                log.warn("文件记录存在但文件不存在，删除记录: fileId={}, path={}", 
-                        existingFile.getId(), filePathObj.toAbsolutePath());
-                // 文件不存在，删除记录，允许重新上传
-                fileInfoMapper.deleteById(existingFile.getId());
-            } else {
-                // 如果数据库中的路径是相对路径，更新为绝对路径
-                if (filePath.startsWith("./") || (!Paths.get(filePath).isAbsolute())) {
-                    existingFile.setFilePath(filePathObj.toAbsolutePath().toString());
-                    fileInfoMapper.updateById(existingFile);
-                    log.info("更新文件路径为绝对路径: fileId={}, oldPath={}, newPath={}", 
-                            existingFile.getId(), filePath, existingFile.getFilePath());
-                }
+            if (fileExists) {
+                // 【修改逻辑】秒传不再复用旧记录，而是"后台复制文件"并创建新记录
+                // 这样可以保证每个 knowledge 都有独立的文件ID，解决预览缓存问题
                 
-                UploadResponseDTO response = new UploadResponseDTO();
-                response.setCompleted(true);
-                FileDTO fileDTO = new FileDTO();
-                BeanUtils.copyProperties(existingFile, fileDTO);
-                response.setFile(fileDTO);
-                return response;
+                try {
+                    log.info("执行秒传文件复制: foundHash={}, existingFileId={}, existingPath={}", 
+                                fileHash, existingFile.getId(), existingFile.getFilePath());
+
+                    // 1. 生成新的文件名和路径
+                    String fileExtension = "";
+                    String originalName = existingFile.getFileName();
+                    if (originalName != null && originalName.contains(".")) {
+                        fileExtension = originalName.substring(originalName.lastIndexOf("."));
+                    } else if (fileName.contains(".")) {
+                         // 尝试从新上传的文件名获取后缀
+                        fileExtension = fileName.substring(fileName.lastIndexOf("."));
+                    }
+                    
+                    String newFileName = IdUtil.simpleUUID() + fileExtension;
+                    Path newFilePath = Paths.get(uploadPath, newFileName);
+                    
+                    // 2. 物理复制文件
+                    Files.copy(filePathObj, newFilePath);
+                    log.info("执行秒传文件复制: {} -> {}", filePathObj, newFilePath);
+                    
+                    // 3. 创建新的数据库记录
+                    FileInfo newFileInfo = new FileInfo();
+                    // 复制属性，但 ID、时间、路径、文件名使用新的
+                    BeanUtils.copyProperties(existingFile, newFileInfo, "id", "createTime", "updateTime", "filePath", "fileName", "status");
+                    
+                    newFileInfo.setFileName(fileName); // 使用本次上传的文件名
+                    newFileInfo.setFilePath(newFilePath.toAbsolutePath().toString());
+                    newFileInfo.setCreateTime(LocalDateTime.now());
+                    newFileInfo.setStatus(Constants.FILE_STATUS_DRAFT);
+                    
+                    fileInfoMapper.insert(newFileInfo);
+                    log.info("秒传创建新文件记录: oldId={} -> newId={}", existingFile.getId(), newFileInfo.getId());
+                    
+                    // 4. 返回成功
+                    UploadResponseDTO response = new UploadResponseDTO();
+                    response.setCompleted(true);
+                    FileDTO fileDTO = new FileDTO();
+                    BeanUtils.copyProperties(newFileInfo, fileDTO);
+                    response.setFile(fileDTO);
+                    return response;
+                    
+                } catch (IOException e) {
+                    log.error("秒传文件复制失败，降级为普通上传", e);
+                    // 复制失败，不返回，继续执行下方的普通上传逻辑
+                }
+            } else {
+                // 记录存在但物理文件不存在，清理脏数据
+                log.warn("文件记录存在但文件不存在，删除记录: fileId={}", existingFile.getId());
+                fileInfoMapper.deleteById(existingFile.getId());
             }
         }
 
@@ -357,17 +391,39 @@ public class FileServiceImpl implements FileService {
         try {
             Files.createDirectories(finalFilePath.getParent());
             long totalSize = 0;
-            try (FileOutputStream fos = new FileOutputStream(finalFilePath.toFile())) {
+            
+            // 使用 FileChannel 和 transferTo 实现 Zero-Copy 文件合并
+            // 这种方式避免了将分片数据加载到 JVM 堆内存，直接在操作系统内核态完成数据传输
+            try (FileChannel outputChannel = FileChannel.open(
+                    finalFilePath, 
+                    StandardOpenOption.CREATE, 
+                    StandardOpenOption.WRITE, 
+                    StandardOpenOption.TRUNCATE_EXISTING)) {
+                
+                // 按分片索引排序，确保合并顺序正确
+                chunks.sort((a, b) -> Integer.compare(a.getChunkIndex(), b.getChunkIndex()));
+                
                 for (ChunkInfo chunk : chunks) {
                     Path chunkPath = Paths.get(chunk.getChunkPath());
                     if (!Files.exists(chunkPath)) {
                         log.error("分片文件不存在: path={}", chunkPath.toAbsolutePath());
                         throw new RuntimeException("分片文件不存在: " + chunkPath);
                     }
-                    byte[] chunkData = Files.readAllBytes(chunkPath);
-                    fos.write(chunkData);
-                    totalSize += chunkData.length;
-                    log.debug("合并分片: index={}, size={}", chunk.getChunkIndex(), chunkData.length);
+                    
+                    // 使用 transferTo 实现 Zero-Copy：数据直接从源文件传输到目标文件
+                    // 无需经过 JVM 堆内存，减少了内存拷贝次数和 CPU 上下文切换
+                    try (FileChannel inputChannel = FileChannel.open(chunkPath, StandardOpenOption.READ)) {
+                        long chunkSize = inputChannel.size();
+                        long transferred = 0;
+                        
+                        // transferTo 可能不会一次性传输完所有数据，需要循环直到全部传输完成
+                        while (transferred < chunkSize) {
+                            transferred += inputChannel.transferTo(transferred, chunkSize - transferred, outputChannel);
+                        }
+                        
+                        totalSize += chunkSize;
+                        log.debug("合并分片: index={}, size={}", chunk.getChunkIndex(), chunkSize);
+                    }
                 }
             }
             

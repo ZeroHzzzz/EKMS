@@ -35,6 +35,14 @@ public class Knowledge extends BaseEntity {
      */
     private String contentText;
 
+    /**
+     * Whether the document is private (restricted access)
+     */
+    private Boolean isPrivate;
+
+    public Boolean getIsPrivate() { return isPrivate; }
+    public void setIsPrivate(Boolean isPrivate) { this.isPrivate = isPrivate; }
+
     // Manual Getters and Setters to ensure compilation success
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }

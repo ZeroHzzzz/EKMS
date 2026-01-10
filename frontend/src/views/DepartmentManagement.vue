@@ -46,7 +46,7 @@
       width="500px"
       class="dept-dialog"
     >
-      <el-form :model="departmentForm" :rules="rules" ref="departmentFormRef" label-width="100px">
+      <el-form :model="departmentForm" :rules="rules" ref="departmentFormRef" label-width="100px" @submit.prevent="saveDepartment">
         <el-form-item label="部门名称" prop="name">
           <el-input v-model="departmentForm.name" placeholder="请输入部门名称" />
         </el-form-item>

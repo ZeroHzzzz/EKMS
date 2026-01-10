@@ -518,6 +518,23 @@ public class OnlyOfficeController {
      * 使用 fileHash 确保文件内容变化时 key 也会变化，避免 OnlyOffice 返回缓存的旧文档
      */
     private String generateDocumentKey(Long fileId, FileDTO fileDTO) {
+        // 尝试获取关联的知识ID，以实现更严格的缓存隔离
+        try {
+            KnowledgeDTO knowledge = knowledgeService.getKnowledgeByFileId(fileId);
+            if (knowledge != null) {
+                Long kId = knowledge.getId();
+                Long ver = knowledge.getVersion();
+                if (fileDTO != null && fileDTO.getFileHash() != null) {
+                    String hashPrefix = fileDTO.getFileHash().substring(0, Math.min(16, fileDTO.getFileHash().length()));
+                    return "k_" + kId + "_v_" + ver + "_f_" + fileId + "_" + hashPrefix;
+                } else {
+                    return "k_" + kId + "_v_" + ver + "_f_" + fileId + "_" + System.currentTimeMillis();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("生成文档Key时获取知识信息失败: {}", e.getMessage());
+        }
+
         // 优先使用 fileHash，确保内容变化时 key 变化
         if (fileDTO != null && fileDTO.getFileHash() != null && !fileDTO.getFileHash().isEmpty()) {
             // 取 hash 的前16位，足够唯一且减少 key 长度

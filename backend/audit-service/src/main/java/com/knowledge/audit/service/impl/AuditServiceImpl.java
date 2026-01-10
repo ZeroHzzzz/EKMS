@@ -165,15 +165,16 @@ public class AuditServiceImpl implements AuditService {
         // 核心更新：使用 KnowledgeService 的合并并发布逻辑
         if (audit.getKnowledgeId() != null) {
             try {
-                // 如果指定了版本，则进行合并发布（可能是草稿合并）
+                // 如果指定了版本，直接发布该版本（不进行Merge操作）
                 if (audit.getVersion() != null) {
-                    com.knowledge.api.dto.KnowledgeDTO result = knowledgeService.mergeAndPublish(
-                        audit.getKnowledgeId(), 
-                        audit.getVersion(), 
-                        resolvedContent
-                    );
-                    log.info("审核通过并完成合并发布: knowledgeId={}, incomingVersion={}, newVersion={}", 
-                            audit.getKnowledgeId(), audit.getVersion(), result.getVersion());
+                    boolean success = knowledgeService.publishVersion(audit.getKnowledgeId(), audit.getVersion());
+                    if (!success) {
+                        throw new RuntimeException("发布版本失败");
+                    }
+                    // Fetch updated knowledge for logging/result
+                    com.knowledge.api.dto.KnowledgeDTO result = knowledgeService.getKnowledgeById(audit.getKnowledgeId());
+                    log.info("审核通过，直接发布版本: knowledgeId={}, publishVersion={}", 
+                            audit.getKnowledgeId(), audit.getVersion());
                 } else {
                     // 兼容旧数据，没有版本号时发布当前版本
                     knowledgeService.publishKnowledge(audit.getKnowledgeId());

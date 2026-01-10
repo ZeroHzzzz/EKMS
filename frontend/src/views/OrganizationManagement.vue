@@ -72,7 +72,7 @@
             @click="selectDepartment(dept.id)"
             @dragover.prevent
             @drop="handleDropToDept($event, dept)"
-            @contextmenu.prevent="showDeptContextMenu($event, dept)"
+
           >
             <div class="dept-node-content">
               <el-icon class="dept-icon"><OfficeBuilding /></el-icon>
@@ -184,7 +184,7 @@
       :title="editingDept ? '编辑部门' : '添加部门'"
       width="500px"
     >
-      <el-form :model="deptForm" :rules="deptRules" ref="deptFormRef" label-width="100px">
+      <el-form :model="deptForm" :rules="deptRules" ref="deptFormRef" label-width="100px" @submit.prevent="saveDepartment">
         <el-form-item label="部门名称" prop="name">
           <el-input v-model="deptForm.name" placeholder="请输入部门名称" />
         </el-form-item>
@@ -209,7 +209,7 @@
       :title="editingUser ? '编辑用户' : '添加用户'"
       width="500px"
     >
-      <el-form :model="userForm" :rules="userRules" ref="userFormRef" label-width="80px">
+      <el-form :model="userForm" :rules="userRules" ref="userFormRef" label-width="80px" @submit.prevent="saveUser">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="userForm.username" :disabled="!!editingUser" placeholder="请输入用户名" />
         </el-form-item>

@@ -71,14 +71,14 @@ fi
 echo ""
 echo "[3/3] Cleaning Elasticsearch indices..."
 if command -v curl &> /dev/null; then
-    echo "Deleting 'knowledge_index'..."
-    response=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "http://localhost:9200/knowledge_index")
+    echo "Deleting all indices..."
+    response=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "http://localhost:9200/_all")
     if [ "$response" -eq 200 ]; then
-        echo "Index deleted successfully."
+        echo "All indices deleted successfully."
     elif [ "$response" -eq 404 ]; then
-        echo "Index not found (already deleted)."
+        echo "No indices found (already cleaned)."
     else
-        echo "Failed to delete index. HTTP Status: $response"
+        echo "Failed to delete indices. HTTP Status: $response"
         echo "Check if Elasticsearch is running on localhost:9200"
     fi
 else

@@ -39,6 +39,8 @@ public class DepartmentServiceImpl implements DepartmentService {
         
         Department department = new Department();
         BeanUtils.copyProperties(departmentDTO, department);
+        department.setCreateTime(java.time.LocalDateTime.now());
+        department.setUpdateTime(java.time.LocalDateTime.now());
         departmentMapper.insert(department);
         
         log.info("部门创建成功 - 部门ID: {}, 部门名称: {}", department.getId(), department.getName());
@@ -70,6 +72,7 @@ public class DepartmentServiceImpl implements DepartmentService {
         
         department.setName(departmentDTO.getName());
         department.setDescription(departmentDTO.getDescription());
+        department.setUpdateTime(java.time.LocalDateTime.now());
         departmentMapper.updateById(department);
         
         log.info("部门更新成功 - 部门ID: {}", departmentDTO.getId());

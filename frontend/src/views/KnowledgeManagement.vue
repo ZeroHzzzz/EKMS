@@ -6,7 +6,7 @@
         <p class="subtitle">文档审核、维护与管理</p>
       </div>
       <div class="header-right">
-        <el-button type="primary" size="large" @click="showUploadDialog = true" class="add-btn">
+        <el-button type="primary" size="large" @click="router.push('/file-upload')" class="add-btn">
           <el-icon class="el-icon--left"><Upload /></el-icon> 上传文档
         </el-button>
       </div>
@@ -246,136 +246,9 @@
     />
     </div>
 
-    <!-- 上传文档对话框 -->
-    <el-dialog v-model="showUploadDialog" title="上传文档" width="700px" @close="handleUploadDialogClose" @open="loadKnowledgeTree">
-      <el-upload
-        class="upload-demo"
-        drag
-        :auto-upload="false"
-        :on-change="handleFileChange"
-        :file-list="fileList"
-        multiple
-      >
-        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-        <div class="el-upload__text">
-          将文件拖到此处，或<em>点击上传</em>
-        </div>
-        <template #tip>
-          <div class="el-upload__tip">
-            支持 Word、Excel、PDF、图片、视频等格式，支持批量上传
-          </div>
-        </template>
-      </el-upload>
 
-      <!-- 上传信息表单 -->
-      <div v-if="fileList.length > 0" class="upload-form" style="margin-top: 20px">
-        <el-form :model="uploadForm" label-width="120px">
-          <el-form-item label="存放的知识结构">
-            <el-input 
-              v-model="uploadForm.parentPath" 
-              placeholder="请选择存放的知识结构（可选）" 
-              readonly
-              style="cursor: default;"
-            >
-              <template #append>
-                <el-button @click="showFolderSelectDialog = true" :icon="FolderOpened">...</el-button>
-              </template>
-            </el-input>
-          </el-form-item>
-          <el-form-item label="摘要">
-            <el-input v-model="uploadForm.summary" type="textarea" :rows="3" placeholder="请输入文件摘要" />
-          </el-form-item>
-          <el-form-item label="关键词">
-            <el-input v-model="uploadForm.keywords" placeholder="请输入关键词，多个用逗号分隔" />
-          </el-form-item>
-        </el-form>
-      </div>
 
-      <div v-if="uploading" class="upload-progress" style="margin: 20px 0">
-        <el-progress :percentage="uploadProgress" />
-        <p style="margin-top: 10px">上传中：{{ currentFileName }}</p>
-      </div>
 
-      <template #footer>
-        <el-button @click="showUploadDialog = false">取消</el-button>
-        <el-button 
-          type="primary" 
-          @click="startUpload" 
-          :disabled="fileList.length === 0 || uploading"
-          :loading="uploading"
-        >
-          开始上传
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 文件夹选择对话框 -->
-    <el-dialog v-model="showFolderSelectDialog" title="选择存放位置" width="600px">
-      <div class="folder-select-container" @contextmenu.prevent="showFolderContextMenuOnBlank">
-        <el-tree
-          :key="folderSelectTreeKey"
-          ref="folderSelectTreeRef"
-          :data="parentNodeOptions"
-          :props="{ label: 'title', children: 'children' }"
-          node-key="id"
-          :default-expand-all="false"
-          :highlight-current="true"
-          @node-click="handleFolderSelect"
-          class="folder-select-tree"
-          :expand-on-click-node="false"
-        >
-          <template #default="{ node, data }">
-            <div 
-              class="folder-select-node"
-              @contextmenu.prevent="showFolderContextMenu($event, node, data)"
-            >
-              <el-icon class="folder-icon"><Folder /></el-icon>
-              <span class="folder-title">{{ data.title }}</span>
-            </div>
-          </template>
-        </el-tree>
-      </div>
-      <div v-if="selectedFolderPath" class="selected-folder-info">
-        <el-icon><FolderOpened /></el-icon>
-        <span>已选择：{{ selectedFolderPath }}</span>
-      </div>
-      <template #footer>
-        <el-button @click="clearFolderSelection">清除选择</el-button>
-        <el-button type="primary" @click="confirmFolderSelection">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 文件夹选择器右键菜单 -->
-    <div
-      v-if="folderContextMenuVisible"
-      class="folder-context-menu"
-      :style="{ left: folderContextMenuX + 'px', top: folderContextMenuY + 'px' }"
-      @click.stop
-    >
-      <div class="context-menu-item" @click="handleFolderContextMenuClick('newFolder')">
-        <el-icon><Folder /></el-icon>
-        <span>新建文件夹</span>
-      </div>
-    </div>
-
-    <!-- 新建文件夹对话框 -->
-    <el-dialog v-model="showNewFolderDialog" title="新建文件夹" width="400px">
-      <el-form :model="newFolderForm" label-width="80px">
-        <el-form-item label="文件夹名称" required>
-          <el-input 
-            v-model="newFolderForm.title" 
-            placeholder="请输入文件夹名称"
-            @keyup.enter="confirmNewFolder"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showNewFolderDialog = false">取消</el-button>
-        <el-button type="primary" @click="confirmNewFolder" :disabled="!newFolderForm.title.trim()">
-          确定
-        </el-button>
-      </template>
-    </el-dialog>
 
     <!-- 审核通过对话框 -->
     <el-dialog v-model="showApproveDialogVisible" title="审核通过" width="800px">
@@ -554,7 +427,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { hasPermission, hasRole, ROLE_ADMIN, ROLE_EDITOR } from '../utils/permission'
-import { Upload, UploadFilled, Search, Location, View, Star, Clock, User, ArrowDown, Check, Close, Folder, FolderOpened, Refresh, Document } from '@element-plus/icons-vue'
+import { Upload, Search, Location, View, Star, Clock, User, ArrowDown, Check, Close, Refresh, Document } from '@element-plus/icons-vue'
 import api from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CryptoJS from 'crypto-js'
@@ -594,41 +467,9 @@ const hasPendingItems = computed(() => {
 const searchHistory = ref([])
 const showSearchHistory = ref(false)
 
-// 上传相关
-const showUploadDialog = ref(false)
-const fileList = ref([])
-const uploading = ref(false)
-const uploadProgress = ref(0)
-const currentFileName = ref('')
-const uploadForm = ref({
-  parentId: null, // 父节点ID，null表示根节点
-  summary: '',
-  keywords: '',
-  parentPath: '' // 存放的知识结构路径（显示用）
-})
 
-// 知识树相关
-const knowledgeTree = ref([])
-const treeLoading = ref(false)
-const parentNodeOptions = ref([]) // 父节点选择器选项（只包含文件夹）
-const folderSelectTreeRef = ref(null) // 文件夹选择树引用
-const folderSelectTreeKey = ref(0) // 树组件的key，用于强制刷新
-const showFolderSelectDialog = ref(false) // 文件夹选择对话框
-const selectedFolderId = ref(null) // 临时选中的文件夹ID
-const selectedFolderPath = ref('') // 临时选中的文件夹路径
 
-// 文件夹选择器右键菜单
-const folderContextMenuVisible = ref(false)
-const folderContextMenuX = ref(0)
-const folderContextMenuY = ref(0)
-const folderContextMenuData = ref(null) // 右键点击的节点数据
 
-// 新建文件夹对话框
-const showNewFolderDialog = ref(false)
-const newFolderForm = ref({
-  title: '',
-  parentId: null
-})
 
 // 审核相关
 const showApproveDialogVisible = ref(false)

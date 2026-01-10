@@ -32,18 +32,18 @@ public class KnowledgeController {
     @DubboReference(check = false, timeout = 10000)
     private KnowledgeRelationService relationService;
 
+    @DubboReference(check = false, timeout = 10000)
+    private UserService userService;
+    
+    @DubboReference(check = false, timeout = 10000)
+    private PermissionService permissionService;
+
     @PostMapping
     public Result<KnowledgeDTO> createKnowledge(@RequestBody KnowledgeDTO knowledgeDTO) {
         KnowledgeDTO result = knowledgeService.createKnowledge(knowledgeDTO);
-        // 同步索引到ElasticSearch
-        if (result != null) {
-            try {
-                searchService.indexKnowledge(result);
-            } catch (Exception e) {
-                // 索引失败不影响主流程，只记录日志
-                System.err.println("同步索引失败: " + e.getMessage());
-            }
-        }
+        log.info("createKnowledge result: id={}, title={}", result.getId(), result.getTitle());
+        // Indexing is handled by Service if status is APPROVED.
+        // Drafts (Pending) should NOT be indexed.
         return Result.success(result);
     }
 
@@ -51,21 +51,61 @@ public class KnowledgeController {
     public Result<KnowledgeDTO> updateKnowledge(@PathVariable Long id, @RequestBody KnowledgeDTO knowledgeDTO) {
         knowledgeDTO.setId(id);
         KnowledgeDTO result = knowledgeService.updateKnowledge(knowledgeDTO);
-        // 同步更新索引到ElasticSearch
-        if (result != null) {
-            try {
-                searchService.updateIndex(result);
-            } catch (Exception e) {
-                // 索引失败不影响主流程，只记录日志
-                System.err.println("更新索引失败: " + e.getMessage());
-            }
-        }
+        // Only draft update - DO NOT update Search Index
         return Result.success(result);
     }
 
     @GetMapping("/{id:\\d+}")
-    public Result<KnowledgeDTO> getKnowledge(@PathVariable Long id) {
+    public Result<KnowledgeDTO> getKnowledge(@PathVariable Long id, @RequestParam(required = false) Long userId) {
         KnowledgeDTO result = knowledgeService.getKnowledgeById(id);
+        if (result == null) {
+             return Result.error("Knowledge not found");
+        }
+
+        // Permission Check for Private Documents
+        if (Boolean.TRUE.equals(result.getIsPrivate())) {
+            boolean canView = false;
+            log.info("Checking permissions for private doc ID: {}, UserId param: {}", id, userId);
+            
+            if (userId != null) {
+                // 1. Check if Admin
+                UserDTO user = userService.getUserById(userId);
+                log.info("Retrieved user: {}", user);
+                
+                if (user != null && Constants.ROLE_ADMIN.equals(user.getRole())) {
+                    canView = true;
+                    log.info("User is admin, allowed.");
+                }
+                // 2. Check if Creator/Author (Compare usernames or IDs if available)
+                // Note: result.getCreateBy() returns username. user.getUsername() needed.
+                if (!canView && user != null && result.getCreateBy() != null) {
+                    log.info("Comparing creator: '{}' with user: '{}'", result.getCreateBy(), user.getUsername());
+                    if (result.getCreateBy().equals(user.getUsername())) {
+                        canView = true;
+                        log.info("User is creator, allowed.");
+                    }
+                }
+                // 3. Check Explicit Permissions
+                if (!canView) {
+                    canView = permissionService.hasPermission(id, userId, "VIEW");
+                    log.info("Explicit permission check result: {}", canView);
+                }
+            } else {
+                log.info("UserId is null, denying access.");
+            }
+            
+            if (!canView) {
+                // Mask content
+                log.info("Access Denied. Masking content.");
+                result.setContent("无权查看此私有文档的内容");
+                result.setContentText(null);
+                result.setSummary("私有文档");
+                result.setFileId(null);
+                result.setHasDraft(false); // Hide draft info
+                // Keep Title, ID, Category, Author, CreateTime for list visibility
+            }
+        }
+        
         knowledgeService.updateClickCount(id);
         return Result.success(result);
     }
@@ -619,6 +659,38 @@ public class KnowledgeController {
             log.error("发布版本失败: knowledgeId={}, version={}", id, version, e);
             return Result.error("发布版本失败: " + e.getMessage());
         }
+    }
+    @PostMapping("/{id:\\d+}/archive")
+    public Result<Boolean> archiveVersion(
+            @PathVariable Long id,
+            @RequestParam String versionName,
+            @RequestParam String operatorUsername) {
+        knowledgeService.archiveVersion(id, versionName, operatorUsername);
+        return Result.success(true);
+    }
+
+    // ==================== 权限管理接口 ====================
+    
+
+
+    @GetMapping("/{id:\\d+}/permissions")
+    public Result<List<KnowledgePermissionDTO>> getPermissions(@PathVariable Long id) {
+        return Result.success(permissionService.getPermissions(id));
+    }
+
+    @PostMapping("/{id:\\d+}/permissions")
+    public Result<Boolean> setPermission(
+            @PathVariable Long id,
+            @RequestParam Long userId,
+            @RequestParam String permissionType) {
+        return Result.success(permissionService.setPermission(id, userId, permissionType));
+    }
+
+    @DeleteMapping("/{id:\\d+}/permissions")
+    public Result<Boolean> removePermission(
+            @PathVariable Long id,
+            @RequestParam Long userId) {
+        return Result.success(permissionService.removePermission(id, userId));
     }
 }
 
