@@ -359,15 +359,98 @@ public class KnowledgeController {
             // 兼容旧调用方式（无权限过滤）
             result = knowledgeService.getKnowledgeVersions(id);
         }
+
+        // 权限检查：私有文档需脱敏
+        KnowledgeDTO mainKnowledge = knowledgeService.getKnowledgeById(id);
+        if (mainKnowledge != null && Boolean.TRUE.equals(mainKnowledge.getIsPrivate())) {
+            boolean canView = false;
+            
+            // 1. Check if explicitly Admin param (trusted internal call or vetted)
+            if (isAdmin) {
+                canView = true;
+            }
+            
+            // 2. Check User based permissions
+            if (!canView && username != null) {
+                UserDTO user = userService.getUserByUsername(username);
+                if (user != null) {
+                    // Check Admin Role
+                    if (Constants.ROLE_ADMIN.equals(user.getRole())) {
+                        canView = true;
+                    }
+                    // Check Creator
+                    if (!canView && mainKnowledge.getCreateBy() != null && mainKnowledge.getCreateBy().equals(username)) {
+                        canView = true;
+                    }
+                    // Check Explicit Permission
+                    if (!canView) {
+                        canView = permissionService.hasPermission(id, user.getId(), "VIEW");
+                    }
+                }
+            }
+            
+            // If access denied, mask content
+            if (!canView) {
+                log.info("Access Denied to private doc versions list. Masking content. ID: {}, User: {}", id, username);
+                for (KnowledgeVersionDTO v : result) {
+                    v.setContent("无权查看此私有文档的内容");
+                    v.setSummary("私有文档");
+                    v.setFileId(null);
+                }
+            }
+        }
+
         return Result.success(result);
     }
 
     @GetMapping("/{id:\\d+}/versions/{version:\\d+}")
-    public Result<KnowledgeVersionDTO> getKnowledgeVersion(@PathVariable Long id, @PathVariable Long version) {
+    public Result<KnowledgeVersionDTO> getKnowledgeVersion(
+            @PathVariable Long id, 
+            @PathVariable Long version,
+            @RequestParam(required = false) Long userId) {
+        
         KnowledgeVersionDTO result = knowledgeService.getKnowledgeVersion(id, version);
         if (result == null) {
             return Result.error("版本不存在");
         }
+
+        // 获取主文档信息以检查隐私设置
+        KnowledgeDTO mainKnowledge = knowledgeService.getKnowledgeById(id);
+        if (mainKnowledge != null && Boolean.TRUE.equals(mainKnowledge.getIsPrivate())) {
+            boolean canView = false;
+            log.info("Checking permissions for private doc version ID: {}, Version: {}, UserId param: {}", id, version, userId);
+            
+            if (userId != null) {
+                // 1. Check if Admin
+                UserDTO user = userService.getUserById(userId);
+                
+                if (user != null && Constants.ROLE_ADMIN.equals(user.getRole())) {
+                    canView = true;
+                }
+                // 2. Check if Creator/Author (Compare usernames)
+                // Note: mainKnowledge.getCreateBy() is the owner.
+                if (!canView && user != null && mainKnowledge.getCreateBy() != null) {
+                    if (mainKnowledge.getCreateBy().equals(user.getUsername())) {
+                        canView = true;
+                    }
+                }
+                // 3. Check Explicit Permissions
+                if (!canView) {
+                    canView = permissionService.hasPermission(id, userId, "VIEW");
+                }
+            } else {
+                log.info("UserId is null, denying access to private version.");
+            }
+            
+            if (!canView) {
+                // Mask content
+                log.info("Access Denied to private version. Masking content.");
+                result.setContent("无权查看此私有文档的内容");
+                result.setSummary("私有文档");
+                result.setFileId(null);
+            }
+        }
+        
         return Result.success(result);
     }
 
