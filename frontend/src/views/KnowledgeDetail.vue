@@ -357,7 +357,9 @@
                         <div class="rel-title">{{ relation.relatedKnowledge?.title }}</div>
                         <el-tag size="small" :type="getRelationTypeTag(relation.relationType)">{{ getRelationTypeText(relation.relationType) }}</el-tag>
                       </div>
-                      <el-button v-if="canEdit(knowledge)" size="small" text type="danger" icon="Delete" @click.stop="deleteRelation(relation.id)"></el-button>
+                      <el-tooltip content="删除关联" placement="top" :hide-after="0">
+                        <el-button v-if="canEdit(knowledge)" size="small" type="danger" :icon="Delete" @click.stop="deleteRelation(relation.id)" circle plain></el-button>
+                      </el-tooltip>
                     </div>
                   <!-- 推荐关联 -->
                   <div class="relation-list" v-if="suggestedRelations.length > 0" style="margin-top: 20px;">
@@ -1425,7 +1427,7 @@ const deleteComment = async (commentId) => {
 const deleteRelation = async (relationId) => {
   try {
     await ElMessageBox.confirm('确定删除这个关联吗？', '提示', { type: 'warning' })
-    await api.delete(`/knowledge/relations/${relationId}`)
+    await api.delete(`/knowledge/${route.params.id}/relations/${relationId}`)
     ElMessage.success('删除成功')
     loadKnowledgeRelations()
   } catch (e) {
@@ -1439,7 +1441,7 @@ const remoteMethod = async (query) => {
   searchLoading.value = true
   try {
      const res = await api.post('/knowledge/search', { keyword: query, pageNum: 1, pageSize: 10 })
-     relationSearchResults.value = (res.data.list || []).filter(i => i.id !== route.params.id)
+     relationSearchResults.value = (res.data.results || []).filter(i => i.id !== route.params.id)
   } finally { searchLoading.value = false }
 }
 

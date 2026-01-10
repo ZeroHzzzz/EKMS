@@ -32,54 +32,90 @@ public class KnowledgeRelationServiceImpl implements KnowledgeRelationService {
 
     @Override
     @Transactional
+
     public boolean addRelation(Long knowledgeId, Long relatedKnowledgeId, String relationType) {
-        // 检查是否已存在
-        LambdaQueryWrapper<KnowledgeRelation> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(KnowledgeRelation::getKnowledgeId, knowledgeId);
-        wrapper.eq(KnowledgeRelation::getRelatedKnowledgeId, relatedKnowledgeId);
-        
-        if (relationMapper.selectCount(wrapper) > 0) {
-            return false; // 已存在
-        }
-        
         // 不能关联自己
         if (knowledgeId.equals(relatedKnowledgeId)) {
             throw new RuntimeException("不能关联自己");
         }
+
+        // 1. 检查正向关联是否存在
+        LambdaQueryWrapper<KnowledgeRelation> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeRelation::getKnowledgeId, knowledgeId);
+        wrapper.eq(KnowledgeRelation::getRelatedKnowledgeId, relatedKnowledgeId);
         
-        // 添加关联
-        KnowledgeRelation relation = new KnowledgeRelation();
-        relation.setKnowledgeId(knowledgeId);
-        relation.setRelatedKnowledgeId(relatedKnowledgeId);
-        relation.setRelationType(relationType != null ? relationType : "RELATED");
-        relation.setCreateTime(LocalDateTime.now());
+        boolean exists = relationMapper.selectCount(wrapper) > 0;
         
-        relationMapper.insert(relation);
+        if (!exists) {
+            // 添加正向关联
+            KnowledgeRelation relation = new KnowledgeRelation();
+            relation.setKnowledgeId(knowledgeId);
+            relation.setRelatedKnowledgeId(relatedKnowledgeId);
+            relation.setRelationType(relationType != null ? relationType : "RELATED");
+            relation.setCreateTime(LocalDateTime.now());
+            relationMapper.insert(relation);
+        }
         
-        // 同时创建反向关联（可选，根据需求决定）
-        // KnowledgeRelation reverseRelation = new KnowledgeRelation();
-        // reverseRelation.setKnowledgeId(relatedKnowledgeId);
-        // reverseRelation.setRelatedKnowledgeId(knowledgeId);
-        // reverseRelation.setRelationType(relationType);
-        // relationMapper.insert(reverseRelation);
+        // 2. 检查反向关联是否存在 (Bidirectional)
+        LambdaQueryWrapper<KnowledgeRelation> reverseWrapper = new LambdaQueryWrapper<>();
+        reverseWrapper.eq(KnowledgeRelation::getKnowledgeId, relatedKnowledgeId);
+        reverseWrapper.eq(KnowledgeRelation::getRelatedKnowledgeId, knowledgeId);
         
-        return true;
+        boolean reverseExists = relationMapper.selectCount(reverseWrapper) > 0;
+        
+        if (!reverseExists) {
+            // 添加反向关联
+            KnowledgeRelation reverseRelation = new KnowledgeRelation();
+            reverseRelation.setKnowledgeId(relatedKnowledgeId);
+            reverseRelation.setRelatedKnowledgeId(knowledgeId);
+            reverseRelation.setRelationType(relationType != null ? relationType : "RELATED");
+            reverseRelation.setCreateTime(LocalDateTime.now());
+            relationMapper.insert(reverseRelation);
+        }
+        
+        return !exists || !reverseExists;
     }
 
     @Override
     @Transactional
     public boolean deleteRelation(Long relationId) {
-        return relationMapper.deleteById(relationId) > 0;
+        // 先查询该关联，以便找到反向关联
+        KnowledgeRelation relation = relationMapper.selectById(relationId);
+        if (relation == null) {
+            return false;
+        }
+        
+        Long kId = relation.getKnowledgeId();
+        Long rId = relation.getRelatedKnowledgeId();
+        
+        // 删除正向
+        int rows = relationMapper.deleteById(relationId);
+        
+        // 删除反向
+        LambdaQueryWrapper<KnowledgeRelation> reverseWrapper = new LambdaQueryWrapper<>();
+        reverseWrapper.eq(KnowledgeRelation::getKnowledgeId, rId);
+        reverseWrapper.eq(KnowledgeRelation::getRelatedKnowledgeId, kId);
+        relationMapper.delete(reverseWrapper);
+        
+        return rows > 0;
     }
 
     @Override
     @Transactional
     public boolean deleteRelation(Long knowledgeId, Long relatedKnowledgeId) {
+        // 删除正向
         LambdaQueryWrapper<KnowledgeRelation> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(KnowledgeRelation::getKnowledgeId, knowledgeId);
         wrapper.eq(KnowledgeRelation::getRelatedKnowledgeId, relatedKnowledgeId);
+        int rows = relationMapper.delete(wrapper);
         
-        return relationMapper.delete(wrapper) > 0;
+        // 删除反向
+        LambdaQueryWrapper<KnowledgeRelation> reverseWrapper = new LambdaQueryWrapper<>();
+        reverseWrapper.eq(KnowledgeRelation::getKnowledgeId, relatedKnowledgeId);
+        reverseWrapper.eq(KnowledgeRelation::getRelatedKnowledgeId, knowledgeId);
+        relationMapper.delete(reverseWrapper);
+        
+        return rows > 0;
     }
 
     @Override
