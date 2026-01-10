@@ -46,15 +46,13 @@ public class PermissionServiceImpl implements PermissionService {
         KnowledgePermission existing = permissionMapper.selectOne(wrapper);
         if (existing != null) {
             existing.setPermissionType(permissionType);
-            existing.setUpdateTime(LocalDateTime.now());
             return permissionMapper.updateById(existing) > 0;
         } else {
             KnowledgePermission perm = new KnowledgePermission();
             perm.setKnowledgeId(knowledgeId);
             perm.setUserId(userId);
             perm.setPermissionType(permissionType);
-            perm.setCreateTime(LocalDateTime.now());
-            perm.setUpdateTime(LocalDateTime.now());
+            // Table doesn't support timestamps
             return permissionMapper.insert(perm) > 0;
         }
     }

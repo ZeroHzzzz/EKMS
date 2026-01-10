@@ -119,7 +119,7 @@
                 </div>
               </div>
               
-              <div class="preview-stage" :key="previewKey">
+              <div class="preview-stage" :key="previewKey" ref="previewStageRef">
                 <!-- PDF -->
                 <iframe 
                   v-if="isPdfFile(fileInfo.fileType)"
@@ -1916,14 +1916,39 @@ const handleVisibilityChange = async () => {
 
 watch(() => route.params.id, loadDetail)
 
-onMounted(() => {
-    loadDetail()
-    
-    // Set watermark with current user name and date
+const previewStageRef = ref(null)
+
+// Watermark Logic
+const updateWatermark = () => {
     const userInfo = userStore.userInfo
     const userName = userInfo?.realName || userInfo?.username || 'User'
     const date = new Date().toLocaleDateString()
-    watermark.set(`${userName} ${date}`)
+    const text = `${userName} ${date}`
+    
+    // Apply to preview container if available
+    if (previewStageRef.value) {
+        watermark.set(text, previewStageRef.value)
+    }
+}
+
+watch(() => previewStageRef.value, (el) => {
+   if (el) {
+       updateWatermark()
+   }
+})
+
+// Re-apply when preview key changes (re-render)
+watch(previewKey, () => {
+    nextTick(() => {
+        updateWatermark()
+    })
+})
+
+onMounted(() => {
+    loadDetail()
+    
+    // Initial watermark attempt
+    nextTick(() => updateWatermark())
     
     // 监听页面可见性变化，用于从编辑器返回后刷新预览
     document.addEventListener('visibilitychange', handleVisibilityChange)

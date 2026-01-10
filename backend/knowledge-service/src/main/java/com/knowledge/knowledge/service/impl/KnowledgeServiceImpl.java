@@ -783,16 +783,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         targetVersion.setStatus(Constants.FILE_STATUS_APPROVED);
         knowledgeVersionMapper.updateById(targetVersion);
         
-        // 将之前的发布版本标记为非发布
-        LambdaQueryWrapper<KnowledgeVersion> oldVersionWrapper = new LambdaQueryWrapper<>();
-        oldVersionWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
-        oldVersionWrapper.ne(KnowledgeVersion::getVersion, version);
-        oldVersionWrapper.eq(KnowledgeVersion::getIsPublished, true);
-        List<KnowledgeVersion> oldPublishedVersions = knowledgeVersionMapper.selectList(oldVersionWrapper);
-        for (KnowledgeVersion oldVersion : oldPublishedVersions) {
-            oldVersion.setIsPublished(false);
-            knowledgeVersionMapper.updateById(oldVersion);
-        }
+        // 保留之前版本的发布状态，允许多个存档版本共存
+
         
         // 更新knowledge表：用发布版本的内容更新主表
         knowledge.setTitle(targetVersion.getTitle());
@@ -1550,17 +1542,18 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         KnowledgeVersion latestVersion = knowledgeVersionMapper.selectOne(latestWrapper);
         
         // 5. 确定新版本的状态
-        // 修正逻辑：在线编辑生成的版本直接为“已发布”(APPROVED)，不需要审核。
+        // 修正逻辑：在线编辑生成的版本状态为 APPROVED (无需审核)，但不视为“正式留档发布” (isPublished=false)
+        // 留档(Archive)需管理员手动进行
         String versionStatus = Constants.FILE_STATUS_APPROVED;
-        boolean isPublished = true;
+        boolean isPublished = false;
         
-        knowledge.setHasDraft(false); // 直接发布，无草稿
+        knowledge.setHasDraft(false); 
         // 如果从未发布过，且原来的状态为空，则设为 APPROVED
         if (knowledge.getStatus() == null) {
             knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
         }
 
-        log.info("用户编辑文件，直接创建已发布版本 - 知识ID: {}", knowledge.getId());
+        log.info("用户编辑文件，创建新版本(未留档) - 知识ID: {}", knowledge.getId());
 
         // Fix declarations
         Long newVersion;
@@ -1575,7 +1568,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
         knowledge.setHasDraft(false);
         
-        log.info("Creating NEW Published Version v{} for save", newVersion);
+        log.info("Creating NEW Version v{} for save", newVersion);
 
         // 设置版本属性
         version.setKnowledgeId(knowledge.getId());
@@ -1614,14 +1607,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         version.setIsPublished(isPublished);
         
         knowledgeVersionMapper.insert(version);
-        log.info("文件编辑创建新发布版本 - 知识ID: {}, 版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
+        log.info("文件编辑创建新版本 - 知识ID: {}, 版本: {}, 新文件ID: {}, 状态: {}, 操作者: {}", 
                 knowledgeId, newVersion, newFileId, versionStatus, operatorUsername);
         
         // 6. 更新knowledge表
         // 始终更新主表内容到最新版本
         knowledge.setFileId(newFileId);  // 更新到新文件
         knowledge.setVersion(newVersion);
-        knowledge.setPublishedVersion(newVersion); // 设置为当前发布版本
+        // knowledge.setPublishedVersion(newVersion); // 不要自动更新 publishedVersion，该字段仅指向最新的留档版本
         knowledge.setCurrentCommitHash(commitHash);
         
         // 重新提取文件内容用于搜索
@@ -1636,18 +1629,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         knowledge.setUpdateTime(LocalDateTime.now());
         knowledge.setUpdateBy(operatorUsername);
         
-        // 取消之前版本的发布标记
-        if (isPublished) {
-            LambdaQueryWrapper<KnowledgeVersion> oldWrapper = new LambdaQueryWrapper<>();
-            oldWrapper.eq(KnowledgeVersion::getKnowledgeId, knowledgeId);
-            oldWrapper.ne(KnowledgeVersion::getVersion, newVersion);
-            oldWrapper.eq(KnowledgeVersion::getIsPublished, true);
-            List<KnowledgeVersion> oldVersions = knowledgeVersionMapper.selectList(oldWrapper);
-            for (KnowledgeVersion v : oldVersions) {
-                v.setIsPublished(false);
-                knowledgeVersionMapper.updateById(v);
-            }
-        }
+        // 保留历史发布状态，允许多个已发布版本共存
+
         
         knowledgeMapper.updateById(knowledge);
         

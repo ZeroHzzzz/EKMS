@@ -81,12 +81,12 @@ Flowable 是一个轻量级、高性能的 BPMN 2.0 流程引擎。本系统利�
 ## 第三章 系统需求分析
 
 ### 3.1 业务流程分析
-系统的核心业务围绕“知识生命周期”展开，主要包括：
+系统的核心业务围绕"知识生命周期"展开，主要包括：
 1.  **生产**: 知识管理员上传文件或在线创建文档。
-2.  **审核**: 系统自动提交审核任务流，管理员进行审批。
-3.  **发布**: 审核通过后，更新 ES 索引，面向全员可见。
+2.  **审核**: 对于常规表单编辑，系统自动提交审核任务流，管理员进行审批；对于 OnlyOffice 在线编辑，采用直接发布模式，跳过审核流程。
+3.  **发布**: 审核通过后（或直接发布），更新 ES 索引，面向全员可见。
 4.  **消费**: 用户通过搜索、分类浏览、AI 问答获取知识。
-5.  **迭代**: 用户对已有知识发起编辑，生成新版本草稿，再次进入审核流。
+5.  **迭代**: 用户对已有知识发起编辑。常规编辑生成新版本草稿，再次进入审核流；OnlyOffice 编辑直接创建已发布版本，保留完整版本历史。
 
 ### 3.2 功能需求分析
 1.  **权限管理模块**: 基于 RBAC 模型，支持三级角色（系统管理员、知识管理员、普通用户）及部门数据隔离。
@@ -174,7 +174,7 @@ Flowable 是一个轻量级、高性能的 BPMN 2.0 流程引擎。本系统利�
 **2. 乐观锁冲突检测 (Optimistic Concurrency Control)**
 为维持线性历史的完整性，系统放弃了可能会阻塞用户操作的悲观锁（Pessimistic Locking），转而采用 CAS (Compare-And-Swap) 思想。
 
-*   **实现逻辑**：每个草稿版本在创建时，都会记录其基于的**基准版本号 (baseVersion)**，即创建草稿时的已发布版本号。当用户尝试发布草稿时，系统会校验 `baseVersion` 是否等于当前系统最新的 `publishedVersion`。如果相等，说明草稿基于最新版本，可以直接发布（Fast-Forward）；如果不相等，说明有其他用户发布了新版本，需要检测冲突。
+*   **实现逻辑**：仅适用于**常规编辑模式**（通过表单编辑）。每个草稿版本在创建时，都会记录其基于的**基准版本号 (baseVersion)**，即创建草稿时的已发布版本号。当用户尝试发布草稿时，系统会校验 `baseVersion` 是否等于当前系统最新的 `publishedVersion`。如果相等，说明草稿基于最新版本，可以直接发布（Fast-Forward）；如果不相等，说明有其他用户发布了新版本，需要检测冲突。对于 OnlyOffice 在线编辑，由于 OnlyOffice 本身具备文档锁机制，编辑完成后直接发布，无需冲突检测。
 
 *   **冲突检测流程 (checkMergeStatus 方法)**：
     1.  **获取三方版本**：
@@ -387,65 +387,116 @@ public UploadResponseDTO uploadChunk(ChunkUploadDTO chunkUploadDTO) {
 ### 5.4 文档在线协同编辑的实现
 
 #### 5.4.1 关键问题：多人同时编辑的冲突风险
-当多个用户通过 OnlyOffice 同时编辑同一文档时，存在并发冲突的风险。例如，用户 A 和用户 B 同时基于版本 v1 开始编辑，用户 A 先保存并发布，用户 B 随后尝试发布时，会发现基于的版本已被更新，导致冲突。
+系统支持两种编辑模式：**OnlyOffice在线编辑**和**常规表单编辑**。当多个用户同时编辑同一文档时，存在并发冲突的风险。例如，用户 A 和用户 B 同时基于版本 v1 开始编辑，用户 A 先保存，用户 B 随后保存时，可能会覆盖用户 A 的修改。
 
-#### 5.4.2 解决方案：版本隔离与发布时冲突检测
-本系统采用了**版本隔离 + 发布时检测**的策略，既保证了编辑的流畅性，又确保了数据一致性。
+#### 5.4.2 解决方案：差异化编辑策略
+本系统针对两种编辑模式采用了不同的策略：
+*   **OnlyOffice编辑**：采用"直接发布"策略，保存时立即创建已发布版本，不经过审核流程，提升编辑体验。
+*   **常规编辑**：采用"草稿-审核-发布"策略，保存时创建草稿版本，发布时检测冲突，保证数据一致性。
 
-**1. 版本隔离机制（保存时）**
+**1. OnlyOffice编辑流程（直接发布模式）**
+当用户通过 OnlyOffice 在线编辑文档时，系统采用简化的发布流程，以提升用户体验。
+
 *   **保存行为**：当 OnlyOffice 触发 `FORCE_SAVE` 或自动保存事件时（状态码 2 或 6），后端会：
     1. 下载编辑后的文件（从 OnlyOffice 服务器获取最新文档流）
     2. 计算文件哈希，与原文件比对，确认是否有变更
-    3. 若有变更，创建新的草稿版本（版本号递增），不检测冲突
-    4. 草稿的 `baseVersion` 设置为创建草稿时的已发布版本号
+    3. 若有变更，**直接创建已发布版本**（版本号递增，状态为 `APPROVED`），不创建草稿，不检测冲突
+    4. 更新主表的 `publishedVersion` 和文件内容，同步更新 ElasticSearch 索引
     
-*   **版本隔离**：每个用户的每次保存都会创建独立的草稿版本，多个草稿可以并存，不会相互覆盖。这保证了所有编辑都会被保存，不会丢失数据。
+*   **设计考量**：
+    *   OnlyOffice 本身具备文档锁机制，在文档打开期间会阻止其他用户同时编辑，因此编辑完成后直接发布是安全的。
+    *   直接发布避免了"编辑-审核-发布"的繁琐流程，提升了用户体验。
+    *   每次保存都会创建新版本，保留了完整的版本历史记录。
 
-*   **代码实现 (OnlyOfficeController.java)**：
+*   **代码实现 (KnowledgeServiceImpl.createVersionFromFileEdit)**：
     ```java
-    @PostMapping("/callback")
-    public Map<String, Object> callback(@RequestParam Long fileId, @RequestBody String body) {
-        JsonNode json = objectMapper.readTree(body);
-        int status = json.get("status").asInt();
+    @Override
+    @Transactional
+    public KnowledgeDTO createVersionFromFileEdit(Long knowledgeId, Long newFileId, 
+                                                   String operatorUsername, Long operatorId, 
+                                                   String changeDescription) {
+        // ... 获取当前知识 ...
         
-        if (status == 2 || status == 6) {  // FORCE_SAVE 或 自动保存
-            String downloadUrl = json.get("url").asText();
-            // 创建新版本（保存时不检测冲突，因为草稿可以并存）
-            createNewVersionFromEdit(fileId, downloadUrl, userName, userId);
-        }
-        return response;
+        // 直接创建已发布版本（不经过草稿阶段）
+        String versionStatus = Constants.FILE_STATUS_APPROVED;
+        boolean isPublished = true;
+        
+        Long newVersion = maxVersion + 1;
+        KnowledgeVersion version = new KnowledgeVersion();
+        version.setKnowledgeId(knowledgeId);
+        version.setVersion(newVersion);
+        version.setFileId(newFileId);
+        version.setStatus(versionStatus);
+        version.setIsPublished(isPublished);
+        version.setChangeDescription("通过OnlyOffice编辑更新");
+        // ... 设置其他属性 ...
+        
+        knowledgeVersionMapper.insert(version);
+        
+        // 直接更新主表为已发布状态
+        knowledge.setFileId(newFileId);
+        knowledge.setVersion(newVersion);
+        knowledge.setPublishedVersion(newVersion);  // 直接设置为发布版本
+        knowledge.setStatus(Constants.FILE_STATUS_APPROVED);
+        knowledge.setHasDraft(false);
+        knowledgeMapper.updateById(knowledge);
+        
+        // 同步更新搜索索引
+        searchService.updateIndex(dto);
+        
+        return result;
     }
     ```
 
-**2. 冲突检测机制（发布时）**
-*   **检测时机**：冲突检测**不是在保存时进行**，而是在用户点击"发布"按钮时进行。这样设计的优势是：
-    *   用户编辑时不会被阻塞，体验流畅
-    *   所有编辑都会被保存为草稿，不会丢失数据
-    *   只有在真正需要发布时，才检测是否有冲突
+**2. 常规编辑流程（草稿-审核-发布模式）**
+当用户通过系统的表单界面编辑知识时，系统采用严格的审核流程，确保数据质量。
 
-*   **冲突检测流程**（详见 5.1.2 节）：
-    1. 比较草稿的 `baseVersion` 与当前 `publishedVersion`
-    2. 如果不相等，获取三方内容进行合并
-    3. 如果自动合并失败，返回冲突详情，要求用户手动解决
+*   **编辑行为**：当用户通过 `updateKnowledge` 接口修改知识时：
+    1. 创建新的**草稿版本**（状态为 `PENDING`，`isPublished = false`）
+    2. 草稿的 `baseVersion` 设置为创建草稿时的已发布版本号（用于后续冲突检测）
+    3. 主表标记为 `hasDraft = true`，但 `publishedVersion` 保持不变（用户仍看到旧版本）
 
-**3. 闭环设计**
-*   **编辑流程**：当 OnlyOffice 触发 `FORCE_SAVE` 事件时，后端自动下载最新文档流，与原文件比对。若有变更，自动创建一个新的 `DRAFT` 版本。
 *   **审核流程**：草稿创建后，用户可在详情页手动提交审核，触发 Flowable 审核流程。
-*   **发布流程**：审核通过后，用户点击"发布"按钮，系统检测冲突。若无冲突或冲突已解决，创建发布版本并更新 ES 索引，实现了"编辑-审核-发布"的自动化闭环。
 
-**4. 冲突场景示例**
-```
-时间线示例：
-T1: 发布版本 v1 (publishedVersion=1)
-T2: 用户A打开文档编辑，基于 v1 创建草稿 v2 (baseVersion=1)
-T3: 用户B打开文档编辑，基于 v1 创建草稿 v3 (baseVersion=1)
-T4: 用户A保存 -> 创建草稿 v2（保存成功，不检测冲突）
-T5: 用户B保存 -> 创建草稿 v3（保存成功，不检测冲突）
-T6: 用户A发布草稿 v2 -> 检测：baseVersion(1) == publishedVersion(1) ✓ 无冲突，直接发布
-    -> publishedVersion 变成 2
-T7: 用户B尝试发布草稿 v3 -> 检测：baseVersion(1) != publishedVersion(2) ✗ 检测到冲突
-    -> 触发三方合并，如果修改区域不冲突则自动合并，否则要求手动解决
-```
+*   **发布流程**：审核通过后，用户点击"发布"按钮，系统调用 `publishVersion` 方法：
+    1. 调用 `checkMergeStatus` 检测冲突（详见 5.1.2 节）
+    2. 如果无冲突或冲突已自动合并，直接发布
+    3. 如果有冲突且无法自动合并，返回冲突详情，要求用户手动解决
+    4. 发布成功后，更新 `publishedVersion` 和 ES 索引
+
+*   **冲突检测**：发布时会比较草稿的 `baseVersion` 与当前 `publishedVersion`：
+    *   相等：Fast-Forward，无冲突，可直接发布
+    *   不等：触发三方合并（3-Way Merge），检测内容冲突
+
+*   **代码实现 (KnowledgeServiceImpl.updateKnowledge)**：
+    ```java
+    @Override
+    @Transactional
+    public KnowledgeDTO updateKnowledge(KnowledgeDTO knowledgeDTO) {
+        Knowledge knowledge = knowledgeMapper.selectById(knowledgeDTO.getId());
+        
+        // 创建草稿版本（不更新主表的 publishedVersion）
+        knowledge.setHasDraft(true);
+        Long nextVersion = knowledge.getVersion() + 1;
+        
+        // 保存草稿版本，baseVersion 设置为当前 publishedVersion
+        saveVersionHistoryWithStatus(knowledge, knowledgeDTO, nextVersion, 
+                                     Constants.FILE_STATUS_PENDING, false, true);
+        
+        // 注意：publishedVersion 保持不变，用户仍看到旧版本
+        return result;
+    }
+    ```
+
+**3. 两种模式的对比**
+
+| 特性 | OnlyOffice编辑 | 常规编辑 |
+|------|--------------|---------|
+| 保存时行为 | 直接创建已发布版本 | 创建草稿版本 |
+| 冲突检测时机 | 无需检测（OnlyOffice有文档锁） | 发布时检测 |
+| 审核流程 | 跳过审核，直接发布 | 需要审核 |
+| baseVersion | 不设置 | 设置为创建草稿时的publishedVersion |
+| 适用场景 | 在线协作编辑 | 表单编辑、批量操作 |
 
 ### 5.5 全链路稳定性监控体系的实现
 
